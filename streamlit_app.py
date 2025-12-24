@@ -127,4 +127,19 @@ if os.path.exists(CSV_FILE):
             # Accuracy & Difficulty
             st.metric("Model Accuracy", f"{(valid_df['Is_Correct'].mean()*100):.1f}%")
             
-            st.markdown
+            st.markdown("<h4 style='font-weight: 300;'>🚩 Track Failure Rates</h4>", unsafe_allow_html=True)
+            diff = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
+            diff.columns = ['Races', 'Success %']
+            diff['Failure %'] = 100 - (diff['Success %'] * 100)
+            st.table(diff[['Races', 'Failure %']].sort_values('Failure %', ascending=False).style.background_gradient(cmap='Reds'))
+
+    # Wins Chart
+    st.markdown("<h4 style='font-weight: 300;'>🏎️ Win Distribution</h4>", unsafe_allow_html=True)
+    win_counts = df['Actual_Winner'].value_counts()
+    fig, ax = plt.subplots(figsize=(8, 3))
+    sns.barplot(x=win_counts.index, y=win_counts.values, palette="magma", ax=ax)
+    st.pyplot(fig)
+
+    # Backup Download
+    with open(CSV_FILE, 'rb') as f:
+        st.download_button("📥 Download History", f, "race_history.csv", "text/csv", use_container_width=True)
