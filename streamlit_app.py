@@ -216,3 +216,16 @@ st.subheader("💾 Backup Data")
 if os.path.exists(CSV_FILE):
     with open(CSV_FILE, 'rb') as f:
         st.download_button("📥 Download History CSV", f, "race_history_backup.csv", "text/csv")
+        # --- TRACK DIFFICULTY TABLE ---
+st.subheader("🚩 Track Difficulty (AI Failure Rate)")
+if 'Actual_Winner' in df.columns and 'Predicted_Winner' in df.columns:
+    valid_df = df[df['Predicted_Winner'] != "N/A"].copy()
+    if not valid_df.empty:
+        valid_df['Is_Correct'] = valid_df['Actual_Winner'] == valid_df['Predicted_Winner']
+        diff_df = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
+        diff_df.columns = ['Total Races', 'Success Rate (%)']
+        diff_df['Success Rate (%)'] = (diff_df['Success Rate (%)'] * 100).round(1)
+        diff_df['Failure Rate (%)'] = 100 - diff_df['Success Rate (%)']
+        
+        # Sort by Failure Rate
+        st.table(diff_df.sort_values('Failure Rate (%)', ascending=False).style.background_gradient(cmap='Reds', subset=['Failure Rate (%)']))
