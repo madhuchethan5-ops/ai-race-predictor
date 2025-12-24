@@ -721,39 +721,50 @@ with st.form("race_report_form"):
     # Submit button
     save_clicked = st.form_submit_button("💾 Save & Train")
 
-    if save_clicked:
+if save_clicked:
 
-        if winner is None:
-            st.error("Please select the actual winner.")
-            st.stop()
+    if winner is None:
+        st.error("Please select the actual winner.")
+        st.stop()
 
-        if s1l + s2l + s3l != 100:
-            st.error("Lap lengths must total 100%.")
-            st.stop()
+    # Force numeric
+    s1l = float(s1l)
+    s2l = float(s2l)
+    s3l = float(s3l)
 
-        # Store current prediction for confidence delta on next prediction
-        st.session_state['last_train_probs'] = dict(predicted)
+    if s1l + s2l + s3l != 100:
+        st.error("Lap lengths must total 100%.")
+        st.stop()
 
-        row = {
-            'Vehicle_1': ctx['v'][0],
-            'Vehicle_2': ctx['v'][1],
-            'Vehicle_3': ctx['v'][2],
-            'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
-            'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
-            'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
-            'Predicted_Winner': predicted_winner,
-            'Actual_Winner': winner,
-            'Lane': revealed_slot,
-            'Top_Prob': predicted[predicted_winner] / 100.0,
-            'Was_Correct': predicted_winner == winner
-        }
+    st.session_state['last_train_probs'] = dict(predicted)
 
-        new_history = pd.concat([history, pd.DataFrame([row])], ignore_index=True)
+    row = {
+        'Vehicle_1': ctx['v'][0],
+        'Vehicle_2': ctx['v'][1],
+        'Vehicle_3': ctx['v'][2],
+        'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
+        'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
+        'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
+        'Predicted_Winner': predicted_winner,
+        'Actual_Winner': winner,
+        'Lane': revealed_slot,
+        'Top_Prob': predicted[predicted_winner] / 100.0,
+        'Was_Correct': float(predicted_winner == winner)
+    }
+
+    new_history = pd.concat([history, pd.DataFrame([row])], ignore_index=True)
+
+    try:
         new_history.to_csv(CSV_FILE, index=False)
+    except Exception as e:
+        st.error(f"Failed to save race: {e}")
+        st.stop()
 
-        st.success("✅ Saved & AI trained!")
-        st.rerun()
+    # ✅ CRITICAL FIX
+    st.cache_data.clear()
 
+    st.success("✅ Saved & AI trained!")
+    st.rerun()
 
 # --- PREDICTION ANALYTICS PANEL ---
 if 'res' in st.session_state:
