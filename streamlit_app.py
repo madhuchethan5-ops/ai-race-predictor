@@ -151,3 +151,23 @@ if os.path.exists(CSV_FILE):
 
     with st.expander("View Raw Data"):
         st.dataframe(df)
+# --- STEP 7: BACKUP & DOWNLOAD ---
+st.divider()
+st.subheader("💾 Backup Data")
+st.write("Streamlit Cloud memory is temporary. Download your data regularly to keep your 200+ race history safe!")
+
+if os.path.exists(CSV_FILE):
+    # Read the current file
+    with open(CSV_FILE, 'rb') as f:
+        csv_data = f.read()
+    
+    # Create the download button
+    st.download_button(
+        label="📥 Download Race History as CSV",
+        data=csv_data,
+        file_name="race_history_backup.csv",
+        mime="text/csv",
+        help="Click here to download your entire database to your computer."
+    )
+else:
+    st.info("No history file found yet. Start logging races to create one!")
