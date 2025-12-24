@@ -725,32 +725,79 @@ with st.form("race_report_form"):
 
         st.success("✅ Saved & AI trained!")
         st.rerun()
-# --- 7. PREDICTION EXPLANATION PANEL (AFTER SAVE REPORT) ---
+# --- PREDICTION ANALYTICS PANEL ---
 if 'res' in st.session_state:
+
     res = st.session_state['res']
     ctx = res['ctx']
-    probs = res['p']       # dict: {vehicle: probability in %}
+    probs = res['p']
+    vpi = res['vpi']
     predicted_winner = max(probs, key=probs.get)
 
-    st.subheader("🏁 Prediction")
+    st.divider()
+    st.subheader("🔍 Prediction Explanation")
 
-    # Main prediction header
-    st.markdown(
-        f"**Predicted winner:** `{predicted_winner}` "
-        f"({probs[predicted_winner]:.1f}% confidence)"
-    )
+    # --- WHY THE AI CHOSE THIS WINNER ---
+    explanation = ""
 
-    # Color‑coded confidence bars
-    st.markdown("#### Confidence by vehicle")
+    # Winner dominates key track?
+    if probs[predicted_winner] > 80:
+        explanation += f"- **{predicted_winner}** is significantly faster on the dominant lap.\n"
+
+    # Reinforcement learning boost
+    if vpi[predicted_winner] > 1.05:
+        explanation += f"- Reinforcement learning shows **{predicted_winner}** has strong historical performance.\n"
+
+    # Track-specific logic
+    revealed_track = ctx['t']
+
+    if revealed_track in ["Expressway", "Highway"]:
+        explanation += "- High-speed tracks strongly favor Supercar / Sports Car.\n"
+
+    if revealed_track in ["Dirt", "Bumpy", "Potholes"]:
+        explanation += "- Rough tracks often favor ORV / Monster Truck.\n"
+
+    if explanation == "":
+        explanation = "The AI selected the winner based on combined physics, lap lengths, and Monte‑Carlo simulations."
+
+    st.info(explanation)
+
+    # --- RACE TIGHTNESS + TOP-2 MARGIN ---
+    sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+    (v1, p1), (v2, p2) = sorted_probs[0], sorted_probs[1]
+    margin = p1 - p2
+    tightness = max(0, 100 - margin)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Race Tightness Score", f"{tightness:.1f}")
+    with col2:
+        st.metric("Top‑2 Margin", f"{margin:.1f} pts")
+
+    # --- CONFIDENCE BARS ---
+    st.write("### Confidence by Vehicle")
     for v, p in probs.items():
         confidence_bar(v, p)
 
-    # Race tightness + top‑2 margin
-    st.markdown("#### Race confidence summary")
-    race_confidence_summary(probs)
+    # --- CONFIDENCE DELTA ---
+    if 'last_train_probs' in st.session_state:
+        st.write("### 📈 Confidence Change Since Last Training")
 
-    # Confidence delta vs last training (if exists)
-    confidence_delta_panel(probs)
+        prev = st.session_state['last_train_probs']
+        rows = []
+
+        for v, p_now in probs.items():
+            p_prev = prev.get(v, None)
+            delta = p_now - p_prev if p_prev is not None else None
+            rows.append({
+                "Vehicle": v,
+                "Now %": p_now,
+                "Prev %": p_prev if p_prev is not None else "-",
+                "Δ (Now - Prev)": f"{delta:+.1f}" if delta is not None else "-"
+            })
+
+        df_delta = pd.DataFrame(rows)
+        st.dataframe(df_delta, use_container_width=True)
 
     # -------------------------------
     # ✅ 1. WHY THE AI CHOSE THIS WINNER (FIRST)
