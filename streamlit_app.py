@@ -59,9 +59,6 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
     return {k: (v / iterations) * 100 for k, v in wins.items()}
 
 # --- UI SETUP ---
-# --- UI SETUP (FIT-TO-SCREEN SIDEBAR) ---
-st.title("🏎️ AI Race Strategic Predictor")
-
 with st.sidebar:
     st.header("🚦 Race Setup")
     
@@ -70,7 +67,7 @@ with st.sidebar:
         visible_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
         visible_lane = st.radio("Lane Visible", [1, 2, 3], horizontal=True)
     
-    # 2. Vehicle Selection (Compact Layout)
+    # 2. Vehicle Selection
     with st.expander("🏎️ 2. Competitors", expanded=True):
         v1 = st.selectbox("Vehicle 1 (Top)", list(SPEED_DATA.keys()), index=8)
         v2 = st.selectbox("Vehicle 2 (Mid)", list(SPEED_DATA.keys()), index=7)
@@ -78,28 +75,49 @@ with st.sidebar:
     
     predict_clicked = st.button("🚀 Run AI Prediction", type="primary", use_container_width=True)
 
-    # 3. Prediction Results (Now fits inside the sidebar)
-    if predict_clicked:
-        probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
-        st.session_state['last_pred'] = max(probs, key=probs.get)
-        
-        st.divider()
-        st.subheader("🏆 Best Pick")
-        st.info(f"**{st.session_state['last_pred']}**")
-        
-        for v, p in probs.items():
-            st.caption(f"{v}: {p:.1f}%")
-            st.progress(int(p))
-        
-        # Risk Assessment (Compact)
+# --- MAIN SCREEN ---
+if predict_clicked:
+    probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
+    st.session_state['last_pred'] = max(probs, key=probs.get)
+    st.session_state['show_results'] = True # Flag to keep results visible
+    
+    st.header("🏁 Prediction Results")
+    
+    # Display the Winner in a big box
+    col_win, col_risk = st.columns([2, 1])
+    with col_win:
+        st.subheader(f"🏆 Best Pick: {st.session_state['last_pred']}")
+    
+    with col_risk:
+        # Risk Assessment logic
         sorted_p = sorted(probs.values(), reverse=True)
         gap = sorted_p[0] - sorted_p[1]
         if gap > 40:
-            st.success("Risk: LOW")
+            st.success("✅ LOW RISK")
         elif gap > 15:
-            st.warning("Risk: MEDIUM")
+            st.warning("⚠️ MEDIUM RISK")
         else:
-            st.error("Risk: HIGH")
+            st.error("🚨 HIGH RISK")
+
+    # Display Probability Bars in columns
+    c1, c2, c3 = st.columns(3)
+    p_list = list(probs.items())
+    with c1:
+        st.metric(p_list[0][0], f"{p_list[0][1]:.1f}%")
+        st.progress(int(p_list[0][1]))
+    with c2:
+        st.metric(p_list[1][0], f"{p_list[1][1]:.1f}%")
+        st.progress(int(p_list[1][1]))
+    with c3:
+        st.metric(p_list[2][0], f"{p_list[2][1]:.1f}%")
+        st.progress(int(p_list[2][1]))
+    
+    st.divider()
+
+# --- STEP 4: DATA LOGGING FORM ---
+# This remains in the main screen below results or analytics
+st.header("📝 Log Race Results")
+# ... (Rest of your form code)
 # --- DATA LOGGING ---
 st.divider()
 st.header("📝 Log Race Results")
