@@ -164,3 +164,46 @@ if os.path.exists(CSV_FILE):
             st.success("The AI has been 100% accurate in recent races!")
     else:
         st.info("Log your first race to see analytics here.")
+        import matplotlib.pyplot as plt
+import seaborn as sns
+
+# --- STEP 6: THE TRACK LENGTH HEATMAP ---
+st.divider()
+st.subheader("🗺️ Track Length Heatmap")
+st.markdown("This map shows the typical length of each track type based on your history.")
+
+if os.path.exists(CSV_FILE):
+    df_heat = pd.read_csv(CSV_FILE)
+    
+    # We need to gather all instances of every track and their recorded lengths
+    # This combines Visible_Track, Hidden_1, and Hidden_2 into one list
+    t_data = []
+    for _, row in df_heat.iterrows():
+        t_data.append({'Track': row['Visible_Track'], 'Length': row['Visible_Length']})
+        t_data.append({'Track': row['Hidden_1'], 'Length': row['Hidden_1_Len']})
+        t_data.append({'Track': row['Hidden_2'], 'Length': row['Hidden_2_Len']})
+    
+    df_plot = pd.DataFrame(t_data)
+
+    if not df_plot.empty:
+        # Create the visualization
+        fig, ax = plt.subplots(figsize=(10, 5))
+        
+        # We group by track and calculate the average length
+        avg_lengths = df_plot.groupby('Track')['Length'].mean().sort_values(ascending=False)
+        
+        # Plotting the Heatmap style bar
+        sns.barplot(x=avg_lengths.index, y=avg_lengths.values, palette="YlOrRd", ax=ax)
+        
+        ax.set_ylabel("Average Length (%)")
+        ax.set_xlabel("Track Type")
+        ax.set_title("Average Length by Track Type (Historical)")
+        
+        st.pyplot(fig)
+        
+        # Insight Text
+        max_track = avg_lengths.idxmax()
+        min_track = avg_lengths.idxmin()
+        st.info(f"💡 **AI Insight:** In your history, **{max_track}** tends to be the longest section, while **{min_track}** is usually the shortest.")
+    else:
+        st.write("Not enough data to generate heatmap yet.")
