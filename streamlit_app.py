@@ -143,59 +143,70 @@ with st.form("logger_form", clear_on_submit=True):
         st.toast("Telemetry data synchronized!", icon="⚡")
         st.rerun()
 
-# --- 7. ANALYTICS & ACCURACY HEATMAP ---
+# --- 7. ANALYTICS & ACCURACY HEATMAP (STABILIZED) ---
 if not history.empty:
     st.divider()
     st.header("📈 AI Learning Analytics")
     
-    # Calculate accuracy only for rows where we have both a Prediction and an Actual result
-    valid_history = history[(history['Predicted'] != "N/A") & (history['Actual'].notna())].copy()
-    
-    if not valid_history.empty:
-        valid_history['Is_Correct'] = (valid_history['Predicted'] == valid_history['Actual']).astype(int)
-        
-        # 7a. Learning Progress Metrics
-        col_acc, col_sample = st.columns(2)
-        with col_acc:
-            # Calculate Global Accuracy
-            global_acc = valid_history['Is_Correct'].mean() * 100
-            st.metric("Global AI Accuracy", f"{global_acc:.1f}%")
-        
-        with col_sample:
-            # Focus on the "First 20 Races" or current sample size
-            sample_size = min(len(valid_history), 20)
-            st.metric("Learning Sample Size", f"{len(valid_history)} Races", delta=f"Base: First {sample_size}")
+    # --- AUTO-FIX COLUMN NAMES ---
+    # This block prevents the KeyError by mapping old names to the new logic
+    rename_map = {
+        'Predicted_Winner': 'Predicted',
+        'Actual_Winner': 'Actual',
+        'Visible_Lane_Length (%)': 'Visible_Segment_%',
+        'Visible_%': 'Visible_Segment_%'
+    }
+    history = history.rename(columns=rename_map)
 
-        # 7b. Accuracy Heatmap (By Track Type)
-        st.subheader("🎯 Track-Specific Accuracy Heatmap")
+    # Ensure the columns actually exist before filtering
+    if 'Predicted' in history.columns and 'Actual' in history.columns:
+        valid_history = history[(history['Predicted'] != "N/A") & (history['Actual'].notna())].copy()
         
-        # Grouping by track to see where the AI is most 'calibrated'
-        heatmap_data = valid_history.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
-        heatmap_data.columns = ['Races Observed', 'Accuracy (%)']
-        heatmap_data['Accuracy (%)'] = heatmap_data['Accuracy (%)'] * 100
-        
-        # Displaying the Heatmap using Streamlit's dataframe styling
-        st.dataframe(
-            heatmap_data.sort_values(by='Accuracy (%)', ascending=False)
-            .style.background_gradient(cmap='RdYlGn', subset=['Accuracy (%)'])
-            .format("{:.1f}%", subset=['Accuracy (%)']),
-            use_container_width=True
-        )
-        
-        # 
-        
-        # 7c. Recent Performance Trend (Rolling Accuracy)
-        if len(valid_history) > 5:
-            st.subheader("📉 Accuracy Trend (Last 20 Races)")
-            valid_history['Rolling_Acc'] = valid_history['Is_Correct'].rolling(window=min(20, len(valid_history))).mean() * 100
+        if not valid_history.empty:
+            valid_history['Is_Correct'] = (valid_history['Predicted'] == valid_history['Actual']).astype(int)
             
-            fig_trend = px.line(valid_history, x=valid_history.index, y='Rolling_Acc', 
-                                title="AI Learning Curve (Rolling Success Rate)",
-                                labels={'Rolling_Acc': 'Accuracy %', 'index': 'Race Number'})
-            fig_trend.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig_trend, use_container_width=True)
+            # 7a. Learning Progress Metrics
+            col_acc, col_sample = st.columns(2)
+            with col_acc:
+                global_acc = valid_history['Is_Correct'].mean() * 100
+                st.metric("Global AI Accuracy", f"{global_acc:.1f}%")
             
-            # 
+            with col_sample:
+                # Use the first 20 races as the baseline as requested
+                st.metric("Total Races Learned", f"{len(valid_history)}", 
+                          delta="Baseline: 20 Races" if len(valid_history) >= 20 else None)
+
+            # 7b. Accuracy Heatmap
+            st.subheader("🎯 Track-Specific Accuracy Heatmap")
+            if 'Visible_Track' in valid_history.columns:
+                heatmap_data = valid_history.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
+                heatmap_data.columns = ['Races Observed', 'Accuracy (%)']
+                heatmap_data['Accuracy (%)'] = heatmap_data['Accuracy (%)'] * 100
+                
+                st.dataframe(
+                    heatmap_data.sort_values(by='Accuracy (%)', ascending=False)
+                    .style.background_gradient(cmap='RdYlGn', subset=['Accuracy (%)'])
+                    .format("{:.1f}%", subset=['Accuracy (%)']),
+                    use_container_width=True
+                )
+            
+            # 7c. Learning Curve (Rolling Accuracy)
+            if len(valid_history) > 3:
+                st.subheader("📉 AI Learning Curve")
+                # Calculate rolling accuracy over the last 20 races
+                valid_history['Rolling_Acc'] = valid_history['Is_Correct'].rolling(window=min(20, len(valid_history))).mean() * 100
+                
+                fig_trend = px.line(valid_history, 
+                                    y='Rolling_Acc', 
+                                    title="Success Rate Over Time (20-Race Window)",
+                                    labels={'Rolling_Acc': 'Accuracy %', 'index': 'Race Order'})
+                fig_trend.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_trend, use_container_width=True)
 
     with st.expander("🔍 View Full Telemetry Log"):
+        # Sort so the newest races are at the top
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
+        
+        # Download button for backup
+        csv_data = history.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Backup History (CSV)", data=csv_data, file_name="race_history_backup.csv", mime="text/csv")
