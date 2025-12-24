@@ -167,3 +167,17 @@ if not history.empty:
 
     with st.expander("🔍 View Full Telemetry Log"):
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
+        # Add this inside your 'with st.expander("🔍 View Full Telemetry Log"):' block
+if st.button("🧹 PURGE INVALID TRACK DATA"):
+    # Keep only rows where the track name is a real track type
+    valid_tracks = list(SPEED_DATA["Car"].keys())
+    cleaned_history = history[history['Visible_Track'].isin(valid_tracks)]
+    cleaned_history.to_csv(CSV_FILE, index=False)
+    st.success("Invalid tracks (like '20.0') removed! Reloading...")
+    st.rerun()
+
+if st.button("🗑️ RESET ALL LEARNING (DELETE CSV)"):
+    if os.path.exists(CSV_FILE):
+        os.remove(CSV_FILE)
+        st.warning("AI Brain wiped clean. Starting fresh!")
+        st.rerun()
