@@ -651,9 +651,9 @@ with st.form("race_report_form"):
     # --- LAP 1 ---
     with c1:
         if revealed_lap == 0:
-            s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS, 
+            s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS,
                                index=TRACK_OPTIONS.index(revealed_track), disabled=True)
-            s1l = st.number_input("Lap 1 %", 1, 100, 33)  # ✅ enabled
+            s1l = st.number_input("Lap 1 %", 1, 100, 33)
         else:
             s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS)
             s1l = st.number_input("Lap 1 %", 1, 100, 33)
@@ -661,9 +661,9 @@ with st.form("race_report_form"):
     # --- LAP 2 ---
     with c2:
         if revealed_lap == 1:
-            s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS, 
+            s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS,
                                index=TRACK_OPTIONS.index(revealed_track), disabled=True)
-            s2l = st.number_input("Lap 2 %", 1, 100, 33)  # ✅ enabled
+            s2l = st.number_input("Lap 2 %", 1, 100, 33)
         else:
             s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS)
             s2l = st.number_input("Lap 2 %", 1, 100, 33)
@@ -671,16 +671,18 @@ with st.form("race_report_form"):
     # --- LAP 3 ---
     with c3:
         if revealed_lap == 2:
-            s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS, 
+            s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS,
                                index=TRACK_OPTIONS.index(revealed_track), disabled=True)
-            s3l = st.number_input("Lap 3 %", 1, 100, 34)  # ✅ enabled
+            s3l = st.number_input("Lap 3 %", 1, 100, 34)
         else:
             s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS)
             s3l = st.number_input("Lap 3 %", 1, 100, 34)
 
+    # ✅ Submit button
     save_clicked = st.form_submit_button("💾 Save & Train")
 
-       if save_clicked:
+    # ✅ FIXED INDENTATION — MUST ALIGN WITH save_clicked
+    if save_clicked:
 
         if winner is None:
             st.error("Please select the actual winner.")
