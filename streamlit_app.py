@@ -62,33 +62,49 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
 st.title("🏎️ AI Race Strategic Predictor")
 
 with st.sidebar:
-    st.header("Race Setup")
-    v1 = st.selectbox("Vehicle 1", list(SPEED_DATA.keys()), index=8)
-    v2 = st.selectbox("Vehicle 2", list(SPEED_DATA.keys()), index=7)
-    v3 = st.selectbox("Vehicle 3", list(SPEED_DATA.keys()), index=5)
+    st.header("🚦 Race Setup")
+    
+    # 1. Track & Lane first (matching game flow)
+    st.subheader("1. Environment")
     visible_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
-    visible_lane = st.radio("Visible Lane", [1, 2, 3])
+    visible_lane = st.radio("Which Lane is Visible?", [1, 2, 3], horizontal=True)
+    
+    st.divider()
+    
+    # 2. Vehicle Selection
+    st.subheader("2. Competitors")
+    v1 = st.selectbox("Vehicle 1 (Top)", list(SPEED_DATA.keys()), index=8)
+    v2 = st.selectbox("Vehicle 2 (Mid)", list(SPEED_DATA.keys()), index=7)
+    v3 = st.selectbox("Vehicle 3 (Bot)", list(SPEED_DATA.keys()), index=5)
+    
+    st.divider()
 
-if st.button("🚀 Predict Before Start", type="primary"):
+    # 3. Prediction Button moved here for better flow
+    predict_clicked = st.button("🚀 Run AI Prediction", type="primary", use_container_width=True)
+
+# --- Updated Prediction Trigger ---
+# Change the old 'if st.button' to use the new variable:
+if predict_clicked:
     probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
     st.session_state['last_pred'] = max(probs, key=probs.get)
+    
+    # Display results in the main area
     st.success(f"🏆 Best Strategic Pick: {st.session_state['last_pred']}")
     
-    # Show Results
+    # Show the probability bars
     for v, p in probs.items():
         st.write(f"**{v}**: {p:.1f}%")
         st.progress(int(p))
-
-    # --- ADDED: RISK LEVEL ASSESSMENT ---
+    
+    # Insert the Risk Level Assessment right after
     sorted_p = sorted(probs.values(), reverse=True)
     gap = sorted_p[0] - sorted_p[1]
-    
     if gap > 40:
-        st.success(f"✅ **LOW RISK:** AI is very confident (Gap: {gap:.1f}%).")
+        st.success(f"✅ **LOW RISK:** AI is very confident.")
     elif gap > 15:
-        st.warning(f"⚠️ **MEDIUM RISK:** Close race! (Gap: {gap:.1f}%).")
+        st.warning(f"⚠️ **MEDIUM RISK:** Close race!")
     else:
-        st.error(f"🚨 **HIGH RISK:** Coin flip! Hidden tracks will decide this (Gap: {gap:.1f}%).")
+        st.error(f"🚨 **HIGH RISK:** Hidden tracks will decide this!")
 
 # --- STEP 4: DATA LOGGING FORM ---
 st.divider()
