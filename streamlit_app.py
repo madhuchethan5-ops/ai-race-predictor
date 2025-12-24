@@ -79,14 +79,12 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
     # --- LEARNING FROM HISTORY ---
     if not history_df.empty:
         # Filter for relevant history (Current Visible Track)
-        match = history_df[history_df['Visible_Track'] == visible_t].tail(30)
+        match = history_df[history_df['Visible_Track'] == visible_t].tail(50) # Increased to last 50 races
         
         if not match.empty:
-            # A. LEARN VISIBLE LENGTH
+            # A. LEARN VISIBLE LENGTH (FIXED SYNTAX)
             clean_vis = pd.to_numeric(match['Visible_Segment_%'], errors='coerce').dropna()
-            if not clean_nums := clean_vis: # Walrus operator for python 3.8+ or simple assignment
-                 pass
-            else:
+            if not clean_vis.empty:
                  avg_vis = clean_vis.mean() / 100
                  if len(clean_vis) > 1: vis_std = max(0.04, clean_vis.std() / 100)
 
@@ -98,7 +96,7 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
                 h1_probs = h1_counts.reindex(TRACK_OPTIONS, fill_value=0).values
                 # Normalize to ensure sum is 1.0
                 if h1_probs.sum() > 0: h1_probs = h1_probs / h1_probs.sum()
-                else: h1_probs = None # Fallback to random if data is messy
+                else: h1_probs = None 
 
             # What tracks usually appear in Hidden 2?
             if 'Hidden_2_Track' in match.columns:
@@ -128,13 +126,11 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
     remaining = 1.0 - vis_lens
 
     # 2. Generate Hidden Split (Learned)
-    # Instead of random uniform, we use the learned normal distribution for the split
     h1_ratios = np.clip(np.random.normal(avg_h1_split, std_h1_split, iterations), 0.1, 0.9)
     h1_lens = remaining * h1_ratios
     h2_lens = remaining - h1_lens
 
     # 3. Generate Hidden Terrains (Learned Probabilities)
-    # If we learned patterns, use weighted choice. Else use random.
     if h1_probs is not None:
         h1_terrains = np.random.choice(all_terrains, size=iterations, p=h1_probs)
     else:
@@ -146,33 +142,16 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
         h2_terrains = np.random.choice(all_terrains, size=iterations)
         
     # Combine into matrix for vectorized lookup
-    # Col 0: Visible (Fixed), Col 1: Hidden 1 (Predicted), Col 2: Hidden 2 (Predicted)
+    # Col 0: Visible, Col 1: Hidden 1, Col 2: Hidden 2
     seg_terrains = np.column_stack([
-        np.full(iterations, visible_t), # This will be placed correctly in loop
+        np.full(iterations, visible_t), 
         h1_terrains,
         h2_terrains
     ])
-    
-    # IMPORTANT: The active lane logic in original code was slightly ambiguous.
-    # The 'visible_l' is the Active Lane index (1, 2, or 3).
-    # But usually, the visible track is the SAME for all cars in the visible segment.
-    # The simulation logic below assumes seg_terrains columns are [Vis, H1, H2] order.
-    # We will stick to that for speed calc.
 
     results = {}
     for v in vehicles:
-        # Get speeds for [Vis, H1, H2]
-        # Note: We construct a temporary matrix where Col 0 is Vis, Col 1 is H1, Col 2 is H2
-        # This matches how we generated lengths: vis_lens, h1_lens, h2_lens
-        
-        # 3.5 Construct Terrain Matrix for this vehicle
-        # We need to map the terrains to the lengths.
-        # Lengths are: [vis_lens, h1_lens, h2_lens]
-        # Terrains are: [Visible_Type, h1_terrains, h2_terrains]
-        
-        current_terrains = np.column_stack([np.full(iterations, visible_t), h1_terrains, h2_terrains])
-        
-        speed_lookup = np.vectorize(SPEED_DATA[v].get)(current_terrains)
+        speed_lookup = np.vectorize(SPEED_DATA[v].get)(seg_terrains)
         noise = np.random.normal(1.0, 0.02, (iterations, 3))
         noisy_speeds = speed_lookup * noise
         
