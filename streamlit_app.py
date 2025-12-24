@@ -75,6 +75,7 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
         wins[winner] += 1
     
     return {k: (v / iterations) * 100 for k, v in wins.items()}
+
 # --- MAIN PAGE: PREDICTION ---
 st.markdown("### 📊 Live Prediction")
 if st.button("🚀 Predict Winner", type="primary"):
