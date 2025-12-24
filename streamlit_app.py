@@ -20,7 +20,28 @@ SPEED_DATA = {
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 2. ADAPTIVE SIMULATION ENGINE (KEYERROR-PROOF) ---
+# --- 2. DATA LOADING & SANITIZATION ---
+if os.path.exists(CSV_FILE):
+    try:
+        history = pd.read_csv(CSV_FILE)
+        # Rename legacy columns
+        rename_map = {
+            'Predicted_Winner': 'Predicted',
+            'Actual_Winner': 'Actual',
+            'Visible_%': 'Visible_Segment_%',
+            'Visible_Lane_Length (%)': 'Visible_Segment_%'
+        }
+        history = history.rename(columns=rename_map)
+        
+        # FIX: Force numeric conversion to prevent TypeError
+        if 'Visible_Segment_%' in history.columns:
+            history['Visible_Segment_%'] = pd.to_numeric(history['Visible_Segment_%'], errors='coerce')
+    except:
+        history = pd.DataFrame()
+else:
+    history = pd.DataFrame()
+
+# --- 3. ADAPTIVE SIMULATION ENGINE ---
 def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
     all_terrains = list(SPEED_DATA["Car"].keys())
@@ -29,11 +50,14 @@ def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iter
     vis_std = 0.08
     
     if not history_df.empty and 'Visible_Segment_%' in history_df.columns:
-        match = history_df[history_df['Visible_Track'] == visible_t].tail(20)
-        if not match.empty:
-            avg_vis = match['Visible_Segment_%'].mean() / 100
-            if len(match) > 1:
-                vis_std = max(0.04, match['Visible_Segment_%'].std() / 100)
+        # Get historical data for this track and drop any non-numeric (NaN) values
+        match = history_df[history_df['Visible_Track'] == visible_t].tail(20).copy()
+        match_clean = match['Visible_Segment_%'].dropna()
+        
+        if not match_clean.empty:
+            avg_vis = match_clean.mean() / 100
+            if len(match_clean) > 1:
+                vis_std = max(0.04, match_clean.std() / 100)
 
     vis_lens = np.clip(np.random.normal(avg_vis, vis_std, iterations), 0.05, 0.95)
     h1_lens = (1.0 - vis_lens) * np.random.uniform(0.1, 0.9, iterations)
@@ -53,19 +77,6 @@ def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iter
     winners = np.argmin(np.array([results[v] for v in vehicles]), axis=0)
     counts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
-
-# --- 3. DATA LOADING (STABILIZED) ---
-if os.path.exists(CSV_FILE):
-    history = pd.read_csv(CSV_FILE)
-    rename_map = {
-        'Predicted_Winner': 'Predicted',
-        'Actual_Winner': 'Actual',
-        'Visible_Lane_Length (%)': 'Visible_Segment_%',
-        'Visible_%': 'Visible_Segment_%'
-    }
-    history = history.rename(columns=rename_map)
-else:
-    history = pd.DataFrame()
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
@@ -92,12 +103,10 @@ if predict_btn:
 
     st.subheader("🚨 Strategic Risk")
     gap = max(probs.values()) - sorted(probs.values())[-2]
-    if gap > 30: 
-        st.success("🏁 HIGH CONFIDENCE PREDICTION")
-    else: 
-        st.warning("⚠️ VOLATILE RACE: Outcome highly dependent on hidden segments")
+    if gap > 30: st.success("🏁 HIGH CONFIDENCE PREDICTION")
+    else: st.warning("⚠️ VOLATILE RACE: Learning patterns...")
 
-# --- 6. DETAILED TELEMETRY ---
+# --- 6. POST-RACE TELEMETRY ---
 st.divider()
 st.subheader("📝 POST-RACE TELEMETRY")
 logger_vehicles = st.session_state.get('last_vehicles', [c1, c2, c3])
@@ -115,55 +124,46 @@ with st.form("logger_form", clear_on_submit=True):
     with r3_c1: h2_t = st.selectbox("Hidden Track 2 Type", list(SPEED_DATA["Car"].keys()))
     with r3_c2: h2_l = st.number_input("Hidden Segment 2 Length %", 5, 95, 34)
 
-    submitted = st.form_submit_button("💾 SYNC TELEMETRY TO AI BRAIN", use_container_width=True)
-    
-    if submitted:
+    if st.form_submit_button("💾 SYNC TELEMETRY TO AI BRAIN", use_container_width=True):
         last_probs = st.session_state.get('last_probs', {})
         predicted = max(last_probs, key=last_probs.get) if last_probs else "N/A"
         
         log_entry = {
             "Visible_Track": v_track,
-            "Visible_Segment_%": v_len,
-            "Hidden_1_Track": h1_t, "Hidden_1_Len": h1_l,
-            "Hidden_2_Track": h2_t, "Hidden_2_Len": h2_l,
+            "Visible_Segment_%": float(v_len),
+            "Hidden_1_Track": h1_t, "Hidden_1_Len": float(h1_l),
+            "Hidden_2_Track": h2_t, "Hidden_2_Len": float(h2_l),
             "Predicted": predicted, "Actual": winner
         }
         pd.DataFrame([log_entry]).to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-        st.toast("Telemetry data synchronized!", icon="⚡")
         st.rerun()
 
-# --- 7. ANALYTICS & LEARNING LOG ---
+# --- 7. ANALYTICS ---
 if not history.empty:
     st.divider()
     st.header("📈 AI Learning Analytics")
     
-    # Apply column fix again for the session history
-    rename_map = {'Predicted_Winner': 'Predicted', 'Actual_Winner': 'Actual', 'Visible_%': 'Visible_Segment_%'}
-    history = history.rename(columns=rename_map)
-
+    # Filter valid rows for accuracy
     if 'Predicted' in history.columns and 'Actual' in history.columns:
         valid_history = history[(history['Predicted'] != "N/A") & (history['Actual'].notna())].copy()
         
         if not valid_history.empty:
             valid_history['Is_Correct'] = (valid_history['Predicted'] == valid_history['Actual']).astype(int)
             
-            # Metrics Row
-            col_acc, col_learned = st.columns([1, 2])
-            with col_acc:
-                st.metric("Global AI Accuracy", f"{(valid_history['Is_Correct'].mean() * 100):.1f}%")
-                
-                # Accuracy Heatmap
+            c_acc, c_learned = st.columns([1, 2])
+            with c_acc:
+                st.metric("Global Accuracy", f"{(valid_history['Is_Correct'].mean()*100):.1f}%")
                 st.write("**Accuracy Heatmap**")
                 heatmap = valid_history.groupby('Visible_Track')['Is_Correct'].mean() * 100
                 st.dataframe(heatmap.to_frame('Acc %').style.background_gradient(cmap='RdYlGn'), use_container_width=True)
-            
-            with col_learned:
-                # LEARNED DATA TABLE
+
+            with c_learned:
                 st.write("**Learned Track Geometry (Last 20 Races)**")
+                # Ensure Visible_Segment_% is treated as numeric here too
+                valid_history['Visible_Segment_%'] = pd.to_numeric(valid_history['Visible_Segment_%'], errors='coerce')
                 learned_stats = valid_history.groupby('Visible_Track')['Visible_Segment_%'].agg(['mean', 'std', 'count'])
-                learned_stats.columns = ['Avg Length %', 'Volatility (Std)', 'Races']
-                st.dataframe(learned_stats.style.background_gradient(cmap='Blues', subset=['Avg Length %'])
-                             .format("{:.1f}", subset=['Avg Length %', 'Volatility (Std)']), use_container_width=True)
+                learned_stats.columns = ['Avg Length %', 'Volatility', 'Races']
+                st.dataframe(learned_stats.style.format("{:.1f}").background_gradient(cmap='Blues', subset=['Avg Length %']), use_container_width=True)
 
     with st.expander("🔍 View Full Telemetry Log"):
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
