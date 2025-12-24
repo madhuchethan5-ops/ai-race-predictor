@@ -503,6 +503,22 @@ with st.sidebar:
             'vpi': vpi_res,
             'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name}
         }
+
+# --- 5. DASHBOARD ---
+st.title("🏁 AI RACE MASTER PRO")
+
+if not history.empty and 'Actual_Winner' in history.columns:
+    valid = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
+    if not valid.empty:
+        acc = (valid['Predicted_Winner'] == valid['Actual_Winner']).mean() * 100
+        st.metric("🎯 AI Prediction Accuracy", f"{acc:.1f}%")
+
+if 'res' in st.session_state:
+    res = st.session_state['res']
+    m_grid = grid(3, vertical_align="center")
+    for v, val in res['p'].items():
+        boost = (res['vpi'][v] - 1.0) * 100
+        m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 # --- PREDICTION EXPLANATION PANEL ---
 if 'res' in st.session_state:
 
@@ -587,21 +603,6 @@ if 'res' in st.session_state:
         "Probabilities": probs
     })
     
-# --- 5. DASHBOARD ---
-st.title("🏁 AI RACE MASTER PRO")
-
-if not history.empty and 'Actual_Winner' in history.columns:
-    valid = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
-    if not valid.empty:
-        acc = (valid['Predicted_Winner'] == valid['Actual_Winner']).mean() * 100
-        st.metric("🎯 AI Prediction Accuracy", f"{acc:.1f}%")
-
-if 'res' in st.session_state:
-    res = st.session_state['res']
-    m_grid = grid(3, vertical_align="center")
-    for v, val in res['p'].items():
-        boost = (res['vpi'][v] - 1.0) * 100
-        m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
 # --- 6. TELEMETRY (MINIMAL RACE REPORT) ---
 st.divider()
