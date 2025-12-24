@@ -520,7 +520,7 @@ if 'res' in st.session_state:
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
-# --- SAVE RACE REPORT (STABLE VERSION) ---
+# --- SAVE RACE REPORT (FINAL BEHAVIOUR) ---
 st.divider()
 st.subheader("📝 Save Race Report")
 
@@ -534,36 +534,60 @@ ctx = res['ctx']
 predicted = res['p']
 predicted_winner = max(predicted, key=predicted.get)
 
-# ✅ Quick Fill (safe version — no rerun)
-if st.button(f"⚡ Quick Fill Winner ({predicted_winner})"):
-    st.session_state['winner_autofill'] = predicted_winner
+revealed_lap = ctx['idx']        # 0,1,2
+revealed_track = ctx['t']        # Track name
+revealed_slot = ctx['slot']      # Lap 1 / Lap 2 / Lap 3
 
 with st.form("race_report_form"):
 
-    # ✅ Winner selection (no dynamic index)
-    default_winner = st.session_state.get('winner_autofill', None)
-
+    # ✅ Winner selection (NO AUTO SELECT)
     winner = st.selectbox(
         "🏆 Actual Winner",
         ctx['v'],
-        index=ctx['v'].index(default_winner) if default_winner in ctx['v'] else 0
+        index=None,
+        placeholder="Select the actual winner..."
     )
 
-    # ✅ Lap inputs (simple, no dynamic disabling)
+    # ✅ Lap inputs with revealed lap TRACK locked but % editable
     c1, c2, c3 = st.columns(3)
+
+    # --- LAP 1 ---
     with c1:
-        s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS)
-        s1l = st.number_input("Lap 1 %", 1, 100, 33)
+        if revealed_lap == 0:
+            s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS, 
+                               index=TRACK_OPTIONS.index(revealed_track), disabled=True)
+            s1l = st.number_input("Lap 1 %", 1, 100, 33)  # ✅ enabled
+        else:
+            s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS)
+            s1l = st.number_input("Lap 1 %", 1, 100, 33)
+
+    # --- LAP 2 ---
     with c2:
-        s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS)
-        s2l = st.number_input("Lap 2 %", 1, 100, 33)
+        if revealed_lap == 1:
+            s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS, 
+                               index=TRACK_OPTIONS.index(revealed_track), disabled=True)
+            s2l = st.number_input("Lap 2 %", 1, 100, 33)  # ✅ enabled
+        else:
+            s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS)
+            s2l = st.number_input("Lap 2 %", 1, 100, 33)
+
+    # --- LAP 3 ---
     with c3:
-        s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS)
-        s3l = st.number_input("Lap 3 %", 1, 100, 34)
+        if revealed_lap == 2:
+            s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS, 
+                               index=TRACK_OPTIONS.index(revealed_track), disabled=True)
+            s3l = st.number_input("Lap 3 %", 1, 100, 34)  # ✅ enabled
+        else:
+            s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS)
+            s3l = st.number_input("Lap 3 %", 1, 100, 34)
 
     save_clicked = st.form_submit_button("💾 Save & Train")
 
     if save_clicked:
+
+        if winner is None:
+            st.error("Please select the actual winner.")
+            st.stop()
 
         if s1l + s2l + s3l != 100:
             st.error("Lap lengths must total 100%.")
@@ -578,7 +602,7 @@ with st.form("race_report_form"):
             'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
             'Predicted_Winner': predicted_winner,
             'Actual_Winner': winner,
-            'Lane': ctx['slot'],
+            'Lane': revealed_slot,
             'Top_Prob': predicted[predicted_winner] / 100.0,
             'Was_Correct': predicted_winner == winner
         }
