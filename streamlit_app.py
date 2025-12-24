@@ -136,10 +136,10 @@ if 'res' in st.session_state:
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
-# --- 6. TELEMETRY (LOCKED SLOT & AUTO-SAVE) ---
+# --- 6. TELEMETRY (LOCKED SLOT & LANE TRACKING) ---
 st.divider()
 st.subheader("📝 POST-RACE REPORT (Revealed slot is locked)")
-ctx = st.session_state.get('res', {'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx':0, 't': TRACK_OPTIONS[0]}})['ctx']
+ctx = st.session_state.get('res', {'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx':0, 't': TRACK_OPTIONS[0], 'slot': 'Lap 1'}})['ctx']
 
 with st.form("tele_form"):
     winner = st.selectbox("🏆 Actual Winner", ctx['v'])
@@ -147,22 +147,20 @@ with st.form("tele_form"):
     c_a, c_b, c_c = st.columns(3)
     with c_a:
         s1t = st.selectbox("L1 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==0 else 0, disabled=(ctx['idx']==0))
-        s1l = st.number_input("L1 Length %", 1, 100, 33)
+        s1l = st.number_input("L1 %", 1, 100, 33)
     with c_b:
         s2t = st.selectbox("L2 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==1 else 0, disabled=(ctx['idx']==1))
-        s2l = st.number_input("L2 Length %", 1, 100, 33)
+        s2l = st.number_input("L2 %", 1, 100, 33)
     with c_c:
         s3t = st.selectbox("L3 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==2 else 0, disabled=(ctx['idx']==2))
-        s3l = st.number_input("L3 Length %", 1, 100, 34)
+        s3l = st.number_input("L3 %", 1, 100, 34)
 
- if st.form_submit_button("💾 SAVE & TRAIN"):
-        if s1l + s2l + s3l != 100: 
+    # FIXED INDENTATION BELOW
+    if st.form_submit_button("💾 SAVE & TRAIN"):
+        if s1l + s2l + s3l != 100:
             st.error("❌ Total must be 100%")
         else:
-            # Determine the AI's top pick for accuracy tracking
             p_val = max(st.session_state['res']['p'], key=st.session_state['res']['p'].get) if 'res' in st.session_state else "N/A"
-            
-            # THE KEY DATA: Capture all 3 vehicles, all 3 tracks, and the Lane context
             row = {
                 'Vehicle_1': ctx['v'][0], 'Vehicle_2': ctx['v'][1], 'Vehicle_3': ctx['v'][2],
                 'Lap_1_Track': s1t, 'Lap_1_Len': s1l, 
@@ -170,50 +168,30 @@ with st.form("tele_form"):
                 'Lap_3_Track': s3t, 'Lap_3_Len': s3l, 
                 'Predicted_Winner': p_val, 
                 'Actual_Winner': winner, 
-                'Lane': ctx['slot']  # Saves "Lap 1", "Lap 2", or "Lap 3"
+                'Lane': ctx['slot']
             }
-            
-            # Save to CSV
             pd.concat([history, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_FILE, index=False)
             st.toast("AI Learned and Lane Context Saved!", icon="🧠")
             st.rerun()
-# --- 7. ANALYTICS (FIXED INDENTATION) ---
+# --- 7. ANALYTICS (LANE TRACKER & ML BRAIN) ---
 if not history.empty:
     st.divider()
-    t1, t2 = st.tabs(["🧠 ML Pattern Visualization", "📂 Data Inspector"])
-    with t1:
-        st.write("### Track Transition Probability Matrix")
-        
-        if 'Lap_1_Track' in history.columns and 'Lap_2_Track' in history.columns and history['Lap_1_Track'].notna().any():
-            try:
-                m = pd.crosstab(history['Lap_1_Track'], history['Lap_2_Track'], normalize='index') * 100
-                st.dataframe(m.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
-            except Exception:
-                st.info("More diverse data needed for patterns.")
-    with t2:
-        st.dataframe(history.sort_index(ascending=False))
-        # --- 7. ANALYTICS (LANE TRACKER ADDITION) ---
-if not history.empty:
-    st.divider()
-    # Add "🚦 Lane Tracker" to your existing tabs
     t1, t2, t3 = st.tabs(["🧠 ML Pattern Brain", "🚦 Lane Tracker", "📂 History"])
     
     with t1:
         st.write("### Track Transition Matrix")
-        m = pd.crosstab(history['Lap_1_Track'], history['Lap_2_Track'], normalize='index') * 100
-        st.dataframe(m.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
+        
+        if 'Lap_1_Track' in history.columns and 'Lap_2_Track' in history.columns:
+            m = pd.crosstab(history['Lap_1_Track'], history['Lap_2_Track'], normalize='index') * 100
+            st.dataframe(m.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
     
     with t2:
         st.write("### Win Rate by Lane Context")
-        st.caption("Shows the % of wins for each vehicle based on which lane was revealed.")
-        
-        # Check if 'Lane' data exists in the history
         if 'Lane' in history.columns and history['Lane'].notna().any():
-            # Create a cross-tabulation of Lane vs Winner
             lane_stats = pd.crosstab(history['Lane'], history['Actual_Winner'], normalize='index') * 100
             st.dataframe(lane_stats.style.format("{:.1f}%").background_gradient(cmap="YlOrRd", axis=1))
         else:
-            st.info("Record more races using the form above to see Lane win rates.")
+            st.info("Record more races to see Lane win rates.")
             
     with t3: 
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
