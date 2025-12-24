@@ -773,6 +773,7 @@ if save_clicked:
 
     # ✅ Rerun immediately — no UI output before this
     st.experimental_rerun()
+    return
     
 # --- PREDICTION ANALYTICS PANEL ---
 if 'res' in st.session_state:
