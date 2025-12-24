@@ -20,6 +20,9 @@ SPEED_DATA = {
 
 CSV_FILE = 'race_history.csv'
 
+# Set Page Config for wide layout to use screen space efficiently
+st.set_page_config(layout="wide", page_title="AI Race Predictor")
+
 # --- 2. SIMULATION ENGINE ---
 def run_simulation(v1, v2, v3, visible_t, visible_l):
     wins = {v1: 0, v2: 0, v3: 0}
@@ -53,104 +56,132 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
         wins[min(times, key=times.get)] += 1
     return {k: (v / iterations) * 100 for k, v in wins.items()}
 
-# --- 3. SIDEBAR (COMPACT INPUTS) ---
+# --- 3. SIDEBAR (FIT-TO-SCREEN INPUTS) ---
 with st.sidebar:
     st.markdown("<h2 style='font-weight: 300;'>🚦 Setup</h2>", unsafe_allow_html=True)
+    
     with st.expander("🌍 Environment", expanded=True):
-        visible_track = st.selectbox("Track", list(SPEED_DATA["Car"].keys()))
-        visible_lane = st.radio("Lane", [1, 2, 3], horizontal=True)
+        visible_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
+        visible_lane = st.radio("Which Lane is Visible?", [1, 2, 3], horizontal=True)
+    
+    st.divider()
     
     with st.expander("🏎️ Competitors", expanded=True):
-        v1 = st.selectbox("Top Car", list(SPEED_DATA.keys()), index=8)
-        v2 = st.selectbox("Mid Car", list(SPEED_DATA.keys()), index=7)
-        v3 = st.selectbox("Bot Car", list(SPEED_DATA.keys()), index=5)
+        v1 = st.selectbox("Vehicle 1 (Top)", list(SPEED_DATA.keys()), index=8)
+        v2 = st.selectbox("Vehicle 2 (Mid)", list(SPEED_DATA.keys()), index=7)
+        v3 = st.selectbox("Vehicle 3 (Bot)", list(SPEED_DATA.keys()), index=5)
     
-    predict_clicked = st.button("🚀 Run Prediction", type="primary", use_container_width=True)
+    st.divider()
+    predict_clicked = st.button("🚀 Run AI Prediction", type="primary", use_container_width=True)
 
-# --- 4. MAIN SCREEN (COMPACT LAYOUT) ---
-# This CSS pulls the elements closer together and reduces top margins
+# --- 4. MAIN SCREEN (COMPACT LAYOUT & CSS) ---
 st.markdown("""
     <style>
     .block-container {padding-top: 1rem; padding-bottom: 0rem;}
-    h1 {margin-top: -30px; padding-bottom: 10px;}
-    div[data-testid="stExpander"] {margin-top: -15px;}
-    .stProgress {margin-top: -20px;}
+    h1 {margin-top: -30px; font-weight: 300; text-align: center; margin-bottom: 0px;}
+    .stMetric {background-color: #f8f9fb; padding: 10px; border-radius: 8px; border: 1px solid #e6e9ef;}
+    hr {margin: 15px 0;}
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown("<h2 style='font-weight: 300; text-align: center; margin-bottom: 0px;'>AI Race Predictor</h2>", unsafe_allow_html=True)
+st.markdown("<h1>AI Race Predictor</h1>", unsafe_allow_html=True)
 
 if predict_clicked:
     probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
     st.session_state['last_pred'] = max(probs, key=probs.get)
     
-    # Prediction Results Header
-    st.markdown("<h4 style='font-weight: 300; margin-top: 10px; margin-bottom: 5px;'>🏁 Results</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='font-weight: 300; margin-top: 10px;'>🏁 Prediction Results</h4>", unsafe_allow_html=True)
     
     col_win, col_risk = st.columns([2, 1])
     with col_win:
-        st.markdown(f"**Top Pick:** <span style='color: #FF4B4B;'>{st.session_state['last_pred']}</span>", unsafe_allow_html=True)
+        st.markdown(f"**Best Strategic Pick:** <span style='color: #FF4B4B; font-size: 20px;'>{st.session_state['last_pred']}</span>", unsafe_allow_html=True)
+    
     with col_risk:
         sorted_p = sorted(probs.values(), reverse=True)
         gap = sorted_p[0] - sorted_p[1]
         if gap > 40: st.success("✅ LOW RISK")
-        elif gap > 15: st.warning("⚠️ MED RISK")
+        elif gap > 15: st.warning("⚠️ MEDIUM RISK")
         else: st.error("🚨 HIGH RISK")
 
-    # Metrics side-by-side with reduced spacing
     c1, c2, c3 = st.columns(3)
     p_items = list(probs.items())
     for i, col in enumerate([c1, c2, c3]):
         with col:
-            st.markdown(f"<p style='font-size: 14px; margin-bottom: 0px;'>{p_items[i][0]}</p>", unsafe_allow_html=True)
-            st.markdown(f"<h3 style='margin-top: -5px;'>{p_items[i][1]:.1f}%</h3>", unsafe_allow_html=True)
+            st.metric(p_items[i][0], f"{p_items[i][1]:.1f}%")
             st.progress(int(p_items[i][1]))
-    st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+    st.divider()
 
-# --- 5. LOGGING FORM (COMPACT) ---
-st.markdown("<h4 style='font-weight: 300; margin-bottom: 5px;'>📝 Race Logger</h4>", unsafe_allow_html=True)
+# --- 5. DATA LOGGING FORM (SINGLE, COMPACT ROW) ---
+st.markdown("<h4 style='font-weight: 300;'>📝 Race Outcome Logger</h4>", unsafe_allow_html=True)
 with st.form("race_logger", clear_on_submit=True):
-    lcol1, lcol2, lcol3 = st.columns(3)
-    with lcol1:
-        actual_winner = st.selectbox("Winner", [v1, v2, v3])
+    f_col1, f_col2, f_col3 = st.columns(3)
+    with f_col1:
+        actual_winner = st.selectbox("Actual Winner", [v1, v2, v3])
         vis_len_actual = st.number_input("Visible Segment %", 5, 95, 30)
-    with lcol2:
-        h1_track = st.selectbox("Hidden 1", list(SPEED_DATA["Car"].keys()))
-        h1_len = st.number_input("H1 Length %", 5, 95, 35)
-    with lcol3:
-        h2_track = st.selectbox("Hidden 2", list(SPEED_DATA["Car"].keys()))
-        h2_len = st.number_input("H2 Length %", 5, 95, 35)
+    with f_col2:
+        h1_track = st.selectbox("Hidden Track 1", list(SPEED_DATA["Car"].keys()))
+        h1_len = st.number_input("Hidden 1 %", 5, 95, 35)
+    with f_col3:
+        h2_track = st.selectbox("Hidden Track 2", list(SPEED_DATA["Car"].keys()))
+        h2_len = st.number_input("Hidden 2 %", 5, 95, 35)
     
-    # Save button
-    st.form_submit_button("💾 Save Result", use_container_width=True)
+    if st.form_submit_button("💾 Save Race to History", use_container_width=True):
+        prediction = st.session_state.get('last_pred', "N/A")
+        new_row = pd.DataFrame([{
+            "V1": v1, "V2": v2, "V3": v3,
+            "Actual_Winner": actual_winner,
+            "Lane": visible_lane,
+            "Visible_Track": visible_track,
+            "Visible_Lane_Length (%)": vis_len_actual,
+            "Hidden_1": h1_track, "Hidden_1_Len": h1_len,
+            "Hidden_2": h2_track, "Hidden_2_Len": h2_len,
+            "Predicted_Winner": prediction
+        }])
+        new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
+        st.toast("Race saved successfully!", icon="✅")
 
-# --- 6. ANALYTICS ---
+# --- 6. ANALYTICS & DOWNLOAD (RESCUE MODE) ---
 if os.path.exists(CSV_FILE):
     df = pd.read_csv(CSV_FILE)
     st.divider()
-    st.markdown("<h2 style='font-weight: 300;'>📊 Performance Analytics</h2>", unsafe_allow_html=True)
+    
+    # 6a. Download History (Always available for all rows)
+    st.markdown("<h4 style='font-weight: 300;'>💾 Data Export</h4>", unsafe_allow_html=True)
+    st.download_button(
+        label=f"📥 Download History ({len(df)} Races)",
+        data=df.to_csv(index=False),
+        file_name="complete_race_history.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
 
+    st.markdown("<h2 style='font-weight: 300;'>📊 Performance Dashboard</h2>", unsafe_allow_html=True)
+    
+    # Accuracy & Track Difficulty Table (Calculated only for non-N/A rows)
     if 'Actual_Winner' in df.columns and 'Predicted_Winner' in df.columns:
         valid_df = df[df['Predicted_Winner'] != "N/A"].copy()
         if not valid_df.empty:
             valid_df['Is_Correct'] = valid_df['Actual_Winner'] == valid_df['Predicted_Winner']
             
-            # Accuracy & Difficulty
-            st.metric("Model Accuracy", f"{(valid_df['Is_Correct'].mean()*100):.1f}%")
+            col_acc, col_diff = st.columns([1, 2])
+            with col_acc:
+                acc = valid_df['Is_Correct'].mean() * 100
+                st.metric("Overall AI Accuracy", f"{acc:.1f}%")
             
-            st.markdown("<h4 style='font-weight: 300;'>🚩 Track Failure Rates</h4>", unsafe_allow_html=True)
-            diff = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
-            diff.columns = ['Races', 'Success %']
-            diff['Failure %'] = 100 - (diff['Success %'] * 100)
-            st.table(diff[['Races', 'Failure %']].sort_values('Failure %', ascending=False).style.background_gradient(cmap='Reds'))
+            with col_diff:
+                st.markdown("<h4 style='font-weight: 300;'>🚩 Track Failure Rates</h4>", unsafe_allow_html=True)
+                diff_df = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
+                diff_df.columns = ['Races', 'Success Rate %']
+                diff_df['Failure Rate %'] = 100 - (diff_df['Success Rate %'] * 100)
+                st.table(diff_df[['Races', 'Failure Rate %']].sort_values('Failure Rate %', ascending=False).style.background_gradient(cmap='Reds'))
 
-    # Wins Chart
-    st.markdown("<h4 style='font-weight: 300;'>🏎️ Win Distribution</h4>", unsafe_allow_html=True)
+    # Win Rate Chart
+    st.markdown("<h4 style='font-weight: 300;'>🏎️ Vehicle Win Distribution</h4>", unsafe_allow_html=True)
     win_counts = df['Actual_Winner'].value_counts()
-    fig, ax = plt.subplots(figsize=(8, 3))
+    fig, ax = plt.subplots(figsize=(10, 3))
     sns.barplot(x=win_counts.index, y=win_counts.values, palette="magma", ax=ax)
+    plt.xticks(rotation=45)
     st.pyplot(fig)
 
-    # Backup Download
-    with open(CSV_FILE, 'rb') as f:
-        st.download_button("📥 Download History", f, "race_history.csv", "text/csv", use_container_width=True)
+    with st.expander("🔍 View Raw CSV Data"):
+        st.dataframe(df, use_container_width=True)
