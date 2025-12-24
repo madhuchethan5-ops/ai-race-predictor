@@ -771,17 +771,19 @@ vpi = res['vpi']
 if vpi[predicted_winner] > 1.05:
         explanation += f"- Reinforcement learning shows **{predicted_winner}** has strong historical performance.\n"
 
-    # Track-specific logic
-    revealed_track = ctx['t']
-    if revealed_track in ["Expressway", "Highway"]:
-        explanation += "- High-speed tracks strongly favor Supercar / Sports Car.\n"
-    if revealed_track in ["Dirt", "Bumpy", "Potholes"]:
-        explanation += "- Rough tracks often favor ORV / Monster Truck.\n"
+# Track-specific logic
+revealed_track = ctx['t']
 
-    if explanation == "":
-        explanation = "The AI selected the winner based on combined physics, lap lengths, and Monte‑Carlo simulations."
+if revealed_track in ["Expressway", "Highway"]:
+    explanation += "- High-speed tracks strongly favor Supercar / Sports Car.\n"
 
-    st.info(explanation)
+if revealed_track in ["Dirt", "Bumpy", "Potholes"]:
+    explanation += "- Rough tracks often favor ORV / Monster Truck.\n"
+
+if explanation == "":
+    explanation = "The AI selected the winner based on combined physics, lap lengths, and Monte‑Carlo simulations."
+
+st.info(explanation)
 
     # -------------------------------
     # ✅ 2. CONFIDENCE & VOLATILITY
