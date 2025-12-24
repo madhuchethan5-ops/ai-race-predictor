@@ -20,15 +20,20 @@ SPEED_DATA = {
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 1. DEFINE VALID TRACKS ONCE ---
+# --- 1. DEFINE VALID TRACKS ---
 VALID_TRACKS = list(SPEED_DATA["Car"].keys())
+REQUIRED_COLUMNS = [
+    "Visible_Track", "Visible_Segment_%", "Hidden_1_Track", 
+    "Hidden_1_Len", "Hidden_2_Track", "Hidden_2_Len", 
+    "Predicted", "Actual"
+]
 
-# --- 2. DATA LOADING & AUTOMATIC REPAIR ---
+# --- 2. DATA LOADING & SELF-HEALING ---
 if os.path.exists(CSV_FILE):
     try:
         history = pd.read_csv(CSV_FILE)
         
-        # Standardize naming immediately
+        # Standardize naming
         rename_map = {
             'Predicted_Winner': 'Predicted',
             'Actual_Winner': 'Actual',
@@ -37,51 +42,41 @@ if os.path.exists(CSV_FILE):
         }
         history = history.rename(columns=rename_map)
 
-        # CRITICAL FIX: If 'Visible_Track' is missing (KeyError), it means the CSV is corrupt.
-        # We check if it exists; if not, we try to find it or reset.
+        # CHECK FOR CORRUPTION: If 'Visible_Track' is missing or contains numbers
         if 'Visible_Track' not in history.columns:
-            st.warning("⚠️ Data structure corrupted. Attempting to repair...")
-            # If the CSV has data but no headers, we'll skip it to prevent further errors
-            history = pd.DataFrame(columns=["Visible_Track", "Visible_Segment_%", "Hidden_1_Track", 
-                                            "Hidden_1_Len", "Hidden_2_Track", "Hidden_2_Len", 
-                                            "Predicted", "Actual"])
+            st.error("🚨 Database Corruption Detected! Starting a fresh log to fix the AI.")
+            # Rename corrupted file so data isn't lost but doesn't crash the app
+            os.rename(CSV_FILE, f"corrupted_{CSV_FILE}")
+            history = pd.DataFrame(columns=REQUIRED_COLUMNS)
         else:
-            # 1. REMOVE POLLUTION: Delete rows where track is "20.0", "40.0", etc.
+            # CLEAN POLLUTION: Remove rows where track is a number (like 20.0)
             history = history[history['Visible_Track'].isin(VALID_TRACKS)]
             
-            # 2. FIX NUMERICS: Ensure lengths are actual numbers
+            # FORCE NUMERIC: Ensure lengths are numbers
             history['Visible_Segment_%'] = pd.to_numeric(history['Visible_Segment_%'], errors='coerce')
             history = history.dropna(subset=['Visible_Segment_%'])
             
-    except Exception as e:
-        history = pd.DataFrame()
+    except Exception:
+        history = pd.DataFrame(columns=REQUIRED_COLUMNS)
 else:
-    history = pd.DataFrame()
+    history = pd.DataFrame(columns=REQUIRED_COLUMNS)
 
-# --- 3. UPDATED SAVE LOGIC (PREVENT POLLUTION) ---
-# Use this block inside your "if submitted:" section
-if submitted:
-    last_probs = st.session_state.get('last_probs', {})
-    predicted = max(last_probs, key=last_probs.get) if last_probs else "N/A"
+# --- 3. UPDATED SIMULATION ENGINE ---
+def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
+    # Ensure we use defaults if history is empty or corrupted
+    avg_vis, vis_std = 0.33, 0.08
     
-    # Force data types to prevent "20.0" from slipping into the wrong column
-    log_entry = {
-        "Visible_Track": str(v_track), 
-        "Visible_Segment_%": float(v_len),
-        "Hidden_1_Track": str(h1_t),
-        "Hidden_1_Len": float(h1_l),
-        "Hidden_2_Track": str(h2_t),
-        "Hidden_2_Len": float(h2_l),
-        "Predicted": str(predicted),
-        "Actual": str(winner)
-    }
-    
-    # Save gatekeeper: Only save if the track is real
-    if log_entry["Visible_Track"] in VALID_TRACKS:
-        new_row = pd.DataFrame([log_entry])
-        new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-        st.toast("Telemetry Synced!", icon="⚡")
-        st.rerun()
+    if not history_df.empty and 'Visible_Segment_%' in history_df.columns:
+        match = history_df[history_df['Visible_Track'] == visible_t].tail(20)
+        if not match.empty:
+            # Double check numeric type before mean calculation
+            nums = pd.to_numeric(match['Visible_Segment_%'], errors='coerce').dropna()
+            if not nums.empty:
+                avg_vis = nums.mean() / 100
+                if len(nums) > 1:
+                    vis_std = max(0.04, nums.std() / 100)
+
+    # ... [Rest of your simulation code here] ...
 # --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("🚦 Race Setup")
@@ -208,3 +203,22 @@ if st.button("🗑️ RESET ALL LEARNING (DELETE CSV)"):
         os.remove(CSV_FILE)
         st.warning("AI Brain wiped clean. Starting fresh!")
         st.rerun()
+        # Inside your 'if submitted:' block
+if submitted:
+    # Ensure winner name matches SPEED_DATA keys exactly
+    if winner in SPEED_DATA or winner in [c1, c2, c3]:
+        log_entry = {
+            "Visible_Track": str(v_track), 
+            "Visible_Segment_%": float(v_len),
+            "Hidden_1_Track": str(h1_t),
+            "Hidden_1_Len": float(h1_l),
+            "Hidden_2_Track": str(h2_t),
+            "Hidden_2_Len": float(h2_l),
+            "Predicted": str(st.session_state.get('last_probs', {}).get('predicted', 'N/A')),
+            "Actual": str(winner)
+        }
+        
+        # Final gatekeeper: Only save if the track is real
+        if log_entry["Visible_Track"] in VALID_TRACKS:
+            pd.DataFrame([log_entry]).to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
+            st.rerun()
