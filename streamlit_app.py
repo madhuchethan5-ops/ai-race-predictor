@@ -520,11 +520,11 @@ if 'res' in st.session_state:
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
-# --- 6. TELEMETRY (MINIMAL RACE REPORT) ---
+# --- SAVE RACE REPORT (STABLE VERSION) ---
 st.divider()
 st.subheader("📝 Save Race Report")
 
-# ✅ Ensure prediction exists
+# Ensure prediction exists
 if 'res' not in st.session_state:
     st.info("Run a prediction first.")
     st.stop()
@@ -534,74 +534,61 @@ ctx = res['ctx']
 predicted = res['p']
 predicted_winner = max(predicted, key=predicted.get)
 
-# ✅ Quick Fill (outside form)
-col_qf = st.columns(1)[0]
-if col_qf.button(f"⚡ Quick Fill Winner ({predicted_winner})"):
+# ✅ Quick Fill (safe version — no rerun)
+if st.button(f"⚡ Quick Fill Winner ({predicted_winner})"):
     st.session_state['winner_autofill'] = predicted_winner
-    st.rerun()
 
 with st.form("race_report_form"):
 
-    # ✅ Winner selection (simple)
+    # ✅ Winner selection (no dynamic index)
+    default_winner = st.session_state.get('winner_autofill', None)
+
     winner = st.selectbox(
         "🏆 Actual Winner",
         ctx['v'],
-        index=ctx['v'].index(st.session_state.get('winner_autofill'))
-              if st.session_state.get('winner_autofill') in ctx['v'] else None
+        index=ctx['v'].index(default_winner) if default_winner in ctx['v'] else 0
     )
 
-    # ✅ Lap inputs (simple)
+    # ✅ Lap inputs (simple, no dynamic disabling)
     c1, c2, c3 = st.columns(3)
     with c1:
-        s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS,
-                           index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==0 else 0,
-                           disabled=(ctx['idx']==0))
+        s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS)
         s1l = st.number_input("Lap 1 %", 1, 100, 33)
     with c2:
-        s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS,
-                           index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==1 else 0,
-                           disabled=(ctx['idx']==1))
+        s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS)
         s2l = st.number_input("Lap 2 %", 1, 100, 33)
     with c3:
-        s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS,
-                           index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==2 else 0,
-                           disabled=(ctx['idx']==2))
+        s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS)
         s3l = st.number_input("Lap 3 %", 1, 100, 34)
 
-    # ✅ Submit button
     save_clicked = st.form_submit_button("💾 Save & Train")
 
     if save_clicked:
-
-        # ✅ Validation
-        if winner is None:
-            st.error("Select the winner.")
-            st.stop()
 
         if s1l + s2l + s3l != 100:
             st.error("Lap lengths must total 100%.")
             st.stop()
 
-        # ✅ Save row
-        p_val = predicted_winner
-        top_prob = predicted[p_val] / 100.0
-        was_correct = (p_val == winner)
-
         row = {
-            'Vehicle_1': ctx['v'][0], 'Vehicle_2': ctx['v'][1], 'Vehicle_3': ctx['v'][2],
+            'Vehicle_1': ctx['v'][0],
+            'Vehicle_2': ctx['v'][1],
+            'Vehicle_3': ctx['v'][2],
             'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
             'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
             'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
-            'Predicted_Winner': p_val,
+            'Predicted_Winner': predicted_winner,
             'Actual_Winner': winner,
             'Lane': ctx['slot'],
-            'Top_Prob': top_prob,
-            'Was_Correct': was_correct
+            'Top_Prob': predicted[predicted_winner] / 100.0,
+            'Was_Correct': predicted_winner == winner
         }
 
-        pd.concat([history, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_FILE, index=False)
-        st.toast("✅ Saved & AI trained!", icon="🧠")
+        new_history = pd.concat([history, pd.DataFrame([row])], ignore_index=True)
+        new_history.to_csv(CSV_FILE, index=False)
+
+        st.success("✅ Saved & AI trained!")
         st.rerun()
+        
 # --- 7. PREDICTION EXPLANATION PANEL (AFTER SAVE REPORT) ---
 if 'res' in st.session_state:
 
