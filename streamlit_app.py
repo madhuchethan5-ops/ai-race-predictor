@@ -739,20 +739,19 @@ if save_clicked:
     st.session_state['last_train_probs'] = dict(predicted)
 
     row = {
-        'Vehicle_1': ctx['v'][0],
-        'Vehicle_2': ctx['v'][1],
-        'Vehicle_3': ctx['v'][2],
-        'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
-        'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
-        'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
-        'Predicted_Winner': predicted_winner,
-        'Actual_Winner': winner,
-        'Lane': revealed_slot,
-        'Top_Prob': predicted[predicted_winner] / 100.0,
-        'Was_Correct': float(predicted_winner == winner)
-        'Timestamp': pd.Timestamp.now(),
-    }
-
+    'Vehicle_1': ctx['v'][0],
+    'Vehicle_2': ctx['v'][1],
+    'Vehicle_3': ctx['v'][2],
+    'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
+    'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
+    'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
+    'Predicted_Winner': predicted_winner,
+    'Actual_Winner': winner,
+    'Lane': revealed_slot,
+    'Top_Prob': predicted[predicted_winner] / 100.0,
+    'Was_Correct': float(predicted_winner == winner),
+    'Timestamp': pd.Timestamp.now()   # ✅ Make sure this line has a comma above it
+}
     fresh = load_and_migrate_data() 
     new_history = pd.concat([fresh, pd.DataFrame([row])], ignore_index=True)
 
