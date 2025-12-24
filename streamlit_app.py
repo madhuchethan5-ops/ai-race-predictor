@@ -692,6 +692,42 @@ if 'res' in st.session_state:
         "Winner": predicted_winner,
         "Probabilities": probs
     })
+def csv_health_check(df: pd.DataFrame):
+    issues = []
+
+    # 1. Check for unnamed columns
+    unnamed = [c for c in df.columns if "Unnamed" in c]
+    if unnamed:
+        issues.append(f"Unnamed columns detected: {unnamed}")
+
+    # 2. Check for missing required columns
+    required = [
+        'Vehicle_1','Vehicle_2','Vehicle_3',
+        'Lap_1_Track','Lap_1_Len',
+        'Lap_2_Track','Lap_2_Len',
+        'Lap_3_Track','Lap_3_Len',
+        'Actual_Winner','Predicted_Winner',
+        'Lane','Top_Prob','Was_Correct'
+    ]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        issues.append(f"Missing columns: {missing}")
+
+    # 3. Check for malformed rows
+    bad_rows = df[df.isna().all(axis=1)]
+    if not bad_rows.empty:
+        issues.append(f"Empty/malformed rows: {len(bad_rows)}")
+
+    # 4. Check for invalid track names
+    valid_tracks = set(TRACK_OPTIONS)
+    for lap in [1,2,3]:
+        col = f"Lap_{lap}_Track"
+        invalid = df[~df[col].isin(valid_tracks)][col].unique()
+        invalid = [x for x in invalid if pd.notna(x)]
+        if invalid:
+            issues.append(f"Invalid track names in {col}: {invalid}")
+
+    return issues
 
 # --- 7. ANALYTICS (MODEL INSIGHTS & BRAIN) ---
 if not history.empty:
@@ -896,3 +932,14 @@ if not history.empty:
             if vol_sim:
                 st.metric("Volatility (Top - Second)", f"{vol_sim['volatility']:.1f} pp")
                 st.caption("Use this to explore setups before committing to a real predictions + telemetry cycle.")
+with tabs[7]:
+    st.write("### 🧹 CSV Health Check")
+
+    issues = csv_health_check(history)
+
+    if not issues:
+        st.success("✅ CSV is healthy and fully compatible.")
+    else:
+        st.error("⚠️ Issues detected:")
+        for i in issues:
+            st.write(f"- {i}")
