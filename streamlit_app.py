@@ -21,26 +21,23 @@ SPEED_DATA = {
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 2. ADAPTIVE SIMULATION ENGINE (THE "AI BRAIN") ---
+# --- 2. ADAPTIVE SIMULATION ENGINE (KEYERROR-PROOF) ---
 def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
     all_terrains = list(SPEED_DATA["Car"].keys())
     
-    # --- LEARNING BLOCK ---
-    # The AI looks at history to adjust the "Typical" length of this track type
     avg_vis = 0.33
     vis_std = 0.08
     
-    if not history_df.empty:
-        # Filter history for the specific track selected (e.g., Desert)
+    # Check if the column exists before trying to use it
+    if not history_df.empty and 'Visible_Segment_%' in history_df.columns:
         match = history_df[history_df['Visible_Track'] == visible_t].tail(20)
         if not match.empty:
             avg_vis = match['Visible_Segment_%'].mean() / 100
-            # If data is consistent, AI becomes more confident (lower std)
             if len(match) > 1:
                 vis_std = max(0.04, match['Visible_Segment_%'].std() / 100)
 
-    # Generate 5,000 random race scenarios based on learned patterns
+    # Rest of simulation...
     vis_lens = np.clip(np.random.normal(avg_vis, vis_std, iterations), 0.05, 0.95)
     h1_lens = (1.0 - vis_lens) * np.random.uniform(0.1, 0.9, iterations)
     h2_lens = 1.0 - vis_lens - h1_lens
@@ -60,9 +57,17 @@ def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iter
     counts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
 
-# --- 3. DATA LOADING ---
+# --- 3. DATA LOADING (STABILIZED) ---
 if os.path.exists(CSV_FILE):
     history = pd.read_csv(CSV_FILE)
+    # SANITIZER: Rename old column names to new standard immediately upon loading
+    rename_map = {
+        'Predicted_Winner': 'Predicted',
+        'Actual_Winner': 'Actual',
+        'Visible_Lane_Length (%)': 'Visible_Segment_%',
+        'Visible_%': 'Visible_Segment_%'
+    }
+    history = history.rename(columns=rename_map)
 else:
     history = pd.DataFrame()
 
