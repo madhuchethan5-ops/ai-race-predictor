@@ -21,21 +21,27 @@ SPEED_DATA = {
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 2. ADAPTIVE SIMULATION ENGINE ---
+# --- 2. ADAPTIVE SIMULATION ENGINE (THE "AI BRAIN") ---
 def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
     all_terrains = list(SPEED_DATA["Car"].keys())
     
-    # AI LEARNING BLOCK: Adjusts distribution based on historical telemetry
-    avg_vis = 0.30
+    # --- LEARNING BLOCK ---
+    # The AI looks at history to adjust the "Typical" length of this track type
+    avg_vis = 0.33
+    vis_std = 0.08
+    
     if not history_df.empty:
-        # Check if we have enough data for this specific track
-        match = history_df[history_df['Visible_Track'] == visible_t]
+        # Filter history for the specific track selected (e.g., Desert)
+        match = history_df[history_df['Visible_Track'] == visible_t].tail(20)
         if not match.empty:
             avg_vis = match['Visible_Segment_%'].mean() / 100
+            # If data is consistent, AI becomes more confident (lower std)
+            if len(match) > 1:
+                vis_std = max(0.04, match['Visible_Segment_%'].std() / 100)
 
-    # Stochastic Modeling
-    vis_lens = np.clip(np.random.normal(avg_vis, 0.08, iterations), 0.05, 0.95)
+    # Generate 5,000 random race scenarios based on learned patterns
+    vis_lens = np.clip(np.random.normal(avg_vis, vis_std, iterations), 0.05, 0.95)
     h1_lens = (1.0 - vis_lens) * np.random.uniform(0.1, 0.9, iterations)
     h2_lens = 1.0 - vis_lens - h1_lens
 
@@ -45,8 +51,7 @@ def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iter
     results = {}
     for v in vehicles:
         speed_lookup = np.vectorize(SPEED_DATA[v].get)(seg_terrains)
-        # Model 2% driver variance/luck
-        noise = np.random.normal(1.0, 0.02, (iterations, 3))
+        noise = np.random.normal(1.0, 0.02, (iterations, 3)) # 2% performance variance
         noisy_speeds = speed_lookup * noise
         times = (vis_lens/noisy_speeds[:, 0]) + (h1_lens/noisy_speeds[:, 1]) + (h2_lens/noisy_speeds[:, 2])
         results[v] = times
@@ -76,6 +81,7 @@ with st.sidebar:
 st.title("🏎️ AI RACE PREDICTOR PRO")
 
 if predict_btn:
+    # Pass 'history' (defined above) to the function
     probs = run_simulation_vectorized(c1, c2, c3, v_track, v_lane, history)
     st.session_state['last_probs'] = probs
     st.session_state['last_vehicles'] = [c1, c2, c3]
@@ -98,30 +104,23 @@ if predict_btn:
         if gap > 30: st.success("HIGH CONFIDENCE")
         else: st.warning("VOLATILE RACE")
 
-# --- 6. DETAILED TELEMETRY (NEW LENGTH INPUTS) ---
+# --- 6. DETAILED TELEMETRY ---
 st.divider()
 st.subheader("📝 POST-RACE TELEMETRY")
 logger_vehicles = st.session_state.get('last_vehicles', [c1, c2, c3])
 
 with st.form("logger_form", clear_on_submit=True):
-    # Row 1: Winners & Visible Segment
     r1_c1, r1_c2 = st.columns(2)
     with r1_c1: winner = st.selectbox("Actual Winner", logger_vehicles)
     with r1_c2: v_len = st.number_input("Visible Segment Length %", 5, 95, 33)
     
-    # Row 2: Hidden Segment 1
     r2_c1, r2_c2 = st.columns(2)
     with r2_c1: h1_t = st.selectbox("Hidden Track 1 Type", list(SPEED_DATA["Car"].keys()))
     with r2_c2: h1_l = st.number_input("Hidden Segment 1 Length %", 5, 95, 33)
     
-    # Row 3: Hidden Segment 2
     r3_c1, r3_c2 = st.columns(2)
     with r3_c1: h2_t = st.selectbox("Hidden Track 2 Type", list(SPEED_DATA["Car"].keys()))
     with r3_c2: h2_l = st.number_input("Hidden Segment 2 Length %", 5, 95, 34)
-
-    # Calculate total and warn if user exceeds 100%
-    if (v_len + h1_l + h2_l) != 100:
-        st.caption(f"⚠️ Warning: Total length is {v_len + h1_l + h2_l}%. Try to keep it near 100%.")
 
     submitted = st.form_submit_button("💾 SYNC TELEMETRY TO AI BRAIN", use_container_width=True)
     
@@ -148,18 +147,3 @@ with st.form("logger_form", clear_on_submit=True):
 if not history.empty:
     with st.expander("📊 AI LEARNING LOG"):
         st.dataframe(history.tail(10), use_container_width=True)
-# --- REFINED ADAPTIVE BLOCK ---
-if not history_df.empty:
-    # Use only the last 20 races of this track type to 'learn' recent patterns
-    match = history_df[history_df['Visible_Track'] == visible_t].tail(20)
-    if not match.empty:
-        avg_vis = match['Visible_Segment_%'].mean() / 100
-        # AI also learns the 'unpredictability' (Standard Deviation) from your history
-        vis_std = max(0.05, match['Visible_Segment_%'].std() / 100) if len(match) > 1 else 0.08
-    else:
-        vis_std = 0.08
-else:
-    vis_std = 0.08
-
-# The simulation now uses your historical 'Unpredictability' (vis_std)
-vis_lens = np.clip(np.random.normal(avg_vis, vis_std, iterations), 0.05, 0.95)
