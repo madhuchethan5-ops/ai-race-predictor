@@ -43,33 +43,42 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
     wins = {v1: 0, v2: 0, v3: 0}
     iterations = 2000
     all_terrains = list(SPEED_DATA["Car"].keys())
+    
+    # --- NEW: LEARNING FROM HISTORY ---
+    if os.path.exists(CSV_FILE):
+        df_hist = pd.read_csv(CSV_FILE)
+        # Find average length for this specific visible track from your 200 races
+        specific_hist = df_hist[df_hist['Visible_Track'] == visible_t]
+        if not specific_hist.empty:
+            avg_vis_len = specific_hist['Visible_Length'].mean() / 100
+        else:
+            avg_vis_len = 0.30 # Default if track is new
+    else:
+        avg_vis_len = 0.30
 
-    # NEW: AI looks at your history to see how long lanes usually are
-    # Based on your data, visible lanes are often short (avg 20-30%)
     for _ in range(iterations):
-        # We simulate the visible lane based on common lengths in your data (10% to 60%)
-        vis_len = np.random.choice([0.1, 0.2, 0.25, 0.3, 0.6])
+        # We allow a small variation around the historical average
+        vis_len = np.clip(np.random.normal(avg_vis_len, 0.1), 0.05, 0.95)
         rem_len = 1.0 - vis_len
-        h1_len = rem_len * np.random.uniform(0.3, 0.7)
+        
+        h1_len = rem_len * np.random.uniform(0.2, 0.8)
         h2_len = rem_len - h1_len
         
         lengths = [0, 0, 0]
         lengths[visible_l-1] = vis_len
-        # Fill the other two spots
         others = [i for i in range(3) if i != visible_l-1]
         lengths[others[0]] = h1_len
         lengths[others[1]] = h2_len
 
-        # Simulation continues...
-        t1 = visible_t if visible_l == 1 else np.random.choice(all_terrains)
-        t2 = visible_t if visible_l == 2 else np.random.choice(all_terrains)
-        t3 = visible_t if visible_l == 3 else np.random.choice(all_terrains)
-        tracks = [t1, t2, t3]
+        t_list = [None, None, None]
+        t_list[visible_l-1] = visible_t
+        t_list[others[0]] = np.random.choice(all_terrains)
+        t_list[others[1]] = np.random.choice(all_terrains)
         
         times = {}
         for v in [v1, v2, v3]:
-            # Time = Distance / Speed
-            times[v] = (lengths[0]/SPEED_DATA[v][t1]) + (lengths[1]/SPEED_DATA[v][t2]) + (lengths[2]/SPEED_DATA[v][t3])
+            time = sum([(lengths[i]/SPEED_DATA[v][t_list[i]]) for i in range(3)])
+            times[v] = time
         
         winner = min(times, key=times.get)
         wins[winner] += 1
