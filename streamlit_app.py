@@ -17,9 +17,6 @@ SPEED_DATA = {
     "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134,"Potholes": 77, "Bumpy": 99, "Highway": 320},
 }
 
-# SORTED VEHICLE LIST (A-Z)
-VEHICLE_LIST = sorted(list(SPEED_DATA.keys()))
-
 CSV_FILE = 'race_history.csv'
 VALID_TRACKS = list(SPEED_DATA["Car"].keys())
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
@@ -60,11 +57,9 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
     all_terrains = list(SPEED_DATA["Car"].keys())
     
     # --- LEARNING PHASE ---
-    # Default Prior: 33% length with high uncertainty
     avg_vis = 0.33
     vis_std = 0.12 
     
-    # Update Prior with Real History if available
     if not history_df.empty and 'Visible_Segment_%' in history_df.columns:
         track_data = history_df[history_df['Visible_Track'] == visible_t].tail(20)
         
@@ -74,46 +69,45 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
                 vis_std = max(0.04, track_data['Visible_Segment_%'].std() / 100)
 
     # --- MONTE CARLO EXECUTION ---
-    # 1. Sample Track Lengths from Learned Distribution
     vis_lens = np.clip(np.random.normal(avg_vis, vis_std, iterations), 0.05, 0.95)
-    
-    # 2. Randomize Hidden Segments
     remaining = 1.0 - vis_lens
     h1_ratios = np.random.uniform(0.1, 0.9, iterations)
     h1_lens = remaining * h1_ratios
     h2_lens = remaining - h1_lens
 
-    # 3. Randomize Hidden Terrain Types
     seg_terrains = np.random.choice(all_terrains, size=(iterations, 3))
     seg_terrains[:, visible_l-1] = visible_t 
 
-    # 4. Physics Calculation
     results = {}
     for v in vehicles:
         speed_lookup = np.vectorize(SPEED_DATA[v].get)(seg_terrains)
-        noise = np.random.normal(1.0, 0.02, (iterations, 3)) # 2% Luck Factor
+        noise = np.random.normal(1.0, 0.02, (iterations, 3))
         noisy_speeds = speed_lookup * noise
         times = (vis_lens/noisy_speeds[:, 0]) + (h1_lens/noisy_speeds[:, 1]) + (h2_lens/noisy_speeds[:, 2])
         results[v] = times
 
-    # 5. Determine Winners
     winners = np.argmin(np.array([results[v] for v in vehicles]), axis=0)
     counts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
     
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
 
-# --- 4. CONTROL PANEL (A-Z SORTED) ---
+# --- 4. CONTROL PANEL (STRICTLY SORTED) ---
 with st.sidebar:
     st.header("🚦 Race Setup")
+    
+    # Create a sorted list of vehicles for the dropdowns
+    sorted_vehicles = sorted(list(SPEED_DATA.keys()))
+    
+    # Track Selection (Sorted)
     v_track = st.selectbox("Visible Track", sorted(list(SPEED_DATA["Car"].keys())))
     v_lane = st.radio("Active Lane", [1, 2, 3], horizontal=True)
     st.divider()
     
-    # VEHICLE SELECTION (Now Sorted A-Z)
-    # Default indices updated to match sorted list (Supercar is usually near end, Car near beginning)
-    c1 = st.selectbox("Vehicle 1 (Top)", VEHICLE_LIST, index=VEHICLE_LIST.index("Supercar"))
-    c2 = st.selectbox("Vehicle 2 (Mid)", VEHICLE_LIST, index=VEHICLE_LIST.index("Sports Car"))
-    c3 = st.selectbox("Vehicle 3 (Bot)", VEHICLE_LIST, index=VEHICLE_LIST.index("Car"))
+    # Vehicle Selection (Sorted A-Z)
+    # We use .index() to find where "Supercar" etc. are in the new sorted list so defaults don't break
+    c1 = st.selectbox("Vehicle 1 (Top)", sorted_vehicles, index=sorted_vehicles.index("Supercar"))
+    c2 = st.selectbox("Vehicle 2 (Mid)", sorted_vehicles, index=sorted_vehicles.index("Sports Car"))
+    c3 = st.selectbox("Vehicle 3 (Bot)", sorted_vehicles, index=sorted_vehicles.index("Car"))
     
     predict_btn = st.button("🚀 PREDICT OUTCOME", type="primary", use_container_width=True)
     
@@ -133,12 +127,10 @@ if predict_btn:
     st.session_state['last_probs'] = probs
     st.session_state['last_vehicles'] = [c1, c2, c3]
     
-    # Results Grid
     m_grid = grid(3, vertical_align="center")
     for veh, val in probs.items():
         m_grid.metric(veh, f"{val:.1f}%")
 
-    # Risk Assessment
     st.subheader("🚨 Strategic Confidence")
     gap = max(probs.values()) - sorted(probs.values())[-2]
     
@@ -149,7 +141,7 @@ if predict_btn:
     else:
         st.error("⚡ EXTREME VOLATILITY: Too close to call.")
 
-# --- 6. TELEMETRY LOGGING (SORTED & SAFE) ---
+# --- 6. TELEMETRY LOGGING (SORTED A-Z) ---
 st.divider()
 st.subheader("📝 POST-RACE TELEMETRY")
 logger_vehicles = st.session_state.get('last_vehicles', [c1, c2, c3])
@@ -160,10 +152,12 @@ with st.form("logger_form", clear_on_submit=True):
     with c_b: v_len = st.number_input("Visible Segment Length %", 0.0, 100.0, 33.0, step=1.0)
     
     c_c, c_d = st.columns(2)
+    # SORTED Hidden Track Types
     with c_c: h1_t = st.selectbox("Hidden 1 Type", sorted(list(SPEED_DATA["Car"].keys())))
     with c_d: h1_l = st.number_input("Hidden 1 Length %", 0.0, 100.0, 33.0, step=1.0)
     
     c_e, c_f = st.columns(2)
+    # SORTED Hidden Track Types
     with c_e: h2_t = st.selectbox("Hidden 2 Type", sorted(list(SPEED_DATA["Car"].keys())))
     with c_f: h2_l = st.number_input("Hidden 2 Length %", 0.0, 100.0, 34.0, step=1.0)
 
@@ -186,7 +180,7 @@ with st.form("logger_form", clear_on_submit=True):
         else:
             st.error("Invalid Track detected. Data discarded.")
 
-# --- 7. ADVANCED ANALYTICS ---
+# --- 7. REAL-TIME LEARNING ANALYTICS ---
 if not history.empty:
     st.divider()
     st.header("📈 AI Evolution Metrics")
@@ -201,18 +195,15 @@ if not history.empty:
             with c_metrics:
                 st.metric("Global Prediction Accuracy", f"{(valid['Is_Correct'].mean()*100):.1f}%")
                 
-                # Accuracy Heatmap
                 st.write("**Performance by Track**")
                 heatmap = valid.groupby('Visible_Track')['Is_Correct'].mean() * 100
                 st.dataframe(heatmap.to_frame("Acc %").style.background_gradient(cmap="RdYlGn", vmin=0, vmax=100), use_container_width=True)
 
             with c_stats:
-                # NEW: Learning Curve Graph
                 st.write("**📉 Learning Curve (Trend over last 10 races)**")
                 valid['Accuracy_Trend'] = valid['Is_Correct'].rolling(window=10, min_periods=1).mean() * 100
                 st.line_chart(valid['Accuracy_Trend'], color="#00FF00", height=200)
 
-                # Learned Geometry
                 st.write("**🧠 Learned Track Geometry**")
                 stats = valid.groupby('Visible_Track')['Visible_Segment_%'].agg(['mean', 'std', 'count'])
                 stats.columns = ['Avg Length %', 'Volatility', 'Races']
