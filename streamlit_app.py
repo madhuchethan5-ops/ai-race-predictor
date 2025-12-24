@@ -274,16 +274,17 @@ def compute_learned_geometry(df):
         t_col = f"Lap_{lap}_Track"
         l_col = f"Lap_{lap}_Len"
 
-        tmp = df[df['Lap'] == lap]
-
-        # ✅ Ignore blank or missing track names
-        tmp = tmp[tmp[t_col].notna() & (tmp[t_col] != "")]
+        # ✅ Only use rows where track is valid and not blank
+        tmp = df[[t_col, l_col]].dropna()
+        tmp = tmp[tmp[t_col] != ""]
 
         if tmp.empty:
             continue
 
         grouped = tmp.groupby(t_col)[l_col].agg(['mean', 'std', 'count']).reset_index()
         grouped['Lap'] = lap
+        grouped = grouped.rename(columns={t_col: 'Track'})
+
         results.append(grouped)
 
     if results:
