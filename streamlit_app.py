@@ -379,6 +379,10 @@ def load_and_migrate_data():
                 df[c] = np.nan
 
         df = df.replace('None', np.nan)
+        # Force numeric types for prediction fields
+for col in ["Top_Prob", "Was_Correct"]:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
         df, issues = auto_clean_history(df)
         st.session_state["data_quality_issues"] = issues
