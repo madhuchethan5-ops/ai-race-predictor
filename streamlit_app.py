@@ -58,45 +58,38 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
         wins[winner] += 1
     return {k: (v / iterations) * 100 for k, v in wins.items()}
 
-# --- UI ---
+# --- UI SETUP ---
 st.title("🏎️ AI Race Strategic Predictor")
 
 with st.sidebar:
     st.header("🚦 Race Setup")
     
-    # 1. Track & Lane first (matching game flow)
     st.subheader("1. Environment")
     visible_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
     visible_lane = st.radio("Which Lane is Visible?", [1, 2, 3], horizontal=True)
     
     st.divider()
     
-    # 2. Vehicle Selection
     st.subheader("2. Competitors")
     v1 = st.selectbox("Vehicle 1 (Top)", list(SPEED_DATA.keys()), index=8)
     v2 = st.selectbox("Vehicle 2 (Mid)", list(SPEED_DATA.keys()), index=7)
     v3 = st.selectbox("Vehicle 3 (Bot)", list(SPEED_DATA.keys()), index=5)
     
     st.divider()
-
-    # 3. Prediction Button moved here for better flow
     predict_clicked = st.button("🚀 Run AI Prediction", type="primary", use_container_width=True)
 
-# --- Updated Prediction Trigger ---
-# Change the old 'if st.button' to use the new variable:
+# --- PREDICTION LOGIC ---
 if predict_clicked:
     probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
     st.session_state['last_pred'] = max(probs, key=probs.get)
     
-    # Display results in the main area
     st.success(f"🏆 Best Strategic Pick: {st.session_state['last_pred']}")
     
-    # Show the probability bars
     for v, p in probs.items():
         st.write(f"**{v}**: {p:.1f}%")
         st.progress(int(p))
     
-    # Insert the Risk Level Assessment right after
+    # Risk Assessment
     sorted_p = sorted(probs.values(), reverse=True)
     gap = sorted_p[0] - sorted_p[1]
     if gap > 40:
@@ -106,7 +99,7 @@ if predict_clicked:
     else:
         st.error(f"🚨 **HIGH RISK:** Hidden tracks will decide this!")
 
-# --- STEP 4: DATA LOGGING FORM ---
+# --- DATA LOGGING ---
 st.divider()
 st.header("📝 Log Race Results")
 with st.form("race_logger"):
@@ -131,84 +124,70 @@ if submitted:
         "Lane": visible_lane,
         "Visible_Track": visible_track,
         "Visible_Lane_Length (%)": vis_len_actual,
-        "Hidden_1": h1_track,
-        "Hidden_1_Len": h1_len,
-        "Hidden_2": h2_track,
-        "Hidden_2_Len": h2_len,
+        "Hidden_1": h1_track, "Hidden_1_Len": h1_len,
+        "Hidden_2": h2_track, "Hidden_2_Len": h2_len,
         "Predicted_Winner": prediction
     }])
     new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-    st.success("✅ Race saved! Refresh page.")
+    st.success("✅ Race saved! Refresh page to update analytics.")
 
-# --- ANALYTICS ---
+# --- ANALYTICS DASHBOARD ---
 st.divider()
 if os.path.exists(CSV_FILE):
     df = pd.read_csv(CSV_FILE)
     st.subheader("📊 Performance Analytics")
     
-    # 1. Accuracy
+    # Create valid dataset for accuracy-based metrics
     if 'Actual_Winner' in df.columns and 'Predicted_Winner' in df.columns:
-        valid_df = df.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
-        valid_df = valid_df[valid_df['Predicted_Winner'] != "N/A"]
+        valid_df = df[(df['Predicted_Winner'].notna()) & (df['Predicted_Winner'] != "N/A")].copy()
+        
         if not valid_df.empty:
-            acc = (len(valid_df[valid_df['Actual_Winner'] == valid_df['Predicted_Winner']]) / len(valid_df)) * 100
-            st.metric("AI Accuracy", f"{acc:.1f}%")
+            # 1. Global Accuracy
+            valid_df['Is_Correct'] = valid_df['Actual_Winner'] == valid_df['Predicted_Winner']
+            acc = valid_df['Is_Correct'].mean() * 100
+            st.metric("Overall AI Accuracy", f"{acc:.1f}%")
 
-    # --- ADDED: VEHICLE WIN RATE CHART ---
+            # 2. Track Difficulty Table
+            st.subheader("🚩 Track Difficulty (AI Failure Rate)")
+            diff_df = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
+            diff_df.columns = ['Total Races', 'Success Rate (%)']
+            diff_df['Success Rate (%)'] = (diff_df['Success Rate (%)'] * 100).round(1)
+            diff_df['Failure Rate (%)'] = 100 - diff_df['Success Rate (%)']
+            st.table(diff_df.sort_values('Failure Rate (%)', ascending=False).style.background_gradient(cmap='Reds', subset=['Failure Rate (%)']))
+
+            # 3. Learning Curve
+            if len(valid_df) >= 10:
+                st.subheader("🧠 Learning Curve (Last 50 vs First 50)")
+                first_part = valid_df.head(50)
+                last_part = valid_df.tail(50)
+                acc_then = first_part['Is_Correct'].mean() * 100
+                acc_now = last_part['Is_Correct'].mean() * 100
+                st.metric("Recent Accuracy Shift", f"{acc_now:.1f}%", delta=f"{acc_now - acc_then:.1f}%")
+
+    # 4. Win Distribution Chart
     st.subheader("🏎️ Vehicle Win Distribution")
     win_counts = df['Actual_Winner'].value_counts()
-    fig2, ax2 = plt.subplots(figsize=(10, 4))
-    sns.barplot(x=win_counts.index, y=win_counts.values, palette="viridis", ax=ax2)
-    st.pyplot(fig2)
-    
-    # 2. Heatmap
+    fig_win, ax_win = plt.subplots(figsize=(10, 4))
+    sns.barplot(x=win_counts.index, y=win_counts.values, palette="viridis", ax=ax_win)
+    st.pyplot(fig_win)
+
+    # 5. Track Length Heatmap
     req_cols = ['Visible_Track', 'Visible_Lane_Length (%)', 'Hidden_1', 'Hidden_1_Len', 'Hidden_2', 'Hidden_2_Len']
     if all(c in df.columns for c in req_cols):
-        st.subheader("🗺️ Track Length Heatmap")
+        st.subheader("🗺️ Average Track Lengths")
         t_list = []
         for _, r in df.iterrows():
             t_list.append({'T': r['Visible_Track'], 'L': r['Visible_Lane_Length (%)']})
             t_list.append({'T': r['Hidden_1'], 'L': r['Hidden_1_Len']})
             t_list.append({'T': r['Hidden_2'], 'L': r['Hidden_2_Len']})
-        
         plot_df = pd.DataFrame(t_list)
-        fig, ax = plt.subplots()
-        sns.barplot(data=plot_df, x='T', y='L', ax=ax, palette="magma")
+        fig_heat, ax_heat = plt.subplots()
+        sns.barplot(data=plot_df, x='T', y='L', ax=ax_heat, palette="magma")
         plt.xticks(rotation=45)
-        st.pyplot(fig)
+        st.pyplot(fig_heat)
 
     with st.expander("View Raw Data"):
         st.dataframe(df)
-        # --- TRACK DIFFICULTY TABLE ---
-st.divider()
-st.subheader("🚩 Track Difficulty (AI Failure Rate)")
-st.markdown("Which visible tracks cause the most incorrect predictions?")
-
-if not valid_df.empty:
-    # Create a column to check if AI was correct
-    valid_df['Is_Correct'] = valid_df['Actual_Winner'] == valid_df['Predicted_Winner']
-    
-    # Group by the visible track and calculate the success rate
-    difficulty_df = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
-    difficulty_df.columns = ['Total Races', 'Success Rate (%)']
-    difficulty_df['Success Rate (%)'] = (difficulty_df['Success Rate (%)'] * 100).round(1)
-    
-    # Calculate Failure Rate
-    difficulty_df['Failure Rate (%)'] = 100 - difficulty_df['Success Rate (%)']
-    
-    # Sort by highest failure rate
-    difficulty_df = difficulty_df.sort_values(by='Failure Rate (%)', ascending=False)
-    
-    # Display the table with color coding
-    st.table(difficulty_df.style.background_gradient(subset=['Failure Rate (%)'], cmap='Reds'))
-    
-    st.info("💡 **Strategy:** If a track has a high Failure Rate, it means the hidden segments are very unpredictable on that terrain. Be careful with high bets there!")
-
-# --- LEARNING CURVE ---
-if len(df) > 50:
-    st.divider()
-    st.subheader("🧠 Learning Curve")
-    # ... (Rest of your learning curve code) ...
 
 # --- BACKUP ---
 st.divider()
@@ -216,16 +195,3 @@ st.subheader("💾 Backup Data")
 if os.path.exists(CSV_FILE):
     with open(CSV_FILE, 'rb') as f:
         st.download_button("📥 Download History CSV", f, "race_history_backup.csv", "text/csv")
-        # --- TRACK DIFFICULTY TABLE ---
-st.subheader("🚩 Track Difficulty (AI Failure Rate)")
-if 'Actual_Winner' in df.columns and 'Predicted_Winner' in df.columns:
-    valid_df = df[df['Predicted_Winner'] != "N/A"].copy()
-    if not valid_df.empty:
-        valid_df['Is_Correct'] = valid_df['Actual_Winner'] == valid_df['Predicted_Winner']
-        diff_df = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
-        diff_df.columns = ['Total Races', 'Success Rate (%)']
-        diff_df['Success Rate (%)'] = (diff_df['Success Rate (%)'] * 100).round(1)
-        diff_df['Failure Rate (%)'] = 100 - diff_df['Success Rate (%)']
-        
-        # Sort by Failure Rate
-        st.table(diff_df.sort_values('Failure Rate (%)', ascending=False).style.background_gradient(cmap='Reds', subset=['Failure Rate (%)']))
