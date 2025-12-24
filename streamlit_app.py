@@ -140,48 +140,53 @@ with st.form("race_logger", clear_on_submit=True):
         new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
         st.toast("Race saved successfully!", icon="✅")
 
-# --- 6. ANALYTICS & DOWNLOAD (RESCUE MODE) ---
+# --- 6. ANALYTICS & DOWNLOAD (STABLE VERSION) ---
 if os.path.exists(CSV_FILE):
     df = pd.read_csv(CSV_FILE)
     st.divider()
     
-    # 6a. Download History (Always available for all rows)
-    st.markdown("<h4 style='font-weight: 300;'>💾 Data Export</h4>", unsafe_allow_html=True)
+    # 6a. Data Export
+    st.header("💾 Race History Management")
     st.download_button(
-        label=f"📥 Download History ({len(df)} Races)",
+        label=f"📥 Download Full History ({len(df)} Races)",
         data=df.to_csv(index=False),
-        file_name="complete_race_history.csv",
+        file_name="race_history_complete.csv",
         mime="text/csv",
         use_container_width=True
     )
 
-    st.markdown("<h2 style='font-weight: 300;'>📊 Performance Dashboard</h2>", unsafe_allow_html=True)
+    st.header("📊 Performance Analytics")
     
-    # Accuracy & Track Difficulty Table (Calculated only for non-N/A rows)
+    # 6b. Accuracy Tracking (Filters out N/A rows for stats)
     if 'Actual_Winner' in df.columns and 'Predicted_Winner' in df.columns:
         valid_df = df[df['Predicted_Winner'] != "N/A"].copy()
+        
         if not valid_df.empty:
             valid_df['Is_Correct'] = valid_df['Actual_Winner'] == valid_df['Predicted_Winner']
             
-            col_acc, col_diff = st.columns([1, 2])
-            with col_acc:
-                acc = valid_df['Is_Correct'].mean() * 100
-                st.metric("Overall AI Accuracy", f"{acc:.1f}%")
+            # Display Accuracy in a clean metric
+            acc = valid_df['Is_Correct'].mean() * 100
+            st.metric("Overall Prediction Accuracy", f"{acc:.1f}%", delta=f"{len(valid_df)} Total Predictions")
             
-            with col_diff:
-                st.markdown("<h4 style='font-weight: 300;'>🚩 Track Failure Rates</h4>", unsafe_allow_html=True)
-                diff_df = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
-                diff_df.columns = ['Races', 'Success Rate %']
-                diff_df['Failure Rate %'] = 100 - (diff_df['Success Rate %'] * 100)
-                st.table(diff_df[['Races', 'Failure Rate %']].sort_values('Failure Rate %', ascending=False).style.background_gradient(cmap='Reds'))
+            # Track Failure Rates by Track Type
+            st.subheader("🚩 Track Failure Analysis")
+            diff_df = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
+            diff_df.columns = ['Races Played', 'Success Rate']
+            diff_df['Failure %'] = (1 - diff_df['Success Rate']) * 100
+            
+            # Simple, clean table
+            st.table(diff_df[['Races Played', 'Failure %']].sort_values('Failure %', ascending=False))
 
-    # Win Rate Chart
-    st.markdown("<h4 style='font-weight: 300;'>🏎️ Vehicle Win Distribution</h4>", unsafe_allow_html=True)
+    # 6c. Win Distribution (Uses ALL data including N/A rows)
+    st.subheader("🏎️ Vehicle Win Distribution")
     win_counts = df['Actual_Winner'].value_counts()
-    fig, ax = plt.subplots(figsize=(10, 3))
-    sns.barplot(x=win_counts.index, y=win_counts.values, palette="magma", ax=ax)
+    
+    fig, ax = plt.subplots(figsize=(10, 4))
+    sns.barplot(x=win_counts.index, y=win_counts.values, palette="viridis", ax=ax)
     plt.xticks(rotation=45)
+    plt.ylabel("Total Wins")
     st.pyplot(fig)
 
+    # 6d. Raw Data Explorer
     with st.expander("🔍 View Raw CSV Data"):
         st.dataframe(df, use_container_width=True)
