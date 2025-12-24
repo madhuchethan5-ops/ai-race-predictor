@@ -67,17 +67,29 @@ with st.sidebar:
     
     predict_clicked = st.button("🚀 Run Prediction", type="primary", use_container_width=True)
 
-# --- 4. MAIN SCREEN (RESULTS & LOGGING) ---
-st.markdown("<h1 style='font-weight: 300; text-align: center;'>AI Race Predictor</h1>", unsafe_allow_html=True)
+# --- 4. MAIN SCREEN (COMPACT LAYOUT) ---
+# This CSS pulls the elements closer together and reduces top margins
+st.markdown("""
+    <style>
+    .block-container {padding-top: 1rem; padding-bottom: 0rem;}
+    h1 {margin-top: -30px; padding-bottom: 10px;}
+    div[data-testid="stExpander"] {margin-top: -15px;}
+    .stProgress {margin-top: -20px;}
+    </style>
+    """, unsafe_allow_html=True)
+
+st.markdown("<h2 style='font-weight: 300; text-align: center; margin-bottom: 0px;'>AI Race Predictor</h2>", unsafe_allow_html=True)
 
 if predict_clicked:
     probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
     st.session_state['last_pred'] = max(probs, key=probs.get)
     
-    st.markdown("<h3 style='font-weight: 300;'>🏁 Prediction Results</h3>", unsafe_allow_html=True)
+    # Prediction Results Header
+    st.markdown("<h4 style='font-weight: 300; margin-top: 10px; margin-bottom: 5px;'>🏁 Results</h4>", unsafe_allow_html=True)
+    
     col_win, col_risk = st.columns([2, 1])
     with col_win:
-        st.markdown(f"**Pick:** `{st.session_state['last_pred']}`")
+        st.markdown(f"**Top Pick:** <span style='color: #FF4B4B;'>{st.session_state['last_pred']}</span>", unsafe_allow_html=True)
     with col_risk:
         sorted_p = sorted(probs.values(), reverse=True)
         gap = sorted_p[0] - sorted_p[1]
@@ -85,16 +97,18 @@ if predict_clicked:
         elif gap > 15: st.warning("⚠️ MED RISK")
         else: st.error("🚨 HIGH RISK")
 
+    # Metrics side-by-side with reduced spacing
     c1, c2, c3 = st.columns(3)
     p_items = list(probs.items())
     for i, col in enumerate([c1, c2, c3]):
         with col:
-            st.metric(p_items[i][0], f"{p_items[i][1]:.1f}%")
+            st.markdown(f"<p style='font-size: 14px; margin-bottom: 0px;'>{p_items[i][0]}</p>", unsafe_allow_html=True)
+            st.markdown(f"<h3 style='margin-top: -5px;'>{p_items[i][1]:.1f}%</h3>", unsafe_allow_html=True)
             st.progress(int(p_items[i][1]))
-    st.divider()
+    st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
-# --- 5. LOGGING FORM ---
-st.markdown("<h3 style='font-weight: 300;'>📝 Race Logger</h3>", unsafe_allow_html=True)
+# --- 5. LOGGING FORM (COMPACT) ---
+st.markdown("<h4 style='font-weight: 300; margin-bottom: 5px;'>📝 Race Logger</h4>", unsafe_allow_html=True)
 with st.form("race_logger", clear_on_submit=True):
     lcol1, lcol2, lcol3 = st.columns(3)
     with lcol1:
@@ -107,11 +121,8 @@ with st.form("race_logger", clear_on_submit=True):
         h2_track = st.selectbox("Hidden 2", list(SPEED_DATA["Car"].keys()))
         h2_len = st.number_input("H2 Length %", 5, 95, 35)
     
-    if st.form_submit_button("💾 Save Race Result", use_container_width=True):
-        prediction = st.session_state.get('last_pred', "N/A")
-        new_data = pd.DataFrame([{"V1": v1, "V2": v2, "V3": v3, "Actual_Winner": actual_winner, "Lane": visible_lane, "Visible_Track": visible_track, "Visible_Lane_Length (%)": vis_len_actual, "Hidden_1": h1_track, "Hidden_1_Len": h1_len, "Hidden_2": h2_track, "Hidden_2_Len": h2_len, "Predicted_Winner": prediction}])
-        new_data.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-        st.toast("Race recorded!", icon="✅")
+    # Save button
+    st.form_submit_button("💾 Save Result", use_container_width=True)
 
 # --- 6. ANALYTICS ---
 if os.path.exists(CSV_FILE):
