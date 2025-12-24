@@ -269,7 +269,7 @@ def compute_learning_curve(history: pd.DataFrame, window: int = 30):
 
 
 def compute_learned_geometry(df):
-    st.write("GEOMETRY FUNCTION VERSION:", "v1")
+    st.write("GEOMETRY FUNCTION VERSION:", "v2")
     results = []
 
     for lap in [1, 2, 3]:
