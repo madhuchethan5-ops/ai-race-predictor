@@ -59,46 +59,47 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
     return {k: (v / iterations) * 100 for k, v in wins.items()}
 
 # --- UI SETUP ---
+# --- UI SETUP (FIT-TO-SCREEN SIDEBAR) ---
 st.title("🏎️ AI Race Strategic Predictor")
 
 with st.sidebar:
     st.header("🚦 Race Setup")
     
-    st.subheader("1. Environment")
-    visible_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
-    visible_lane = st.radio("Which Lane is Visible?", [1, 2, 3], horizontal=True)
+    # 1. Environment Section
+    with st.expander("🌍 1. Track Environment", expanded=True):
+        visible_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
+        visible_lane = st.radio("Lane Visible", [1, 2, 3], horizontal=True)
     
-    st.divider()
+    # 2. Vehicle Selection (Compact Layout)
+    with st.expander("🏎️ 2. Competitors", expanded=True):
+        v1 = st.selectbox("Vehicle 1 (Top)", list(SPEED_DATA.keys()), index=8)
+        v2 = st.selectbox("Vehicle 2 (Mid)", list(SPEED_DATA.keys()), index=7)
+        v3 = st.selectbox("Vehicle 3 (Bot)", list(SPEED_DATA.keys()), index=5)
     
-    st.subheader("2. Competitors")
-    v1 = st.selectbox("Vehicle 1 (Top)", list(SPEED_DATA.keys()), index=8)
-    v2 = st.selectbox("Vehicle 2 (Mid)", list(SPEED_DATA.keys()), index=7)
-    v3 = st.selectbox("Vehicle 3 (Bot)", list(SPEED_DATA.keys()), index=5)
-    
-    st.divider()
     predict_clicked = st.button("🚀 Run AI Prediction", type="primary", use_container_width=True)
 
-# --- PREDICTION LOGIC ---
-if predict_clicked:
-    probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
-    st.session_state['last_pred'] = max(probs, key=probs.get)
-    
-    st.success(f"🏆 Best Strategic Pick: {st.session_state['last_pred']}")
-    
-    for v, p in probs.items():
-        st.write(f"**{v}**: {p:.1f}%")
-        st.progress(int(p))
-    
-    # Risk Assessment
-    sorted_p = sorted(probs.values(), reverse=True)
-    gap = sorted_p[0] - sorted_p[1]
-    if gap > 40:
-        st.success(f"✅ **LOW RISK:** AI is very confident.")
-    elif gap > 15:
-        st.warning(f"⚠️ **MEDIUM RISK:** Close race!")
-    else:
-        st.error(f"🚨 **HIGH RISK:** Hidden tracks will decide this!")
-
+    # 3. Prediction Results (Now fits inside the sidebar)
+    if predict_clicked:
+        probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
+        st.session_state['last_pred'] = max(probs, key=probs.get)
+        
+        st.divider()
+        st.subheader("🏆 Best Pick")
+        st.info(f"**{st.session_state['last_pred']}**")
+        
+        for v, p in probs.items():
+            st.caption(f"{v}: {p:.1f}%")
+            st.progress(int(p))
+        
+        # Risk Assessment (Compact)
+        sorted_p = sorted(probs.values(), reverse=True)
+        gap = sorted_p[0] - sorted_p[1]
+        if gap > 40:
+            st.success("Risk: LOW")
+        elif gap > 15:
+            st.warning("Risk: MEDIUM")
+        else:
+            st.error("Risk: HIGH")
 # --- DATA LOGGING ---
 st.divider()
 st.header("📝 Log Race Results")
