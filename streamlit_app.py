@@ -151,6 +151,29 @@ if os.path.exists(CSV_FILE):
 
     with st.expander("View Raw Data"):
         st.dataframe(df)
+# --- TRACKING THE LEARNING CURVE ---
+if len(df) > 50:
+    st.divider()
+    st.subheader("🧠 Learning Curve")
+    
+    # Calculate accuracy of the LAST 50 races vs the FIRST 50
+    first_50 = df.head(50)
+    last_50 = df.tail(50)
+    
+    def get_acc(data):
+        valid = data.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
+        if len(valid) == 0: return 0
+        return (len(valid[valid['Actual_Winner'] == valid['Predicted_Winner']]) / len(valid)) * 100
+
+    acc_then = get_acc(first_50)
+    acc_now = get_acc(last_50)
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Early Accuracy (First 50)", f"{acc_then:.1f}%")
+    col2.metric("Recent Accuracy (Latest 50)", f"{acc_now:.1f}%", delta=f"{acc_now - acc_then:.1f}%")
+    
+    if acc_now > acc_then:
+        st.success("✨ The AI's brain is officially getting smarter!")
 # --- STEP 7: BACKUP & DOWNLOAD ---
 st.divider()
 st.subheader("💾 Backup Data")
