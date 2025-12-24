@@ -753,7 +753,11 @@ if 'res' in st.session_state:
         explanation += f"- **{predicted_winner}** is significantly faster on the dominant lap.\n"
 
     # Reinforcement learning boost
-    if vpi[predicted_winner] > 1.05:
+    res = st.session_state['res']
+vpi = res['vpi']
+res = st.session_state['res']
+vpi = res['vpi']    
+if vpi[predicted_winner] > 1.05:
         explanation += f"- Reinforcement learning shows **{predicted_winner}** has strong historical performance.\n"
 
     # Track-specific logic
