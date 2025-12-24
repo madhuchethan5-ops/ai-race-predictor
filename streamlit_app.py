@@ -77,6 +77,46 @@ if st.button("🚀 Predict Before Start", type="primary"):
     for v, p in probs.items():
         st.write(f"**{v}**: {p:.1f}%")
         st.progress(int(p))
+# --- STEP 4: DATA LOGGING FORM ---
+st.divider()
+st.header("📝 Log Race Results")
+st.info("Fill this out after the race ends to train your AI.")
+
+with st.form("race_logger"):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        actual_winner = st.selectbox("Who Actually Won?", [v1, v2, v3])
+        vis_len_actual = st.number_input("Visible Lane %", 5, 95, 30)
+    with col2:
+        h1_track = st.selectbox("Hidden Track 1", list(SPEED_DATA["Car"].keys()))
+        h1_len = st.number_input("Hidden 1 %", 5, 95, 35)
+    with col3:
+        h2_track = st.selectbox("Hidden Track 2", list(SPEED_DATA["Car"].keys()))
+        h2_len = st.number_input("Hidden 2 %", 5, 95, 35)
+    
+    submitted = st.form_submit_button("💾 Save Race to History")
+
+if submitted:
+    # Get the prediction from the AI (stored in memory)
+    prediction = st.session_state.get('last_pred', "N/A")
+    
+    # Create the new row
+    new_row = pd.DataFrame([{
+        "V1": v1, "V2": v2, "V3": v3,
+        "Actual_Winner": actual_winner,
+        "Lane": visible_lane,
+        "Visible_Track": visible_track,
+        "Visible_Lane_Length (%)": vis_len_actual,
+        "Hidden_1": h1_track,
+        "Hidden_1_Len": h1_len,
+        "Hidden_2": h2_track,
+        "Hidden_2_Len": h2_len,
+        "Predicted_Winner": prediction
+    }])
+    
+    # Append to the CSV
+    new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
+    st.success("✅ Race saved! Refresh the page to see updated Analytics.")
 
 # --- ANALYTICS ---
 st.divider()
