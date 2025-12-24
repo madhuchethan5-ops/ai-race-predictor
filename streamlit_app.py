@@ -23,10 +23,73 @@ CSV_FILE = 'race_history.csv'
 
 st.set_page_config(layout="wide", page_title="AI Race Master Pro", page_icon="🏎️")
 
+# === DATA QUALITY & AUTO-CLEANING ===
+
+VALID_TRACKS = set(TRACK_OPTIONS)
+
+TRACK_ALIASES = {
+    "Road": "Highway",
+    "road": "Highway",
+    "Normal road": "Highway",
+    "normal road": "Highway",
+    "Normal": "Highway",
+}
+
+def auto_clean_history(df: pd.DataFrame):
+    """Automatically clean race history: fix track names, lanes, invalid rows, normalize lap lengths."""
+    if df.empty:
+        return df, []
+
+    issues = []
+    df = df.copy()
+
+    # Fix Lane values
+    lane_map = {"1": "Lap 1", "2": "Lap 2", "3": "Lap 3", 1: "Lap 1", 2: "Lap 2", 3: "Lap 3"}
+    if "Lane" in df.columns:
+        df["Lane"] = df["Lane"].replace(lane_map)
+
+    # Fix track names with aliases and fallback to mode
+    for lap in [1, 2, 3]:
+        col = f"Lap_{lap}_Track"
+        if col not in df.columns:
+            continue
+
+        df[col] = df[col].replace(TRACK_ALIASES)
+
+        invalid_mask = ~df[col].isin(VALID_TRACKS) & df[col].notna()
+        if invalid_mask.any():
+            bad_vals = df.loc[invalid_mask, col].unique().tolist()
+            issues.append(f"Invalid track names in {col}: {bad_vals}")
+            if df[col].isin(VALID_TRACKS).any():
+                most_common = df.loc[df[col].isin(VALID_TRACKS), col].mode()[0]
+            else:
+                most_common = list(VALID_TRACKS)[0]
+            df.loc[invalid_mask, col] = most_common
+
+    # Enforce numeric lap lengths
+    for lap in [1, 2, 3]:
+        col = f"Lap_{lap}_Len"
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Normalize lengths if they don't sum to 100
+    if all(f"Lap_{i}_Len" in df.columns for i in [1, 2, 3]):
+        total = df["Lap_1_Len"] + df["Lap_2_Len"] + df["Lap_3_Len"]
+        bad_len_mask = total.notna() & (total != 100)
+        if bad_len_mask.any():
+            issues.append("Some rows have Lap lengths not summing to 100. Normalizing these rows.")
+            total_bad = total[bad_len_mask]
+            df.loc[bad_len_mask, ["Lap_1_Len", "Lap_2_Len", "Lap_3_Len"]] = (
+                df.loc[bad_len_mask, ["Lap_1_Len", "Lap_2_Len", "Lap_3_Len"]]
+                .div(total_bad, axis=0)
+                * 100
+            )
+
+    return df, issues
+
 # === METRICS & ANALYTICS HELPERS ===
 
 def compute_basic_metrics(history: pd.DataFrame):
-    """Global accuracy, mean top prob, calibration error, Brier, log loss."""
     if history.empty:
         return None
     
@@ -34,10 +97,8 @@ def compute_basic_metrics(history: pd.DataFrame):
     if df.empty:
         return None
     
-    # Accuracy
     acc = (df['Actual_Winner'] == df['Predicted_Winner']).mean()
     
-    # Top_Prob / Was_Correct may not exist for early rows
     if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
         cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
         if not cal_df.empty:
@@ -51,7 +112,6 @@ def compute_basic_metrics(history: pd.DataFrame):
         mean_top_prob = np.nan
         calib_error = np.nan
 
-    # Brier score (for the predicted winner as a 1/0 outcome)
     if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
         cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
         if not cal_df.empty:
@@ -61,7 +121,6 @@ def compute_basic_metrics(history: pd.DataFrame):
     else:
         brier = np.nan
 
-    # Simple "log loss" using only top prob; guard against log(0)
     if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
         cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
         if not cal_df.empty:
@@ -82,9 +141,7 @@ def compute_basic_metrics(history: pd.DataFrame):
         'log_loss': log_loss
     }
 
-
 def compute_learning_curve(history: pd.DataFrame, window: int = 30):
-    """Rolling accuracy and Brier score over time."""
     if history.empty:
         return None
 
@@ -110,15 +167,14 @@ def compute_learning_curve(history: pd.DataFrame, window: int = 30):
         df['Brier_Roll'] = np.nan
         return df
 
-
 def compute_learned_geometry(history: pd.DataFrame):
-    """Mean and std of Lap_i_Len by Lap_i_Track."""
+    """Mean/std of Lap lengths per track, across all laps (because lengths vary wildly)."""
     if history.empty:
         return None
     rows = []
-    for i in range(1, 4):
-        t_col = f"Lap_{i}_Track"
-        l_col = f"Lap_{i}_Len"
+    for lap in [1, 2, 3]:
+        t_col = f"Lap_{lap}_Track"
+        l_col = f"Lap_{lap}_Len"
         if t_col not in history.columns or l_col not in history.columns:
             continue
         tmp = history[[t_col, l_col]].copy()
@@ -127,17 +183,15 @@ def compute_learned_geometry(history: pd.DataFrame):
         if tmp.empty:
             continue
         g = tmp.groupby(t_col)[l_col].agg(['mean', 'std', 'count']).reset_index()
-        g['Lap'] = i
+        g['Lap'] = lap
         rows.append(g)
     if not rows:
         return None
     geom = pd.concat(rows, ignore_index=True)
-    # t_col here will be last defined in loop (Lap_3_Track) but column name is same type
-    return geom.rename(columns={geom.columns[0]: 'Track'})[['Lap', 'Track', 'mean', 'std', 'count']]
-
+    geom = geom.rename(columns={geom.columns[0]: 'Track'})
+    return geom[['Lap', 'Track', 'mean', 'std', 'count']]
 
 def compute_transition_matrices(history: pd.DataFrame):
-    """Markov transition matrices P(Lap_j | Lap_i)."""
     mats = {}
     for i in range(1, 4):
         for j in range(1, 4):
@@ -153,38 +207,7 @@ def compute_transition_matrices(history: pd.DataFrame):
                 mats[(i, j)] = mat
     return mats
 
-
-def compute_vpi_history(history: pd.DataFrame):
-    """Approximate how often each vehicle appears and wins over time."""
-    if history.empty:
-        return None
-    veh_cols = [c for c in history.columns if c.startswith('Vehicle_')]
-    if not veh_cols or 'Actual_Winner' not in history.columns:
-        return None
-
-    df = history[veh_cols + ['Actual_Winner']].copy()
-    records = []
-    for idx, row in df.iterrows():
-        for c in veh_cols:
-            v = row[c]
-            if pd.isna(v):
-                continue
-            records.append({
-                'Race': idx,
-                'Vehicle': v,
-                'Is_Winner': 1.0 if v == row['Actual_Winner'] else 0.0
-            })
-    if not records:
-        return None
-    vdf = pd.DataFrame(records)
-    vdf['Cum_Race'] = vdf.groupby('Vehicle').cumcount() + 1
-    vdf['Cum_Wins'] = vdf.groupby('Vehicle')['Is_Winner'].cumsum()
-    vdf['Win_Rate'] = vdf['Cum_Wins'] / vdf['Cum_Race']
-    return vdf
-
-
 def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
-    """Compare early vs late periods for geometry to detect drift."""
     if history.empty:
         return None
     n = len(history)
@@ -213,9 +236,7 @@ def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
             out['notes'] = "Geometry drift computed between early and late halves."
     return out
 
-
 def compute_volatility_from_probs(probs: dict):
-    """Volatility = top prob - second prob (0–100 scale) and sorted list."""
     if not probs:
         return None
     items = sorted(probs.items(), key=lambda x: x[1], reverse=True)
@@ -236,6 +257,7 @@ def load_and_migrate_data():
 
     if not os.path.exists(CSV_FILE):
         return pd.DataFrame(columns=cols)
+
     try:
         df = pd.read_csv(CSV_FILE)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
@@ -253,29 +275,34 @@ def load_and_migrate_data():
                 df[c] = np.nan
 
         df = df.replace('None', np.nan)
+
+        df, issues = auto_clean_history(df)
+        st.session_state["data_quality_issues"] = issues
+
         return df
+
     except Exception:
         return pd.DataFrame(columns=cols)
 
 history = load_and_migrate_data()
 
-# --- 3. THE ML ENGINE (NEXT-GEN, SAME API) ---
+# --- 3. THE ML ENGINE (NEXT-GEN, UPGRADED GEOMETRY, SAME API) ---
 def run_simulation(
     v1, v2, v3,
-    k_idx,           # known lap index: 0, 1, or 2
-    k_type,          # known track type for that lap
+    k_idx,
+    k_type,
     history_df,
     iterations=5000,
-    alpha_prior=1.0, # Bayesian prior wins
-    beta_prior=1.0,  # Bayesian prior losses
-    smoothing=0.5,   # Markov/Dirichlet smoothing
+    alpha_prior=1.0,
+    beta_prior=1.0,
+    smoothing=0.5,
     base_len_mean=33.3,
-    base_len_std=5.0,
-    calib_min_hist=50 # minimum rows for temperature calibration
+    base_len_std=15.0,   # wider default because lengths are very random
+    calib_min_hist=50
 ):
     vehicles = [v1, v2, v3]
 
-    # 1. BAYESIAN REINFORCEMENT (vehicle performance index, VPI)
+    # 1. BAYESIAN REINFORCEMENT
     vpi_raw = {v: 1.0 for v in vehicles}
 
     if not history_df.empty and 'Actual_Winner' in history_df.columns:
@@ -305,22 +332,26 @@ def run_simulation(
 
     vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
 
-    # 2. LEARNED GEOMETRY / TRACK-SPECIFIC LENGTH DISTRIBUTIONS
-    def learned_length_dist(lap_idx, track_type):
+    # 2. UPGRADED GEOMETRY: track-specific, across all laps
+    def learned_length_dist(track_type):
         if history_df.empty:
             return base_len_mean, base_len_std
 
-        t_col = f"Lap_{lap_idx + 1}_Track"
-        l_col = f"Lap_{lap_idx + 1}_Len"
-        if t_col not in history_df.columns or l_col not in history_df.columns:
+        vals_all = []
+        for lap in [1, 2, 3]:
+            t_col = f"Lap_{lap}_Track"
+            l_col = f"Lap_{lap}_Len"
+            if t_col not in history_df.columns or l_col not in history_df.columns:
+                continue
+            mask = (history_df[t_col] == track_type)
+            subset = history_df.loc[mask, l_col]
+            subset = pd.to_numeric(subset, errors='coerce').dropna()
+            if not subset.empty:
+                vals_all.append(subset)
+        if not vals_all:
             return base_len_mean, base_len_std
 
-        mask = (history_df[t_col] == track_type)
-        subset = history_df[mask]
-        if subset.empty:
-            return base_len_mean, base_len_std
-
-        vals = pd.to_numeric(subset[l_col], errors='coerce').dropna()
+        vals = pd.concat(vals_all)
         if len(vals) < 5:
             return base_len_mean, base_len_std
 
@@ -331,7 +362,7 @@ def run_simulation(
 
         return float(mu), float(sigma)
 
-    # 3. SMOOTHED MARKOV TRANSITIONS FOR HIDDEN LAPS
+    # 3. SMOOTHED MARKOV TRANSITIONS
     lap_probs = {0: None, 1: None, 2: None}
 
     if not history_df.empty:
@@ -369,7 +400,7 @@ def run_simulation(
                 if lap_probs[j] is None and j in global_transitions:
                     lap_probs[j] = global_transitions[j].values
 
-    # 4. SAMPLE TERRAIN AND LENGTHS WITH LEARNED GEOMETRY
+    # 4. SAMPLE TERRAIN AND LENGTHS
     sim_terrains = []
     sim_lengths = []
 
@@ -386,7 +417,7 @@ def run_simulation(
         terrain_i = sim_terrains[-1]
         lengths_i = np.empty(iterations, dtype=float)
         for t in np.unique(terrain_i):
-            mu, sigma = learned_length_dist(i, t)
+            mu, sigma = learned_length_dist(t)
             sigma = max(sigma, 1e-3)
             mask = (terrain_i == t)
             n = mask.sum()
@@ -402,12 +433,11 @@ def run_simulation(
 
     terrain_matrix = np.column_stack(sim_terrains)
 
-    # 5. BETTER NOISE MODELING FOR VEHICLE SPEEDS
+    # 5. NOISE MODELING
     def sample_vehicle_times(vehicle):
         base_speed = np.vectorize(SPEED_DATA[vehicle].get)(terrain_matrix)
         base_speed = np.clip(base_speed, 0.1, None)
 
-        # 3% std as a proxy for track‑specific noise
         veh_factor = np.random.normal(1.0, 0.03, size=(iterations, 1))
         lap_factor = np.random.normal(1.0, 0.02, size=(iterations, 3))
 
@@ -418,7 +448,7 @@ def run_simulation(
 
     results = {v: sample_vehicle_times(v) for v in vehicles}
 
-    # 6. RAW MONTE CARLO WIN PROBABILITIES
+    # 6. RAW WIN PROBABILITIES
     total_times = np.vstack([results[v] for v in vehicles])
     winners = np.argmin(total_times, axis=0)
     freq = pd.Series(winners).value_counts(normalize=True).sort_index()
@@ -426,7 +456,7 @@ def run_simulation(
     raw_probs = np.clip(raw_probs, 1e-6, 1.0)
     raw_probs /= raw_probs.sum()
 
-    # 7. SIMPLE CALIBRATION (TEMPERATURE SCALING)
+    # 7. TEMPERATURE CALIBRATION
     def estimate_temperature_from_history(df):
         if df.empty or 'Top_Prob' not in df.columns or 'Was_Correct' not in df.columns:
             return 1.0
@@ -552,6 +582,7 @@ if not history.empty:
         "⚡ Volatility & Importance",
         "🧠 ML Pattern Brain",
         "🚦 Lane Tracker",
+        "🧹 Data Quality Checker",
         "📂 History",
         "🧪 What-If Simulator"
     ])
@@ -620,14 +651,6 @@ if not history.empty:
         else:
             st.write(drift['notes'])
             geom_df = drift['geometry']
-            # Rename count columns safely if present
-            rename_cols = {}
-            for c in geom_df.columns:
-                if c.endswith('_early') and 'count' in c:
-                    rename_cols[c] = 'count_early'
-                if c.endswith('_late') and 'count' in c:
-                    rename_cols[c] = 'count_late'
-            geom_df = geom_df.rename(columns=rename_cols)
             st.dataframe(
                 geom_df[['Lap', 'Track', 'mean_early', 'mean_late', 'mean_rel_change_%']],
                 use_container_width=True
@@ -698,13 +721,36 @@ if not history.empty:
         else:
             st.info("Record more races to see Lane win rates.")
 
-    # 8) RAW HISTORY
+    # 8) DATA QUALITY CHECKER
     with tabs[7]:
+        st.write("### 🧹 Data Quality Checker")
+
+        issues = st.session_state.get("data_quality_issues", [])
+        if not issues:
+            st.success("✅ No data quality issues detected by auto-cleaner.")
+        else:
+            st.warning("⚠️ Issues detected and auto-corrected at load time:")
+            for i in issues:
+                st.write(f"- {i}")
+
+        geom = compute_learned_geometry(history)
+        if geom is not None and not geom.empty:
+            unstable = geom[geom["std"] > geom["mean"] * 0.6]
+            if not unstable.empty:
+                st.error("⚠️ Geometry instability detected (very high variance in lap lengths for some tracks):")
+                st.dataframe(unstable, use_container_width=True)
+            else:
+                st.success("✅ Geometry looks reasonably stable for the current data volume.")
+        else:
+            st.info("Not enough data yet to evaluate geometry stability.")
+
+    # 9) RAW HISTORY
+    with tabs[8]:
         st.write("### 📂 Race History")
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
 
-    # 9) WHAT-IF ANALYSIS PANEL
-    with tabs[8]:
+    # 10) WHAT-IF ANALYSIS PANEL
+    with tabs[9]:
         st.write("### 🧪 What-If Analysis Panel")
         st.caption("Experiment with different track reveals and vehicle combos without logging to history.")
         sim_lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
