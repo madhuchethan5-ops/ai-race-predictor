@@ -4,8 +4,6 @@ import numpy as np
 import os
 from streamlit_extras.grid import grid
 
-import streamlit as st
-import pandas as pd
 
 def get_confidence_color(prob: float) -> str:
     """Return a hex color based on confidence strength."""
@@ -101,17 +99,18 @@ def confidence_delta_panel(current_probs: dict):
     df_delta = pd.DataFrame(rows)
     st.dataframe(df_delta, use_container_width=True)
 
+
 # --- 1. CORE PHYSICS CONFIGURATION ---
 SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
     "Motorcycle":    {"Expressway": 94,  "Desert": 45, "Dirt": 76, "Potholes": 36, "Bumpy": 66, "Highway": 89},
     "Stock Car":     {"Expressway": 100, "Desert": 50, "Dirt": 80, "Potholes": 45, "Bumpy": 72, "Highway": 99},
-    "SUV":           {"Expressway": 180, "Desert": 63, "Dirt": 100,"Potholes": 60, "Bumpy": 80, "Highway": 143},
-    "Car":           {"Expressway": 235, "Desert": 70, "Dirt": 120,"Potholes": 68, "Bumpy": 81, "Highway": 180},
+    "SUV":           {"Expressway": 180, "Desert": 63, "Dirt": 100, "Potholes": 60, "Bumpy": 80, "Highway": 143},
+    "Car":           {"Expressway": 235, "Desert": 70, "Dirt": 120, "Potholes": 68, "Bumpy": 81, "Highway": 180},
     "ATV":           {"Expressway": 80,  "Desert": 40, "Dirt": 66, "Potholes": 32, "Bumpy": 60, "Highway": 80},
-    "Sports Car":    {"Expressway": 300, "Desert": 72, "Dirt": 130,"Potholes": 72, "Bumpy": 91, "Highway": 240},
-    "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134,"Potholes": 77, "Bumpy": 99, "Highway": 320},
+    "Sports Car":    {"Expressway": 300, "Desert": 72, "Dirt": 130, "Potholes": 72, "Bumpy": 91, "Highway": 240},
+    "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134, "Potholes": 77, "Bumpy": 99, "Highway": 320},
 }
 
 ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
@@ -131,6 +130,7 @@ TRACK_ALIASES = {
     "normal road": "Highway",
     "Normal": "Highway",
 }
+
 
 def auto_clean_history(df: pd.DataFrame):
     """Automatically clean race history: fix track names, lanes, invalid rows, normalize lap lengths."""
@@ -184,18 +184,19 @@ def auto_clean_history(df: pd.DataFrame):
 
     return df, issues
 
+
 # === METRICS & ANALYTICS HELPERS ===
 
 def compute_basic_metrics(history: pd.DataFrame):
     if history.empty:
         return None
-    
+
     df = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
     if df.empty:
         return None
-    
+
     acc = (df['Actual_Winner'] == df['Predicted_Winner']).mean()
-    
+
     if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
         cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
         if not cal_df.empty:
@@ -238,6 +239,7 @@ def compute_basic_metrics(history: pd.DataFrame):
         'log_loss': log_loss
     }
 
+
 def compute_learning_curve(history: pd.DataFrame, window: int = 30):
     if history.empty:
         return None
@@ -264,6 +266,7 @@ def compute_learning_curve(history: pd.DataFrame, window: int = 30):
         df['Brier_Roll'] = np.nan
         return df
 
+
 def compute_learned_geometry(history: pd.DataFrame):
     """Mean/std of Lap lengths per track, across all laps (because lengths vary wildly)."""
     if history.empty:
@@ -288,6 +291,7 @@ def compute_learned_geometry(history: pd.DataFrame):
     geom = geom.rename(columns={geom.columns[0]: 'Track'})
     return geom[['Lap', 'Track', 'mean', 'std', 'count']]
 
+
 def compute_transition_matrices(history: pd.DataFrame):
     mats = {}
     for i in range(1, 4):
@@ -303,6 +307,7 @@ def compute_transition_matrices(history: pd.DataFrame):
                 mat = pd.crosstab(valid[c1], valid[c2], normalize='index') * 100
                 mats[(i, j)] = mat
     return mats
+
 
 def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
     if history.empty:
@@ -333,6 +338,7 @@ def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
             out['notes'] = "Geometry drift computed between early and late halves."
     return out
 
+
 def compute_volatility_from_probs(probs: dict):
     if not probs:
         return None
@@ -342,6 +348,7 @@ def compute_volatility_from_probs(probs: dict):
     top = items[0][1]
     second = items[1][1]
     return {'volatility': top - second, 'ranking': items}
+
 
 # --- 2. DATA ARCHITECT (FIXED & HARDENED) ---
 def load_and_migrate_data():
@@ -381,7 +388,9 @@ def load_and_migrate_data():
     except Exception:
         return pd.DataFrame(columns=cols)
 
+
 history = load_and_migrate_data()
+
 
 # --- 3. THE ML ENGINE (NEXT-GEN, UPGRADED GEOMETRY, SAME API) ---
 def run_simulation(
@@ -472,7 +481,7 @@ def run_simulation(
                 if j == k_idx:
                     continue
                 from_col = f"Lap_{k_idx + 1}_Track"
-                to_col   = f"Lap_{j + 1}_Track"
+                to_col = f"Lap_{j + 1}_Track"
                 if from_col in history_df.columns and to_col in history_df.columns:
                     valid = history_df[[from_col, to_col]].dropna()
                     if valid.empty:
@@ -563,7 +572,7 @@ def run_simulation(
             return 1.0
 
         avg_conf = recent['Top_Prob'].mean()
-        avg_acc  = recent['Was_Correct'].mean()
+        avg_acc = recent['Was_Correct'].mean()
         if avg_conf <= 0 or avg_acc <= 0:
             return 1.0
 
@@ -581,18 +590,19 @@ def run_simulation(
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
 
+
 # --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("🚦 Race Setup")
     lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
     slot_name = st.selectbox("Revealed Slot", list(lap_map.keys()))
     k_idx, k_type = lap_map[slot_name], st.selectbox("Revealed Track", TRACK_OPTIONS)
-    
+
     st.divider()
     v1_sel = st.selectbox("Vehicle 1", ALL_VEHICLES, index=ALL_VEHICLES.index("Supercar"))
     v2_sel = st.selectbox("Vehicle 2", [v for v in ALL_VEHICLES if v != v1_sel], index=0)
     v3_sel = st.selectbox("Vehicle 3", [v for v in ALL_VEHICLES if v not in [v1_sel, v2_sel]], index=0)
-    
+
     if st.button("🚀 PREDICT", type="primary", use_container_width=True):
         probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
         st.session_state['res'] = {
@@ -600,6 +610,7 @@ with st.sidebar:
             'vpi': vpi_res,
             'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name}
         }
+
 
 # --- 5. DASHBOARD ---
 st.title("🏁 AI RACE MASTER PRO")
@@ -616,6 +627,7 @@ if 'res' in st.session_state:
     for v, val in res['p'].items():
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
+
 
 # --- SAVE RACE REPORT (FINAL BEHAVIOUR) ---
 st.divider()
@@ -725,6 +737,8 @@ with st.form("race_report_form"):
 
         st.success("✅ Saved & AI trained!")
         st.rerun()
+
+
 # --- PREDICTION ANALYTICS PANEL ---
 if 'res' in st.session_state:
 
@@ -799,42 +813,29 @@ if 'res' in st.session_state:
         df_delta = pd.DataFrame(rows)
         st.dataframe(df_delta, use_container_width=True)
 
-    # -------------------------------
-    # ✅ 1. WHY THE AI CHOSE THIS WINNER (FIRST)
-    # -------------------------------
+    # 1. WHY THE AI CHOSE THIS WINNER (EXPLANATION PANEL)
     st.write("### 🧠 Why the AI Chose This Winner")
 
-    explanation = ""
+    detailed_explanation = ""
 
-    # Winner dominates key track?
     if probs[predicted_winner] > 80:
-        explanation += f"- **{predicted_winner}** is significantly faster on the dominant lap.\n"
+        detailed_explanation += f"- **{predicted_winner}** is significantly faster on the dominant lap.\n"
 
-    # Reinforcement learning boost
-    res = st.session_state['res']
-vpi = res['vpi']
-res = st.session_state['res']
-vpi = res['vpi']    
-if vpi[predicted_winner] > 1.05:
-        explanation += f"- Reinforcement learning shows **{predicted_winner}** has strong historical performance.\n"
+    if vpi[predicted_winner] > 1.05:
+        detailed_explanation += f"- Reinforcement learning shows **{predicted_winner}** has strong historical performance.\n"
 
-# Track-specific logic
-revealed_track = ctx['t']
+    if revealed_track in ["Expressway", "Highway"]:
+        detailed_explanation += "- High-speed tracks strongly favor Supercar / Sports Car.\n"
 
-if revealed_track in ["Expressway", "Highway"]:
-    explanation += "- High-speed tracks strongly favor Supercar / Sports Car.\n"
+    if revealed_track in ["Dirt", "Bumpy", "Potholes"]:
+        detailed_explanation += "- Rough tracks often favor ORV / Monster Truck.\n"
 
-if revealed_track in ["Dirt", "Bumpy", "Potholes"]:
-    explanation += "- Rough tracks often favor ORV / Monster Truck.\n"
+    if detailed_explanation == "":
+        detailed_explanation = "The AI combined physics, learned geometry, and historical win patterns to select this winner."
 
-if explanation == "":
-    explanation = "The AI selected the winner based on combined physics, lap lengths, and Monte‑Carlo simulations."
+    st.info(detailed_explanation)
 
-st.info(explanation)
-
-    # -------------------------------
-    # ✅ 2. CONFIDENCE & VOLATILITY
-    # -------------------------------
+    # 2. CONFIDENCE & VOLATILITY
     sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
     top_prob = sorted_probs[0][1]
     second_prob = sorted_probs[1][1]
@@ -849,29 +850,24 @@ st.info(explanation)
 
     st.metric("Prediction Confidence", f"{top_prob:.1f}%", vol_text)
 
-    # -------------------------------
-    # ✅ 3. LAP-BY-LAP EXPECTED TIME (PHYSICS)
-    # -------------------------------
+    # 3. LAP-BY-LAP EXPECTED TIME (PHYSICS)
     st.write("### ⏱️ Lap-by-Lap Expected Time (Physics Model)")
 
-    import pandas as pd
-
     lap_data = []
-    for v in vehicles:
-        for lap in range(3):
-            track = ctx['t'] if lap == ctx['idx'] else "Hidden"
+    # Use vehicles from context
+    for v in ctx['v']:
+        for lap_idx in range(3):
+            track = ctx['t'] if lap_idx == ctx['idx'] else "Hidden"
             lap_data.append({
                 "Vehicle": v,
-                "Lap": lap + 1,
+                "Lap": lap_idx + 1,
                 "Track": track,
                 "Speed": SPEED_DATA[v].get(track, "—") if track != "Hidden" else "—"
             })
 
     st.dataframe(pd.DataFrame(lap_data), use_container_width=True)
 
-    # -------------------------------
-    # ✅ 4. HIDDEN LAP PREDICTIONS
-    # -------------------------------
+    # 4. HIDDEN LAP PREDICTIONS (SUMMARY)
     st.write("### 🔮 Hidden Lap Predictions")
     st.caption("Based on learned Markov transitions and geometry.")
 
@@ -881,6 +877,8 @@ st.info(explanation)
         "Winner": predicted_winner,
         "Probabilities": probs
     })
+
+
 def csv_health_check(df: pd.DataFrame):
     issues = []
 
@@ -891,12 +889,12 @@ def csv_health_check(df: pd.DataFrame):
 
     # 2. Check for missing required columns
     required = [
-        'Vehicle_1','Vehicle_2','Vehicle_3',
-        'Lap_1_Track','Lap_1_Len',
-        'Lap_2_Track','Lap_2_Len',
-        'Lap_3_Track','Lap_3_Len',
-        'Actual_Winner','Predicted_Winner',
-        'Lane','Top_Prob','Was_Correct'
+        'Vehicle_1', 'Vehicle_2', 'Vehicle_3',
+        'Lap_1_Track', 'Lap_1_Len',
+        'Lap_2_Track', 'Lap_2_Len',
+        'Lap_3_Track', 'Lap_3_Len',
+        'Actual_Winner', 'Predicted_Winner',
+        'Lane', 'Top_Prob', 'Was_Correct'
     ]
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -909,14 +907,16 @@ def csv_health_check(df: pd.DataFrame):
 
     # 4. Check for invalid track names
     valid_tracks = set(TRACK_OPTIONS)
-    for lap in [1,2,3]:
+    for lap in [1, 2, 3]:
         col = f"Lap_{lap}_Track"
-        invalid = df[~df[col].isin(valid_tracks)][col].unique()
-        invalid = [x for x in invalid if pd.notna(x)]
-        if invalid:
-            issues.append(f"Invalid track names in {col}: {invalid}")
+        if col in df.columns:
+            invalid = df[~df[col].isin(valid_tracks)][col].unique()
+            invalid = [x for x in invalid if pd.notna(x)]
+            if invalid:
+                issues.append(f"Invalid track names in {col}: {invalid}")
 
     return issues
+
 
 # --- 7. ANALYTICS (MODEL INSIGHTS & BRAIN) ---
 if not history.empty:
@@ -1068,7 +1068,7 @@ if not history.empty:
         else:
             st.info("Record more races to see Lane win rates.")
 
-    # 8) DATA QUALITY CHECKER
+    # 8) DATA QUALITY CHECKER + CSV HEALTH
     with tabs[7]:
         st.write("### 🧹 Data Quality Checker")
 
@@ -1090,6 +1090,15 @@ if not history.empty:
                 st.success("✅ Geometry looks reasonably stable for the current data volume.")
         else:
             st.info("Not enough data yet to evaluate geometry stability.")
+
+        st.write("### 🧹 CSV Health Check")
+        csv_issues = csv_health_check(history)
+        if not csv_issues:
+            st.success("✅ CSV is healthy and fully compatible.")
+        else:
+            st.error("⚠️ Issues detected:")
+            for i in csv_issues:
+                st.write(f"- {i}")
 
     # 9) RAW HISTORY
     with tabs[8]:
@@ -1121,14 +1130,3 @@ if not history.empty:
             if vol_sim:
                 st.metric("Volatility (Top - Second)", f"{vol_sim['volatility']:.1f} pp")
                 st.caption("Use this to explore setups before committing to a real predictions + telemetry cycle.")
-with tabs[7]:
-    st.write("### 🧹 CSV Health Check")
-
-    issues = csv_health_check(history)
-
-    if not issues:
-        st.success("✅ CSV is healthy and fully compatible.")
-    else:
-        st.error("⚠️ Issues detected:")
-        for i in issues:
-            st.write(f"- {i}")
