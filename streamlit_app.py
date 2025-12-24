@@ -23,6 +23,208 @@ CSV_FILE = 'race_history.csv'
 
 st.set_page_config(layout="wide", page_title="AI Race Master Pro", page_icon="🏎️")
 
+# === METRICS & ANALYTICS HELPERS ===
+
+def compute_basic_metrics(history: pd.DataFrame):
+    """Global accuracy, mean top prob, calibration error, Brier, log loss."""
+    if history.empty:
+        return None
+    
+    df = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
+    if df.empty:
+        return None
+    
+    # Accuracy
+    acc = (df['Actual_Winner'] == df['Predicted_Winner']).mean()
+    
+    # Top_Prob / Was_Correct may not exist for early rows
+    if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
+        cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
+        if not cal_df.empty:
+            mean_top_prob = cal_df['Top_Prob'].mean()
+            mean_acc = cal_df['Was_Correct'].mean()
+            calib_error = abs(mean_top_prob - mean_acc)
+        else:
+            mean_top_prob = np.nan
+            calib_error = np.nan
+    else:
+        mean_top_prob = np.nan
+        calib_error = np.nan
+
+    # Brier score (for the predicted winner as a 1/0 outcome)
+    if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
+        cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
+        if not cal_df.empty:
+            brier = ((cal_df['Top_Prob'] - cal_df['Was_Correct'])**2).mean()
+        else:
+            brier = np.nan
+    else:
+        brier = np.nan
+
+    # Simple "log loss" using only top prob; guard against log(0)
+    if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
+        cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
+        if not cal_df.empty:
+            eps = 1e-8
+            p = np.clip(cal_df['Top_Prob'], eps, 1 - eps)
+            y = cal_df['Was_Correct']
+            log_loss = -(y * np.log(p) + (1 - y) * np.log(1 - p)).mean()
+        else:
+            log_loss = np.nan
+    else:
+        log_loss = np.nan
+
+    return {
+        'accuracy': acc,
+        'mean_top_prob': mean_top_prob,
+        'calib_error': calib_error,
+        'brier': brier,
+        'log_loss': log_loss
+    }
+
+
+def compute_learning_curve(history: pd.DataFrame, window: int = 30):
+    """Rolling accuracy and Brier score over time."""
+    if history.empty:
+        return None
+
+    df = history.dropna(subset=['Actual_Winner', 'Predicted_Winner']).copy()
+    if df.empty:
+        return None
+
+    df = df.reset_index(drop=True)
+    df['Correct'] = (df['Actual_Winner'] == df['Predicted_Winner']).astype(float)
+
+    if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
+        df2 = df.dropna(subset=['Top_Prob', 'Was_Correct']).copy()
+        if df2.empty:
+            df['Acc_Roll'] = df['Correct'].rolling(window).mean()
+            df['Brier_Roll'] = np.nan
+            return df
+        df2['Brier'] = (df2['Top_Prob'] - df2['Was_Correct'])**2
+        df2['Acc_Roll'] = df2['Was_Correct'].rolling(window).mean()
+        df2['Brier_Roll'] = df2['Brier'].rolling(window).mean()
+        return df2
+    else:
+        df['Acc_Roll'] = df['Correct'].rolling(window).mean()
+        df['Brier_Roll'] = np.nan
+        return df
+
+
+def compute_learned_geometry(history: pd.DataFrame):
+    """Mean and std of Lap_i_Len by Lap_i_Track."""
+    if history.empty:
+        return None
+    rows = []
+    for i in range(1, 4):
+        t_col = f"Lap_{i}_Track"
+        l_col = f"Lap_{i}_Len"
+        if t_col not in history.columns or l_col not in history.columns:
+            continue
+        tmp = history[[t_col, l_col]].copy()
+        tmp[l_col] = pd.to_numeric(tmp[l_col], errors='coerce')
+        tmp = tmp.dropna()
+        if tmp.empty:
+            continue
+        g = tmp.groupby(t_col)[l_col].agg(['mean', 'std', 'count']).reset_index()
+        g['Lap'] = i
+        rows.append(g)
+    if not rows:
+        return None
+    geom = pd.concat(rows, ignore_index=True)
+    # t_col here will be last defined in loop (Lap_3_Track) but column name is same type
+    return geom.rename(columns={geom.columns[0]: 'Track'})[['Lap', 'Track', 'mean', 'std', 'count']]
+
+
+def compute_transition_matrices(history: pd.DataFrame):
+    """Markov transition matrices P(Lap_j | Lap_i)."""
+    mats = {}
+    for i in range(1, 4):
+        for j in range(1, 4):
+            if i == j:
+                continue
+            c1 = f"Lap_{i}_Track"
+            c2 = f"Lap_{j}_Track"
+            if c1 in history.columns and c2 in history.columns:
+                valid = history[[c1, c2]].dropna()
+                if valid.empty:
+                    continue
+                mat = pd.crosstab(valid[c1], valid[c2], normalize='index') * 100
+                mats[(i, j)] = mat
+    return mats
+
+
+def compute_vpi_history(history: pd.DataFrame):
+    """Approximate how often each vehicle appears and wins over time."""
+    if history.empty:
+        return None
+    veh_cols = [c for c in history.columns if c.startswith('Vehicle_')]
+    if not veh_cols or 'Actual_Winner' not in history.columns:
+        return None
+
+    df = history[veh_cols + ['Actual_Winner']].copy()
+    records = []
+    for idx, row in df.iterrows():
+        for c in veh_cols:
+            v = row[c]
+            if pd.isna(v):
+                continue
+            records.append({
+                'Race': idx,
+                'Vehicle': v,
+                'Is_Winner': 1.0 if v == row['Actual_Winner'] else 0.0
+            })
+    if not records:
+        return None
+    vdf = pd.DataFrame(records)
+    vdf['Cum_Race'] = vdf.groupby('Vehicle').cumcount() + 1
+    vdf['Cum_Wins'] = vdf.groupby('Vehicle')['Is_Winner'].cumsum()
+    vdf['Win_Rate'] = vdf['Cum_Wins'] / vdf['Cum_Race']
+    return vdf
+
+
+def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
+    """Compare early vs late periods for geometry to detect drift."""
+    if history.empty:
+        return None
+    n = len(history)
+    if n < 40:
+        return None
+    split = int(n * split_ratio)
+    early = history.iloc[:split]
+    late = history.iloc[split:]
+
+    geom_early = compute_learned_geometry(early)
+    geom_late = compute_learned_geometry(late)
+
+    out = {'geometry': None, 'notes': ""}
+
+    if geom_early is not None and geom_late is not None:
+        merged = pd.merge(
+            geom_early,
+            geom_late,
+            on=['Lap', 'Track'],
+            suffixes=('_early', '_late')
+        )
+        if not merged.empty:
+            merged['mean_diff'] = merged['mean_late'] - merged['mean_early']
+            merged['mean_rel_change_%'] = 100 * merged['mean_diff'] / merged['mean_early'].replace(0, np.nan)
+            out['geometry'] = merged.sort_values('mean_rel_change_%', ascending=False)
+            out['notes'] = "Geometry drift computed between early and late halves."
+    return out
+
+
+def compute_volatility_from_probs(probs: dict):
+    """Volatility = top prob - second prob (0–100 scale) and sorted list."""
+    if not probs:
+        return None
+    items = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+    if len(items) < 2:
+        return {'volatility': 0.0, 'ranking': items}
+    top = items[0][1]
+    second = items[1][1]
+    return {'volatility': top - second, 'ranking': items}
+
 # --- 2. DATA ARCHITECT (FIXED & HARDENED) ---
 def load_and_migrate_data():
     cols = ['Vehicle_1', 'Vehicle_2', 'Vehicle_3',
@@ -205,8 +407,7 @@ def run_simulation(
         base_speed = np.vectorize(SPEED_DATA[vehicle].get)(terrain_matrix)
         base_speed = np.clip(base_speed, 0.1, None)
 
-        speed_std = 0.03 * base_speed
-
+        # 3% std as a proxy for track‑specific noise
         veh_factor = np.random.normal(1.0, 0.03, size=(iterations, 1))
         lap_factor = np.random.normal(1.0, 0.02, size=(iterations, 3))
 
@@ -340,24 +541,190 @@ with st.form("tele_form"):
             st.toast("AI Learned and Lane Context Saved!", icon="🧠")
             st.rerun()
 
-# --- 7. ANALYTICS (LANE TRACKER & ML BRAIN) ---
+# --- 7. ANALYTICS (MODEL INSIGHTS & BRAIN) ---
 if not history.empty:
     st.divider()
-    t1, t2, t3 = st.tabs(["🧠 ML Pattern Brain", "🚦 Lane Tracker", "📂 History"])
-    
-    with t1:
-        st.write("### Track Transition Matrix")
+    tabs = st.tabs([
+        "📊 Performance Dashboard",
+        "📈 Learning Curves",
+        "🎯 Calibration Analyzer",
+        "🌊 Drift Detector",
+        "⚡ Volatility & Importance",
+        "🧠 ML Pattern Brain",
+        "🚦 Lane Tracker",
+        "📂 History",
+        "🧪 What-If Simulator"
+    ])
+
+    # 1) PERFORMANCE DASHBOARD
+    with tabs[0]:
+        st.write("### 📊 Performance Insights Dashboard")
+        metrics = compute_basic_metrics(history)
+        if not metrics:
+            st.info("Not enough data yet to compute metrics.")
+        else:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Global Accuracy", f"{metrics['accuracy']*100:.1f}%")
+            c2.metric("Mean Top Probability", f"{metrics['mean_top_prob']*100:.1f}%" if pd.notna(metrics['mean_top_prob']) else "N/A")
+            c3.metric("Calibration Error |p̂ - acc|", f"{metrics['calib_error']*100:.2f}%" if pd.notna(metrics['calib_error']) else "N/A")
+
+            c4, c5 = st.columns(2)
+            c4.metric("Brier Score (↓ better)", f"{metrics['brier']:.4f}" if pd.notna(metrics['brier']) else "N/A")
+            c5.metric("Log Loss (↓ better)", f"{metrics['log_loss']:.4f}" if pd.notna(metrics['log_loss']) else "N/A")
+
+            st.caption("Calibration Error close to 0 means probabilities match reality. Brier/Log Loss lower = sharper, better-calibrated model.")
+
+    # 2) LEARNING CURVES
+    with tabs[1]:
+        st.write("### 📈 Learning Curves")
+        curve = compute_learning_curve(history, window=20)
+        if curve is None or curve.empty:
+            st.info("Need more races to build learning curves.")
+        else:
+            st.line_chart(curve[['Acc_Roll']], height=250)
+            if 'Brier_Roll' in curve.columns and curve['Brier_Roll'].notna().any():
+                st.line_chart(curve[['Brier_Roll']], height=250)
+                st.caption("Top: rolling accuracy. Bottom: rolling Brier score (lower is better).")
+
+    # 3) CALIBRATION ANALYZER
+    with tabs[2]:
+        st.write("### 🎯 Calibration Analyzer")
+        if 'Top_Prob' in history.columns and 'Was_Correct' in history.columns:
+            cal_df = history.dropna(subset=['Top_Prob', 'Was_Correct']).copy()
+            if cal_df.empty:
+                st.info("Not enough calibrated predictions yet.")
+            else:
+                cal_df['Bucket'] = (cal_df['Top_Prob'] * 10).astype(int) / 10.0
+                calib_table = cal_df.groupby('Bucket').agg(
+                    mean_prob=('Top_Prob', 'mean'),
+                    emp_acc=('Was_Correct', 'mean'),
+                    count=('Was_Correct', 'size')
+                ).reset_index()
+                st.write("#### Reliability Table")
+                st.dataframe(calib_table.style.format({'mean_prob': '{:.2f}', 'emp_acc': '{:.2f}'}))
+
+                st.line_chart(
+                    calib_table.set_index('Bucket')[['mean_prob', 'emp_acc']],
+                    height=300
+                )
+                st.caption("If the lines track each other closely, the AI is well-calibrated.")
+        else:
+            st.info("Top_Prob / Was_Correct not available yet for calibration analysis.")
+
+    # 4) DRIFT DETECTOR
+    with tabs[3]:
+        st.write("### 🌊 Drift Detector (Track Geometry)")
+        drift = compute_drift(history)
+        if not drift or drift['geometry'] is None or drift['geometry'].empty:
+            st.info("Not enough history or drift not detectable yet.")
+        else:
+            st.write(drift['notes'])
+            geom_df = drift['geometry']
+            # Rename count columns safely if present
+            rename_cols = {}
+            for c in geom_df.columns:
+                if c.endswith('_early') and 'count' in c:
+                    rename_cols[c] = 'count_early'
+                if c.endswith('_late') and 'count' in c:
+                    rename_cols[c] = 'count_late'
+            geom_df = geom_df.rename(columns=rename_cols)
+            st.dataframe(
+                geom_df[['Lap', 'Track', 'mean_early', 'mean_late', 'mean_rel_change_%']],
+                use_container_width=True
+            )
+            st.caption("Large relative changes in mean length indicate environment or strategy drift.")
+
+    # 5) VOLATILITY & FEATURE IMPORTANCE (SIMULATED)
+    with tabs[4]:
+        st.write("### ⚡ Volatility & Sensitivity")
+        if 'res' in st.session_state:
+            res = st.session_state['res']
+            vol = compute_volatility_from_probs(res['p'])
+            if vol:
+                st.metric("Volatility (Top - Second)", f"{vol['volatility']:.1f} pp")
+                if vol['volatility'] < 5:
+                    st.warning("Highly volatile race: outcomes are very close.")
+                elif vol['volatility'] < 15:
+                    st.info("Moderately confident prediction.")
+                else:
+                    st.success("High confidence prediction.")
+
+            st.write("#### Sensitivity: Speed Multiplier What-If")
+            v_sel = st.selectbox("Vehicle to stress-test", res['ctx']['v'])
+            mult = st.slider("Speed multiplier for selected vehicle", 0.8, 1.2, 1.0, 0.02)
+
+            original_speed = SPEED_DATA[v_sel].copy()
+            SPEED_DATA[v_sel] = {k: v * mult for k, v in original_speed.items()}
+            probs_whatif, _ = run_simulation(
+                res['ctx']['v'][0],
+                res['ctx']['v'][1],
+                res['ctx']['v'][2],
+                res['ctx']['idx'],
+                res['ctx']['t'],
+                history
+            )
+            SPEED_DATA[v_sel] = original_speed
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("Original probabilities")
+                st.json(res['p'])
+            with c2:
+                st.write(f"With {v_sel} speed x{mult:.2f}")
+                st.json(probs_whatif)
+            st.caption("This approximates 'feature importance' by perturbation: how much probabilities move when one vehicle changes.")
+        else:
+            st.info("Run a prediction first to analyze volatility and sensitivity.")
+
+    # 6) ML PATTERN BRAIN (TRANSITIONS)
+    with tabs[5]:
+        st.write("### 🧠 ML Pattern Brain (Track Transition Matrix)")
         if 'Lap_1_Track' in history.columns and 'Lap_2_Track' in history.columns:
             m = pd.crosstab(history['Lap_1_Track'], history['Lap_2_Track'], normalize='index') * 100
             st.dataframe(m.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
-    
-    with t2:
-        st.write("### Win Rate by Lane Context")
+        mats = compute_transition_matrices(history)
+        if mats:
+            st.write("#### All learned transitions")
+            for (i, j), mat in mats.items():
+                st.write(f"Lap {i} → Lap {j}")
+                st.dataframe(mat.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
+
+    # 7) LANE TRACKER
+    with tabs[6]:
+        st.write("### 🚦 Win Rate by Lane Context")
         if 'Lane' in history.columns and history['Lane'].notna().any():
             lane_stats = pd.crosstab(history['Lane'], history['Actual_Winner'], normalize='index') * 100
             st.dataframe(lane_stats.style.format("{:.1f}%").background_gradient(cmap="YlOrRd", axis=1))
         else:
             st.info("Record more races to see Lane win rates.")
-            
-    with t3: 
+
+    # 8) RAW HISTORY
+    with tabs[7]:
+        st.write("### 📂 Race History")
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
+
+    # 9) WHAT-IF ANALYSIS PANEL
+    with tabs[8]:
+        st.write("### 🧪 What-If Analysis Panel")
+        st.caption("Experiment with different track reveals and vehicle combos without logging to history.")
+        sim_lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
+        sim_slot = st.selectbox("What-If: Revealed Slot", list(sim_lap_map.keys()))
+        sim_idx = sim_lap_map[sim_slot]
+        sim_track = st.selectbox("What-If: Revealed Track", TRACK_OPTIONS, key="whatif_track")
+
+        c_a, c_b, c_c = st.columns(3)
+        with c_a:
+            sim_v1 = st.selectbox("What-If Vehicle 1", ALL_VEHICLES, index=ALL_VEHICLES.index("Supercar"), key="whatif_v1")
+        with c_b:
+            sim_v2 = st.selectbox("What-If Vehicle 2", [v for v in ALL_VEHICLES if v != sim_v1], key="whatif_v2")
+        with c_c:
+            sim_v3 = st.selectbox("What-If Vehicle 3", [v for v in ALL_VEHICLES if v not in [sim_v1, sim_v2]], key="whatif_v3")
+
+        if st.button("Run What-If Simulation"):
+            probs_sim, vpi_sim = run_simulation(sim_v1, sim_v2, sim_v3, sim_idx, sim_track, history)
+            st.write("#### What-If Probabilities")
+            st.json(probs_sim)
+            vol_sim = compute_volatility_from_probs(probs_sim)
+            if vol_sim:
+                st.metric("Volatility (Top - Second)", f"{vol_sim['volatility']:.1f} pp")
+                st.caption("Use this to explore setups before committing to a real predictions + telemetry cycle.")
