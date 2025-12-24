@@ -538,7 +538,7 @@ predicted_winner = max(predicted, key=predicted.get)
 col_qf = st.columns(1)[0]
 if col_qf.button(f"⚡ Quick Fill Winner ({predicted_winner})"):
     st.session_state['winner_autofill'] = predicted_winner
-    st.experimental_rerun()
+    st.rerun()
 
 with st.form("race_report_form"):
 
