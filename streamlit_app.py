@@ -109,3 +109,34 @@ if st.button("💾 Save Result to Database"):
 with st.expander("📂 View Race History"):
     if os.path.exists(CSV_FILE):
         st.dataframe(pd.read_csv(CSV_FILE).tail(10)) # Show last 10 races
+        # --- STEP 5: ANALYTICS DASHBOARD ---
+st.divider()
+st.header("📈 AI Performance Analytics")
+
+if os.path.exists(CSV_FILE):
+    df_history = pd.read_csv(CSV_FILE)
+    if not df_history.empty:
+        # Calculate Accuracy
+        correct = len(df_history[df_history['Predicted_Winner'] == df_history['Actual_Winner']])
+        total = len(df_history)
+        accuracy = (correct / total) * 100
+        
+        # Display Metrics
+        col1, col2 = st.columns(2)
+        col1.metric("Total Races Tracked", total)
+        col2.metric("AI Accuracy", f"{accuracy:.1f}%")
+        
+        # Win Distribution Chart
+        st.subheader("Actual Wins by Vehicle")
+        win_counts = df_history['Actual_Winner'].value_counts()
+        st.bar_chart(win_counts)
+        
+        # Show recent errors
+        st.subheader("Recent Prediction Misses")
+        misses = df_history[df_history['Predicted_Winner'] != df_history['Actual_Winner']].tail(5)
+        if not misses.empty:
+            st.table(misses[['Visible_Track', 'Predicted_Winner', 'Actual_Winner']])
+        else:
+            st.success("The AI has been 100% accurate in recent races!")
+    else:
+        st.info("Log your first race to see analytics here.")
