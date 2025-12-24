@@ -139,7 +139,13 @@ if 'res' in st.session_state:
 # --- 6. TELEMETRY (LOCKED SLOT & LANE TRACKING) ---
 st.divider()
 st.subheader("📝 POST-RACE REPORT (Revealed slot is locked)")
-ctx = st.session_state.get('res', {'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx':0, 't': TRACK_OPTIONS[0], 'slot': 'Lap 1'}})['ctx']
+
+# Hardened Context: Prevents KeyError by checking if 'slot' exists in session state
+default_ctx = {'v': [v1_sel, v2_sel, v3_sel], 'idx': 0, 't': TRACK_OPTIONS[0], 'slot': 'Lap 1'}
+ctx = st.session_state.get('res', {'ctx': default_ctx})['ctx']
+
+# Double-check for the specific 'slot' key to prevent crashes on first load
+current_slot = ctx.get('slot', 'Lap 1')
 
 with st.form("tele_form"):
     winner = st.selectbox("🏆 Actual Winner", ctx['v'])
@@ -155,12 +161,13 @@ with st.form("tele_form"):
         s3t = st.selectbox("L3 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==2 else 0, disabled=(ctx['idx']==2))
         s3l = st.number_input("L3 %", 1, 100, 34)
 
-    # FIXED INDENTATION BELOW
     if st.form_submit_button("💾 SAVE & TRAIN"):
         if s1l + s2l + s3l != 100:
             st.error("❌ Total must be 100%")
         else:
             p_val = max(st.session_state['res']['p'], key=st.session_state['res']['p'].get) if 'res' in st.session_state else "N/A"
+            
+            # SAVING KEY DATA: Uses current_slot to ensure 'Lane' is never 'None'
             row = {
                 'Vehicle_1': ctx['v'][0], 'Vehicle_2': ctx['v'][1], 'Vehicle_3': ctx['v'][2],
                 'Lap_1_Track': s1t, 'Lap_1_Len': s1l, 
@@ -168,7 +175,7 @@ with st.form("tele_form"):
                 'Lap_3_Track': s3t, 'Lap_3_Len': s3l, 
                 'Predicted_Winner': p_val, 
                 'Actual_Winner': winner, 
-                'Lane': ctx['slot']
+                'Lane': current_slot
             }
             pd.concat([history, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_FILE, index=False)
             st.toast("AI Learned and Lane Context Saved!", icon="🧠")
