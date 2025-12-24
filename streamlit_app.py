@@ -588,7 +588,6 @@ if 'res' in st.session_state:
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
 # Export latest history for GitHub sync
-if not history.empty:
 st.divider()
 tabs = st.tabs([
     "📊 Performance Dashboard",
@@ -602,7 +601,6 @@ tabs = st.tabs([
     "📂 History",
     "🧪 What-If Simulator"
 ])
-
 
 # ---------------------------------------------------------
 # 8. SAVE RACE REPORT
