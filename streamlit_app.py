@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import matplotlib.pyplot as plt
-import seaborn as sns
+import requests
+import plotly.express as px
+from streamlit_extras.stylable_container import stylable_container
+from streamlit_extras.grid import grid
 
 # --- 1. DATA & CONFIG ---
 SPEED_DATA = {
@@ -19,174 +21,107 @@ SPEED_DATA = {
 }
 
 CSV_FILE = 'race_history.csv'
+st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# Set Page Config for wide layout to use screen space efficiently
-st.set_page_config(layout="wide", page_title="AI Race Predictor")
-
-# --- 2. SIMULATION ENGINE ---
-def run_simulation(v1, v2, v3, visible_t, visible_l):
-    wins = {v1: 0, v2: 0, v3: 0}
-    iterations = 2000
-    all_terrains = list(SPEED_DATA["Car"].keys())
-    
-    avg_vis_len = 0.30 
-    if os.path.exists(CSV_FILE):
-        df_h = pd.read_csv(CSV_FILE)
-        if 'Visible_Lane_Length (%)' in df_h.columns and not df_h[df_h['Visible_Track'] == visible_t].empty:
-            avg_vis_len = df_h[df_h['Visible_Track'] == visible_t]['Visible_Lane_Length (%)'].mean() / 100
-
-    for _ in range(iterations):
-        vis_len = np.clip(np.random.normal(avg_vis_len, 0.1), 0.05, 0.95)
-        rem_len = 1.0 - vis_len
-        h1_len = rem_len * np.random.uniform(0.2, 0.8)
-        h2_len = rem_len - h1_len
-        
-        lengths = [0, 0, 0]
-        lengths[visible_l-1] = vis_len
-        others = [i for i in range(3) if i != visible_l-1]
-        lengths[others[0]] = h1_len
-        lengths[others[1]] = h2_len
-
-        t_list = [None, None, None]
-        t_list[visible_l-1] = visible_t
-        t_list[others[0]] = np.random.choice(all_terrains)
-        t_list[others[1]] = np.random.choice(all_terrains)
-        
-        times = {v: sum([(lengths[i]/SPEED_DATA[v][t_list[i]]) for i in range(3)]) for v in [v1, v2, v3]}
-        wins[min(times, key=times.get)] += 1
-    return {k: (v / iterations) * 100 for k, v in wins.items()}
-
-# --- 3. SIDEBAR (FIT-TO-SCREEN INPUTS) ---
-with st.sidebar:
-    st.markdown("<h2 style='font-weight: 300;'>🚦 Setup</h2>", unsafe_allow_html=True)
-    
-    with st.expander("🌍 Environment", expanded=True):
-        visible_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
-        visible_lane = st.radio("Which Lane is Visible?", [1, 2, 3], horizontal=True)
-    
-    st.divider()
-    
-    with st.expander("🏎️ Competitors", expanded=True):
-        v1 = st.selectbox("Vehicle 1 (Top)", list(SPEED_DATA.keys()), index=8)
-        v2 = st.selectbox("Vehicle 2 (Mid)", list(SPEED_DATA.keys()), index=7)
-        v3 = st.selectbox("Vehicle 3 (Bot)", list(SPEED_DATA.keys()), index=5)
-    
-    st.divider()
-    predict_clicked = st.button("🚀 Run AI Prediction", type="primary", use_container_width=True)
-
-# --- 4. MAIN SCREEN (COMPACT LAYOUT & CSS) ---
+# --- 2. UI STYLING ---
 st.markdown("""
     <style>
-    .block-container {padding-top: 1rem; padding-bottom: 0rem;}
-    h1 {margin-top: -30px; font-weight: 300; text-align: center; margin-bottom: 0px;}
-    .stMetric {background-color: #f8f9fb; padding: 10px; border-radius: 8px; border: 1px solid #e6e9ef;}
-    hr {margin: 15px 0;}
+    .stApp { background: #0f172a; color: #f8fafc; }
+    div[data-testid="stMetric"] { background: rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 15px; }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown("<h1>AI Race Predictor</h1>", unsafe_allow_html=True)
+# --- 3. LOGIC ---
+def load_history():
+    if os.path.exists(CSV_FILE): return pd.read_csv(CSV_FILE)
+    return pd.DataFrame()
 
-if predict_clicked:
-    probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
-    st.session_state['last_pred'] = max(probs, key=probs.get)
+def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
+    vehicles = [v1, v2, v3]
+    all_terrains = list(SPEED_DATA["Car"].keys())
     
-    st.markdown("<h4 style='font-weight: 300; margin-top: 10px;'>🏁 Prediction Results</h4>", unsafe_allow_html=True)
+    # 1. Historical Variance
+    avg_vis = 0.30
+    if not history_df.empty and 'Visible_Track' in history_df.columns:
+        match = history_df[history_df['Visible_Track'] == visible_t]
+        if not match.empty: avg_vis = match['Visible_Segment_%'].mean() / 100
+
+    # 2. Vectorized Math
+    vis_lens = np.clip(np.random.normal(avg_vis, 0.1, iterations), 0.05, 0.95)
+    h1_lens = (1.0 - vis_lens) * np.random.uniform(0.2, 0.8, iterations)
+    h2_lens = 1.0 - vis_lens - h1_lens
+
+    seg_terrains = np.random.choice(all_terrains, size=(iterations, 3))
+    seg_terrains[:, visible_l-1] = visible_t
+
+    results = {}
+    for v in vehicles:
+        # Map terrain names to speeds
+        speed_map = np.vectorize(SPEED_DATA[v].get)(seg_terrains)
+        # 5% Performance Noise
+        noise = np.random.normal(1.0, 0.05, (iterations, 3))
+        noisy_speeds = speed_map * noise
+        times = (vis_lens/noisy_speeds[:, 0]) + (h1_lens/noisy_speeds[:, 1]) + (h2_lens/noisy_speeds[:, 2])
+        results[v] = times
+
+    winners = np.argmin(np.array([results[v] for v in vehicles]), axis=0)
+    counts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
+    return {vehicles[i]: counts.get(i, 0) for i in range(3)}
+
+# --- 4. INTERFACE ---
+history = load_history()
+
+with st.sidebar:
+    st.header("🚦 Race Setup")
+    v_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
+    v_lane = st.radio("Active Lane", [1, 2, 3], horizontal=True)
+    c1 = st.selectbox("Vehicle 1", list(SPEED_DATA.keys()), index=8)
+    c2 = st.selectbox("Vehicle 2", list(SPEED_DATA.keys()), index=7)
+    c3 = st.selectbox("Vehicle 3", list(SPEED_DATA.keys()), index=5)
+    predict_btn = st.button("🚀 EXECUTE PREDICTION", use_container_width=True, type="primary")
+
+st.title("🏎️ AI RACE PREDICTOR PRO")
+
+if predict_btn:
+    probs = run_simulation_vectorized(c1, c2, c3, v_track, v_lane, history)
+    st.session_state['last_probs'] = probs
     
-    col_win, col_risk = st.columns([2, 1])
-    with col_win:
-        st.markdown(f"**Best Strategic Pick:** <span style='color: #FF4B4B; font-size: 20px;'>{st.session_state['last_pred']}</span>", unsafe_allow_html=True)
+    # Results Grid
+    m_grid = grid(3, vertical_align="center")
+    for veh, val in probs.items():
+        m_grid.metric(veh, f"{val:.1f}%")
+
+    col_chart, col_risk = st.columns([2, 1])
+    with col_chart:
+        fig = px.pie(names=list(probs.keys()), values=list(probs.values()), hole=0.4, title="Win Probabilities")
+        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig, use_container_width=True)
     
     with col_risk:
-        sorted_p = sorted(probs.values(), reverse=True)
-        gap = sorted_p[0] - sorted_p[1]
-        if gap > 40: st.success("✅ LOW RISK")
-        elif gap > 15: st.warning("⚠️ MEDIUM RISK")
-        else: st.error("🚨 HIGH RISK")
+        st.subheader("🚨 Strategic Risk")
+        gap = max(probs.values()) - sorted(probs.values())[1]
+        if gap > 30: st.success("HIGH CONFIDENCE")
+        else: st.error("HIGH VOLATILITY")
 
-    c1, c2, c3 = st.columns(3)
-    p_items = list(probs.items())
-    for i, col in enumerate([c1, c2, c3]):
-        with col:
-            st.metric(p_items[i][0], f"{p_items[i][1]:.1f}%")
-            st.progress(int(p_items[i][1]))
-    st.divider()
-
-# --- 5. DATA LOGGING FORM (SINGLE, COMPACT ROW) ---
-st.markdown("<h4 style='font-weight: 300;'>📝 Race Outcome Logger</h4>", unsafe_allow_html=True)
-with st.form("race_logger", clear_on_submit=True):
-    f_col1, f_col2, f_col3 = st.columns(3)
-    with f_col1:
-        actual_winner = st.selectbox("Actual Winner", [v1, v2, v3])
-        vis_len_actual = st.number_input("Visible Segment %", 5, 95, 30)
-    with f_col2:
-        h1_track = st.selectbox("Hidden Track 1", list(SPEED_DATA["Car"].keys()))
-        h1_len = st.number_input("Hidden 1 %", 5, 95, 35)
-    with f_col3:
-        h2_track = st.selectbox("Hidden Track 2", list(SPEED_DATA["Car"].keys()))
-        h2_len = st.number_input("Hidden 2 %", 5, 95, 35)
+# --- 5. LOGGING ---
+st.divider()
+with st.form("logger", clear_on_submit=True):
+    st.subheader("📝 POST-RACE TELEMETRY")
+    f1, f2, f3, f4 = st.columns(4)
+    with f1: winner = st.selectbox("Actual Winner", [c1, c2, c3])
+    with f2: v_len = st.number_input("Visible %", 5, 95, 30)
+    with f3: h1_t = st.selectbox("Hidden 1", list(SPEED_DATA["Car"].keys()))
+    with f4: h2_t = st.selectbox("Hidden 2", list(SPEED_DATA["Car"].keys()))
     
-    if st.form_submit_button("💾 Save Race to History", use_container_width=True):
-        prediction = st.session_state.get('last_pred', "N/A")
-        new_row = pd.DataFrame([{
-            "V1": v1, "V2": v2, "V3": v3,
-            "Actual_Winner": actual_winner,
-            "Lane": visible_lane,
-            "Visible_Track": visible_track,
-            "Visible_Lane_Length (%)": vis_len_actual,
-            "Hidden_1": h1_track, "Hidden_1_Len": h1_len,
-            "Hidden_2": h2_track, "Hidden_2_Len": h2_len,
-            "Predicted_Winner": prediction
-        }])
+    if st.form_submit_button("💾 ARCHIVE DATA", use_container_width=True):
+        prediction = max(st.session_state.get('last_probs', {}), key=st.session_state.get('last_probs', {}).get, default="N/A")
+        new_row = pd.DataFrame([{"Visible_Track": v_track, "Visible_Segment_%": v_len, "Predicted": prediction, "Actual": winner}])
         new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-        st.toast("Race saved successfully!", icon="✅")
+        st.toast("Telemetry synchronized!")
 
-# --- 6. ANALYTICS & DOWNLOAD (STABLE VERSION) ---
-if os.path.exists(CSV_FILE):
-    df = pd.read_csv(CSV_FILE)
-    st.divider()
-    
-    # 6a. Data Export
-    st.header("💾 Race History Management")
-    st.download_button(
-        label=f"📥 Download Full History ({len(df)} Races)",
-        data=df.to_csv(index=False),
-        file_name="race_history_complete.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
-
-    st.header("📊 Performance Analytics")
-    
-    # 6b. Accuracy Tracking (Filters out N/A rows for stats)
-    if 'Actual_Winner' in df.columns and 'Predicted_Winner' in df.columns:
-        valid_df = df[df['Predicted_Winner'] != "N/A"].copy()
-        
-        if not valid_df.empty:
-            valid_df['Is_Correct'] = valid_df['Actual_Winner'] == valid_df['Predicted_Winner']
-            
-            # Display Accuracy in a clean metric
-            acc = valid_df['Is_Correct'].mean() * 100
-            st.metric("Overall Prediction Accuracy", f"{acc:.1f}%", delta=f"{len(valid_df)} Total Predictions")
-            
-            # Track Failure Rates by Track Type
-            st.subheader("🚩 Track Failure Analysis")
-            diff_df = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
-            diff_df.columns = ['Races Played', 'Success Rate']
-            diff_df['Failure %'] = (1 - diff_df['Success Rate']) * 100
-            
-            # Simple, clean table
-            st.table(diff_df[['Races Played', 'Failure %']].sort_values('Failure %', ascending=False))
-
-    # 6c. Win Distribution (Uses ALL data including N/A rows)
-    st.subheader("🏎️ Vehicle Win Distribution")
-    win_counts = df['Actual_Winner'].value_counts()
-    
-    fig, ax = plt.subplots(figsize=(10, 4))
-    sns.barplot(x=win_counts.index, y=win_counts.values, palette="viridis", ax=ax)
-    plt.xticks(rotation=45)
-    plt.ylabel("Total Wins")
-    st.pyplot(fig)
-
-    # 6d. Raw Data Explorer
-    with st.expander("🔍 View Raw CSV Data"):
-        st.dataframe(df, use_container_width=True)
+# --- 6. HISTORY ---
+if not history.empty:
+    with st.expander("📊 PERFORMANCE DASHBOARD"):
+        acc = (history['Predicted'] == history['Actual']).mean() * 100
+        st.metric("AI Accuracy", f"{acc:.1f}%")
+        st.dataframe(history.tail(5), use_container_width=True)
