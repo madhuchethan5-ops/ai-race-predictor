@@ -23,7 +23,7 @@ CSV_FILE = 'race_history.csv'
 
 st.set_page_config(layout="wide", page_title="AI Race Master Pro", page_icon="🏎️")
 
-# --- 2. DATA ARCHITECT (FIXED FOR YOUR DATA) ---
+# --- 2. DATA ARCHITECT (FIXED & HARDENED) ---
 def load_and_migrate_data():
     cols = ['Vehicle_1', 'Vehicle_2', 'Vehicle_3', 'Lap_1_Track', 'Lap_1_Len', 
             'Lap_2_Track', 'Lap_2_Len', 'Lap_3_Track', 'Lap_3_Len', 
@@ -35,15 +35,21 @@ def load_and_migrate_data():
         df = pd.read_csv(CSV_FILE)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
-        # Explicit Mapping for your screenshots
+        # Standardizing all previous column versions to ensure data is considered
         rename_map = {
+            'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3',
             'Visible_Track': 'Lap_1_Track', 'Visible_Lane_Length (%)': 'Lap_1_Len',
             'Hidden_1': 'Lap_2_Track', 'Hidden_1_Len': 'Lap_2_Len',
             'Hidden_2': 'Lap_3_Track', 'Hidden_2_Len': 'Lap_3_Len'
         }
         df = df.rename(columns=rename_map)
         
-        # Patch any "None" strings to actual NaN
+        # Ensure all columns exist and fill missing values properly
+        for c in cols:
+            if c not in df.columns:
+                df[c] = np.nan
+        
+        # Clean up any 'None' strings from previous exports
         df = df.replace('None', np.nan)
         return df
     except Exception:
@@ -51,19 +57,19 @@ def load_and_migrate_data():
 
 history = load_and_migrate_data()
 
-# --- 3. THE ML ENGINE (WITH VISIBLE WEIGHTS) ---
+# --- 3. THE ML ENGINE ---
 def run_simulation(v1, v2, v3, k_idx, k_type, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
     lap_probs = {0: None, 1: None, 2: None}
     
-    # ML PHASE 1: Vehicle VPI Boost (Reinforcement Learning)
+    # ML PHASE 1: VPI Boost (Reinforcement Learning from your winning data)
     vpi = {v: 1.0 for v in vehicles}
     if not history_df.empty and 'Actual_Winner' in history_df.columns:
         wins = history_df['Actual_Winner'].dropna().value_counts()
         for v in vehicles:
             vpi[v] = 1.0 + (wins.get(v, 0) * 0.005)
 
-    # ML PHASE 2: Pattern Transitions (Markov Chains)
+    # ML PHASE 2: Markov Chain Transitions (Learning the track sequence)
     if not history_df.empty:
         filter_col = f"Lap_{k_idx + 1}_Track"
         matches = history_df[history_df[filter_col] == k_type].tail(50)
@@ -71,9 +77,10 @@ def run_simulation(v1, v2, v3, k_idx, k_type, history_df, iterations=5000):
             for i in range(3):
                 if i != k_idx:
                     t_col = f"Lap_{i+1}_Track"
-                    counts = matches[t_col].value_counts(normalize=True)
-                    probs = counts.reindex(TRACK_OPTIONS, fill_value=0).values
-                    if probs.sum() > 0: lap_probs[i] = probs / probs.sum()
+                    if t_col in matches.columns:
+                        counts = matches[t_col].value_counts(normalize=True)
+                        probs = counts.reindex(TRACK_OPTIONS, fill_value=0).values
+                        if probs.sum() > 0: lap_probs[i] = probs / probs.sum()
 
     # MONTE CARLO PHYSICS
     sim_terrains, sim_lengths = [], []
@@ -113,14 +120,14 @@ with st.sidebar:
         st.session_state['res'] = {'p': probs, 'vpi': vpi_res, 'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type}}
 
 # --- 5. DASHBOARD ---
-st.title("🏎️ AI RACE MASTER")
+st.title("🏁 AI RACE MASTER PRO")
 
-# ACCURACY MONITOR
+# AI ACCURACY DISPLAY
 if not history.empty and 'Actual_Winner' in history.columns:
     valid = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
     if not valid.empty:
         acc = (valid['Predicted_Winner'] == valid['Actual_Winner']).mean() * 100
-        st.metric("🎯 Global Prediction Accuracy", f"{acc:.1f}%")
+        st.metric("🎯 AI Prediction Accuracy", f"{acc:.1f}%")
 
 if 'res' in st.session_state:
     res = st.session_state['res']
@@ -129,7 +136,7 @@ if 'res' in st.session_state:
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
-# --- 6. TELEMETRY (LOCKED SLOT LOGGING) ---
+# --- 6. TELEMETRY (LOCKED SLOT & AUTO-SAVE) ---
 st.divider()
 st.subheader("📝 POST-RACE REPORT (Revealed slot is locked)")
 ctx = st.session_state.get('res', {'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx':0, 't': TRACK_OPTIONS[0]}})['ctx']
@@ -139,7 +146,6 @@ with st.form("tele_form"):
     
     c_a, c_b, c_c = st.columns(3)
     with c_a:
-        # LOCKED dropdown if this was the revealed slot
         s1t = st.selectbox("L1 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==0 else 0, disabled=(ctx['idx']==0))
         s1l = st.number_input("L1 Length %", 1, 100, 33)
     with c_b:
@@ -150,22 +156,29 @@ with st.form("tele_form"):
         s3l = st.number_input("L3 Length %", 1, 100, 34)
 
     if st.form_submit_button("💾 SAVE & TRAIN"):
-        if s1l + s2l + s3l != 100: st.error("Laps must total 100%")
+        if s1l + s2l + s3l != 100:
+            st.error("❌ Total must be 100%")
         else:
             p_val = max(st.session_state['res']['p'], key=st.session_state['res']['p'].get) if 'res' in st.session_state else "N/A"
             row = {'Vehicle_1': ctx['v'][0], 'Vehicle_2': ctx['v'][1], 'Vehicle_3': ctx['v'][2],
                    'Lap_1_Track': s1t, 'Lap_1_Len': s1l, 'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
                    'Lap_3_Track': s3t, 'Lap_3_Len': s3l, 'Predicted_Winner': p_val, 'Actual_Winner': winner}
             pd.concat([history, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_FILE, index=False)
-            st.toast("Race saved. AI refined.", icon="🧠")
+            st.toast("AI Learned from this race!", icon="🧠")
             st.rerun()
 
-# --- 7. ANALYTICS ---
+# --- 7. ANALYTICS (FIXED INDENTATION) ---
 if not history.empty:
     st.divider()
     t1, t2 = st.tabs(["🧠 ML Pattern Visualization", "📂 Data Inspector"])
     with t1:
-        st.write("### AI Pattern Learning Matrix")
+        st.write("### Track Transition Probability Matrix")
+        
+        if 'Lap_1_Track' in history.columns and 'Lap_2_Track' in history.columns and history['Lap_1_Track'].notna().any():
+            try:
                 m = pd.crosstab(history['Lap_1_Track'], history['Lap_2_Track'], normalize='index') * 100
-        st.dataframe(m.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
-    with t2: st.dataframe(history.sort_index(ascending=False))
+                st.dataframe(m.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
+            except Exception:
+                st.info("More diverse data needed for patterns.")
+    with t2:
+        st.dataframe(history.sort_index(ascending=False))
