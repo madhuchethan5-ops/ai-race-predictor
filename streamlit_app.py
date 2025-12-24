@@ -20,11 +20,14 @@ SPEED_DATA = {
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 2. DATA LOADING & SANITIZATION ---
+# --- 3. DATA LOADING & AUTOMATIC CLEANING ---
+VALID_TRACKS = list(SPEED_DATA["Car"].keys())
+
 if os.path.exists(CSV_FILE):
     try:
         history = pd.read_csv(CSV_FILE)
-        # Rename legacy columns
+        
+        # 1. Standardize column names
         rename_map = {
             'Predicted_Winner': 'Predicted',
             'Actual_Winner': 'Actual',
@@ -33,10 +36,18 @@ if os.path.exists(CSV_FILE):
         }
         history = history.rename(columns=rename_map)
         
-        # FIX: Force numeric conversion to prevent TypeError
+        # 2. VALIDATION: Keep only rows with real track names (Blocks "20.0", etc.)
+        if 'Visible_Track' in history.columns:
+            # This line removes any row where the track isn't in our SPEED_DATA list
+            history = history[history['Visible_Track'].isin(VALID_TRACKS)]
+        
+        # 3. FORCE NUMERIC: Ensure lengths are numbers, not text
         if 'Visible_Segment_%' in history.columns:
             history['Visible_Segment_%'] = pd.to_numeric(history['Visible_Segment_%'], errors='coerce')
-    except:
+            history = history.dropna(subset=['Visible_Segment_%'])
+            
+    except Exception as e:
+        st.error(f"Error loading history: {e}")
         history = pd.DataFrame()
 else:
     history = pd.DataFrame()
@@ -137,7 +148,30 @@ with st.form("logger_form", clear_on_submit=True):
         }
         pd.DataFrame([log_entry]).to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
         st.rerun()
-
+# --- UPDATE IN SECTION 6 (The Sync Button) ---
+if submitted:
+    last_probs = st.session_state.get('last_probs', {})
+    predicted = max(last_probs, key=last_probs.get) if last_probs else "N/A"
+    
+    # DOUBLE CHECK: Ensure we are saving the 'v_track' string, not a number
+    log_entry = {
+        "Visible_Track": str(v_track),  # Explicitly save the name (e.g., "Desert")
+        "Visible_Segment_%": float(v_len),
+        "Hidden_1_Track": str(h1_t),
+        "Hidden_1_Len": float(h1_l),
+        "Hidden_2_Track": str(h2_t),
+        "Hidden_2_Len": float(h2_l),
+        "Predicted": str(predicted),
+        "Actual": str(winner)
+    }
+    
+    # Only save if the track is valid
+    if log_entry["Visible_Track"] in VALID_TRACKS:
+        pd.DataFrame([log_entry]).to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
+        st.toast("Telemetry Synced! AI Brain Cleaned.", icon="⚡")
+        st.rerun()
+    else:
+        st.error(f"Invalid track detected: {v_track}. Data not saved.")
 # --- 7. ANALYTICS ---
 if not history.empty:
     st.divider()
