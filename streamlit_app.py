@@ -361,21 +361,16 @@ def load_and_migrate_data():
         'Lane', 'Top_Prob', 'Was_Correct'
     ]
 
-    # If file missing, return empty structure
     if not os.path.exists(CSV_FILE):
         return pd.DataFrame(columns=cols)
 
     try:
-        # Load CSV
         df = pd.read_csv(CSV_FILE, encoding="utf-8", engine="python")
 
-        # Remove BOM if present
         df.columns = [c.replace("\ufeff", "") for c in df.columns]
 
-        # Remove unnamed index columns
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
-        # Rename legacy columns
         rename_map = {
             'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3',
             'Visible_Track': 'Lap_1_Track', 'Visible_Lane_Length (%)': 'Lap_1_Len',
@@ -384,24 +379,20 @@ def load_and_migrate_data():
         }
         df = df.rename(columns=rename_map)
 
-        # Ensure all required columns exist
         for c in cols:
             if c not in df.columns:
                 df[c] = np.nan
 
-        # Clean string "None"
         df = df.replace("None", np.nan)
 
     except Exception:
-        # If CSV unreadable, return empty structure
         return pd.DataFrame(columns=cols)
 
-    # ✅ FIX: Force numeric types for prediction fields
+    # ✅ FIX: numeric conversion
     for col in ["Top_Prob", "Was_Correct"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # ✅ Auto-clean tracks, lengths, lanes
     df, issues = auto_clean_history(df)
     st.session_state["data_quality_issues"] = issues
 
