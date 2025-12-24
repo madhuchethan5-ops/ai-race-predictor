@@ -4,7 +4,8 @@ import numpy as np
 import os
 from streamlit_extras.grid import grid
 
-# --- 1. CONFIGURATION & PHYSICS ENGINE ---
+# --- 1. GLOBAL CONFIGURATION (MASTER LISTS) ---
+# Defining these at the very top ensures they are ALWAYS sorted and available.
 SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
@@ -17,13 +18,12 @@ SPEED_DATA = {
     "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134,"Potholes": 77, "Bumpy": 99, "Highway": 320},
 }
 
-# --- 🔥 FORCE SORTING HERE (GLOBAL MASTER LISTS) ---
-# This runs once at startup and guarantees A-Z order everywhere.
+# SORTED LISTS
 VEHICLE_OPTIONS = sorted(list(SPEED_DATA.keys()))
 TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
+VALID_TRACKS = TRACK_OPTIONS
 
 CSV_FILE = 'race_history.csv'
-VALID_TRACKS = TRACK_OPTIONS
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
 # --- 2. SELF-HEALING DATA LOADER ---
@@ -34,46 +34,45 @@ def load_clean_history():
     try:
         df = pd.read_csv(CSV_FILE)
         
-        # 1. Standardize Names
+        # Rename legacy columns if they exist
         rename_map = {
             'Predicted_Winner': 'Predicted', 'Actual_Winner': 'Actual',
             'Visible_%': 'Visible_Segment_%', 'Visible_Lane_Length (%)': 'Visible_Segment_%'
         }
         df = df.rename(columns=rename_map)
         
-        # 2. Gatekeeper: Remove rows where Track Name is corrupted
+        # Remove bad rows (fixes the "20.0" track bug)
         if 'Visible_Track' in df.columns:
             df = df[df['Visible_Track'].isin(VALID_TRACKS)]
             
-        # 3. Type Enforcement: Ensure percentages are numeric
+        # Ensure numbers are numbers
         if 'Visible_Segment_%' in df.columns:
             df['Visible_Segment_%'] = pd.to_numeric(df['Visible_Segment_%'], errors='coerce')
             df = df.dropna(subset=['Visible_Segment_%'])
             
         return df
-    except Exception:
+    except Exception as e:
         return pd.DataFrame()
 
 history = load_clean_history()
 
-# --- 3. ADAPTIVE BAYESIAN SIMULATION ENGINE ---
+# --- 3. SIMULATION ENGINE ---
 def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
-    all_terrains = TRACK_OPTIONS # Use the sorted list for consistency
+    all_terrains = TRACK_OPTIONS
     
-    # --- LEARNING PHASE ---
     avg_vis = 0.33
     vis_std = 0.12 
     
+    # Learn from history if available
     if not history_df.empty and 'Visible_Segment_%' in history_df.columns:
         track_data = history_df[history_df['Visible_Track'] == visible_t].tail(20)
-        
         if not track_data.empty:
             avg_vis = track_data['Visible_Segment_%'].mean() / 100
             if len(track_data) > 1:
                 vis_std = max(0.04, track_data['Visible_Segment_%'].std() / 100)
 
-    # --- MONTE CARLO EXECUTION ---
+    # Simulation
     vis_lens = np.clip(np.random.normal(avg_vis, vis_std, iterations), 0.05, 0.95)
     remaining = 1.0 - vis_lens
     h1_ratios = np.random.uniform(0.1, 0.9, iterations)
@@ -96,17 +95,14 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
     
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
 
-# --- 4. CONTROL PANEL (USING MASTER SORTED LIST) ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("🚦 Race Setup")
-    
-    # Track Selection (Uses Sorted List)
     v_track = st.selectbox("Visible Track", TRACK_OPTIONS)
     v_lane = st.radio("Active Lane", [1, 2, 3], horizontal=True)
     st.divider()
     
-    # Vehicle Selection (Uses Sorted List)
-    # We use .index() to find the correct default regardless of sort order
+    # Sorted Vehicle Selectors
     c1 = st.selectbox("Vehicle 1 (Top)", VEHICLE_OPTIONS, index=VEHICLE_OPTIONS.index("Supercar"))
     c2 = st.selectbox("Vehicle 2 (Mid)", VEHICLE_OPTIONS, index=VEHICLE_OPTIONS.index("Sports Car"))
     c3 = st.selectbox("Vehicle 3 (Bot)", VEHICLE_OPTIONS, index=VEHICLE_OPTIONS.index("Car"))
@@ -120,12 +116,11 @@ with st.sidebar:
                 os.remove(CSV_FILE)
                 st.rerun()
 
-# --- 5. MAIN DASHBOARD ---
-st.title("🏎️ AI RACE PREDICTOR PRO (Sorted)")
+# --- 5. DASHBOARD ---
+st.title("🏎️ AI RACE PREDICTOR PRO")
 
 if predict_btn:
     probs = run_simulation(c1, c2, c3, v_track, v_lane, history)
-    
     st.session_state['last_probs'] = probs
     st.session_state['last_vehicles'] = [c1, c2, c3]
     
@@ -143,30 +138,35 @@ if predict_btn:
     else:
         st.error("⚡ EXTREME VOLATILITY: Too close to call.")
 
-# --- 6. TELEMETRY LOGGING (USING MASTER SORTED LIST) ---
+# --- 6. TELEMETRY LOGGING (FIXED) ---
 st.divider()
 st.subheader("📝 POST-RACE TELEMETRY")
+
+# Default to sidebar choices if no prediction run yet
 logger_vehicles = st.session_state.get('last_vehicles', [c1, c2, c3])
 
-with st.form("logger_form", clear_on_submit=True):
+# IMPORTANT: clear_on_submit=False helps debug "missing data" issues
+with st.form("logger_form", clear_on_submit=False):
     c_a, c_b = st.columns(2)
     with c_a: winner = st.selectbox("Actual Winner", logger_vehicles)
     with c_b: v_len = st.number_input("Visible Segment Length %", 0.0, 100.0, 33.0, step=1.0)
     
     c_c, c_d = st.columns(2)
-    # Using TRACK_OPTIONS ensures these are A-Z sorted
     with c_c: h1_t = st.selectbox("Hidden 1 Type", TRACK_OPTIONS)
     with c_d: h1_l = st.number_input("Hidden 1 Length %", 0.0, 100.0, 33.0, step=1.0)
     
     c_e, c_f = st.columns(2)
-    # Using TRACK_OPTIONS ensures these are A-Z sorted
     with c_e: h2_t = st.selectbox("Hidden 2 Type", TRACK_OPTIONS)
     with c_f: h2_l = st.number_input("Hidden 2 Length %", 0.0, 100.0, 34.0, step=1.0)
 
-    if st.form_submit_button("💾 FEED DATA TO AI", use_container_width=True):
+    # The Save Button
+    submitted = st.form_submit_button("💾 FEED DATA TO AI", use_container_width=True)
+    
+    if submitted:
         last_probs = st.session_state.get('last_probs', {})
         predicted = max(last_probs, key=last_probs.get) if last_probs else "N/A"
         
+        # Construct the data row
         log_entry = {
             "Visible_Track": str(v_track),
             "Visible_Segment_%": float(v_len),
@@ -175,14 +175,21 @@ with st.form("logger_form", clear_on_submit=True):
             "Predicted": str(predicted), "Actual": str(winner)
         }
         
+        # Valid Track Gatekeeper
         if log_entry["Visible_Track"] in VALID_TRACKS:
-            pd.DataFrame([log_entry]).to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-            st.toast("AI Calibration Updated!", icon="🧠")
-            st.rerun()
+            try:
+                # Save to CSV
+                pd.DataFrame([log_entry]).to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
+                st.success("✅ Telemetry Saved! The AI is learning.")
+                st.rerun() # Refresh to update charts
+            except PermissionError:
+                st.error("❌ ERROR: Please close 'race_history.csv' in Excel and try again.")
+            except Exception as e:
+                st.error(f"❌ Save Failed: {e}")
         else:
-            st.error("Invalid Track detected. Data discarded.")
+            st.error(f"Invalid Track: {v_track}. Data not saved.")
 
-# --- 7. REAL-TIME LEARNING ANALYTICS ---
+# --- 7. ANALYTICS ---
 if not history.empty:
     st.divider()
     st.header("📈 AI Evolution Metrics")
@@ -202,7 +209,7 @@ if not history.empty:
                 st.dataframe(heatmap.to_frame("Acc %").style.background_gradient(cmap="RdYlGn", vmin=0, vmax=100), use_container_width=True)
 
             with c_stats:
-                st.write("**📉 Learning Curve (Trend over last 10 races)**")
+                st.write("**📉 Learning Curve (Last 10 Races)**")
                 valid['Accuracy_Trend'] = valid['Is_Correct'].rolling(window=10, min_periods=1).mean() * 100
                 st.line_chart(valid['Accuracy_Trend'], color="#00FF00", height=200)
 
