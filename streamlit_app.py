@@ -6,18 +6,19 @@ from streamlit_extras.grid import grid
 
 st.write("RUNNING FILE:", __file__)
 
-def get_confidence_color(prob: float) -> str:
-    """Return a hex color based on confidence strength."""
-    if prob >= 70:
-        return "#2e7d32"  # strong green
-    elif prob >= 40:
-        return "#f9a825"  # yellow / amber
-    else:
-        return "#c62828"  # red
+# ---------------------------------------------------------
+# 0. CONFIDENCE VISUALS
+# ---------------------------------------------------------
 
+def get_confidence_color(prob: float) -> str:
+    if prob >= 70:
+        return "#2e7d32"
+    elif prob >= 40:
+        return "#f9a825"
+    else:
+        return "#c62828"
 
 def confidence_bar(vehicle: str, prob: float):
-    """Render a color-coded confidence bar for a vehicle."""
     color = get_confidence_color(prob)
     st.markdown(
         f"""
@@ -39,69 +40,43 @@ def confidence_bar(vehicle: str, prob: float):
         unsafe_allow_html=True
     )
 
-
 def race_confidence_summary(probs: dict):
-    """
-    Show race tightness score + top-2 margin.
-    probs is a dict {vehicle: prob}.
-    """
     if len(probs) < 2:
         return
-
     sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
     (v1, p1), (v2, p2) = sorted_probs[0], sorted_probs[1]
-    margin = p1 - p2  # in percentage points
-    # Tightness score: 0 = blowout, 100 = coinflip
+    margin = p1 - p2
     tightness = max(0, 100 - margin)
-
     col1, col2 = st.columns(2)
     with col1:
-        st.metric(
-            "Race tightness score",
-            f"{tightness:.1f}",
-            help="Higher = closer race. Lower = one car clearly dominates."
-        )
+        st.metric("Race tightness score", f"{tightness:.1f}")
     with col2:
-        st.metric(
-            "Top‑2 margin",
-            f"{margin:.1f} pts",
-            help=f"Difference between {v1} and {v2} confidence."
-        )
-
+        st.metric("Top‑2 margin", f"{margin:.1f} pts")
 
 def confidence_delta_panel(current_probs: dict):
-    """
-    Show how much the model changed since last train.
-    Uses st.session_state['last_train_probs'] if available.
-    """
     if 'last_train_probs' not in st.session_state:
-        return  # nothing to compare yet
-
+        return
     prev = st.session_state['last_train_probs']
     if not isinstance(prev, dict):
         return
-
     st.markdown("### 📈 Confidence change since last training")
-
     rows = []
     for v, p_now in current_probs.items():
         p_prev = prev.get(v, None)
-        if p_prev is None:
-            delta = None
-        else:
-            delta = p_now - p_prev
+        delta = p_now - p_prev if p_prev is not None else None
         rows.append({
             "Vehicle": v,
             "Now %": p_now,
             "Prev %": p_prev if p_prev is not None else "-",
             "Δ (Now - Prev)": f"{delta:+.1f}" if delta is not None else "-"
         })
-
     df_delta = pd.DataFrame(rows)
     st.dataframe(df_delta, use_container_width=True)
 
+# ---------------------------------------------------------
+# 1. PHYSICS CONFIG
+# ---------------------------------------------------------
 
-# --- 1. CORE PHYSICS CONFIGURATION ---
 SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
@@ -116,13 +91,11 @@ SPEED_DATA = {
 
 ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
 TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
-CSV_FILE = 'race_history.csv'
+VALID_TRACKS = set(TRACK_OPTIONS)
+
+CSV_FILE = "race_history.csv"
 
 st.set_page_config(layout="wide", page_title="AI Race Master Pro", page_icon="🏎️")
-
-# === DATA QUALITY & AUTO-CLEANING ===
-
-VALID_TRACKS = set(TRACK_OPTIONS)
 
 TRACK_ALIASES = {
     "Road": "Highway",
@@ -132,28 +105,25 @@ TRACK_ALIASES = {
     "Normal": "Highway",
 }
 
+# ---------------------------------------------------------
+# 2. AUTO CLEANER
+# ---------------------------------------------------------
 
 def auto_clean_history(df: pd.DataFrame):
-    """Automatically clean race history: fix track names, lanes, invalid rows, normalize lap lengths."""
     if df.empty:
         return df, []
-
     issues = []
     df = df.copy()
 
-    # Fix Lane values
     lane_map = {"1": "Lap 1", "2": "Lap 2", "3": "Lap 3", 1: "Lap 1", 2: "Lap 2", 3: "Lap 3"}
     if "Lane" in df.columns:
         df["Lane"] = df["Lane"].replace(lane_map)
 
-    # Fix track names with aliases and fallback to mode
     for lap in [1, 2, 3]:
         col = f"Lap_{lap}_Track"
         if col not in df.columns:
             continue
-
         df[col] = df[col].replace(TRACK_ALIASES)
-
         invalid_mask = ~df[col].isin(VALID_TRACKS) & df[col].notna()
         if invalid_mask.any():
             bad_vals = df.loc[invalid_mask, col].unique().tolist()
@@ -164,13 +134,11 @@ def auto_clean_history(df: pd.DataFrame):
                 most_common = list(VALID_TRACKS)[0]
             df.loc[invalid_mask, col] = most_common
 
-    # Enforce numeric lap lengths
     for lap in [1, 2, 3]:
         col = f"Lap_{lap}_Len"
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Normalize lengths if they don't sum to 100
     if all(f"Lap_{i}_Len" in df.columns for i in [1, 2, 3]):
         total = df["Lap_1_Len"] + df["Lap_2_Len"] + df["Lap_3_Len"]
         bad_len_mask = total.notna() & (total != 100)
@@ -185,17 +153,67 @@ def auto_clean_history(df: pd.DataFrame):
 
     return df, issues
 
+# ---------------------------------------------------------
+# 3. STREAMLIT + GITHUB SAFE STORAGE
+# ---------------------------------------------------------
 
-# === METRICS & ANALYTICS HELPERS ===
+HISTORY_FILE = "race_history.csv"
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            df = pd.read_csv(HISTORY_FILE, encoding="utf-8", engine="python")
+            df.columns = [c.replace("\ufeff", "") for c in df.columns]
+            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        except Exception:
+            df = pd.DataFrame()
+    else:
+        df = pd.DataFrame()
+
+    required_cols = [
+        'Vehicle_1','Vehicle_2','Vehicle_3',
+        'Lap_1_Track','Lap_1_Len',
+        'Lap_2_Track','Lap_2_Len',
+        'Lap_3_Track','Lap_3_Len',
+        'Actual_Winner','Predicted_Winner',
+        'Lane','Top_Prob','Was_Correct','Timestamp'
+    ]
+    for c in required_cols:
+        if c not in df.columns:
+            df[c] = np.nan
+
+    df = df.replace("None", np.nan)
+    df, issues = auto_clean_history(df)
+    st.session_state["data_quality_issues"] = issues
+    return df
+
+def save_history(df):
+    df.to_csv(HISTORY_FILE, index=False)
+
+def add_race_result(history_df, row_dict):
+    history_df.loc[len(history_df)] = row_dict
+    return history_df
+
+def download_history(df):
+    st.download_button(
+        label="⬇️ Download Updated Race History",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name="race_history.csv",
+        mime="text/csv"
+    )
+
+history = load_history()
+
+# ---------------------------------------------------------
+# 4. METRICS & ANALYTICS HELPERS
+# ---------------------------------------------------------
 
 def compute_basic_metrics(history: pd.DataFrame):
     if history.empty:
         return None
-
     df = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
     if df.empty:
         return None
-
     acc = (df['Actual_Winner'] == df['Predicted_Winner']).mean()
 
     if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
@@ -240,15 +258,12 @@ def compute_basic_metrics(history: pd.DataFrame):
         'log_loss': log_loss
     }
 
-
 def compute_learning_curve(history: pd.DataFrame, window: int = 30):
     if history.empty:
         return None
-
     df = history.dropna(subset=['Actual_Winner', 'Predicted_Winner']).copy()
     if df.empty:
         return None
-
     df = df.reset_index(drop=True)
     df['Correct'] = (df['Actual_Winner'] == df['Predicted_Winner']).astype(float)
 
@@ -267,33 +282,23 @@ def compute_learning_curve(history: pd.DataFrame, window: int = 30):
         df['Brier_Roll'] = np.nan
         return df
 
-
 def compute_learned_geometry(df):
     st.write("GEOMETRY FUNCTION VERSION:", "v2")
     results = []
-
     for lap in [1, 2, 3]:
         t_col = f"Lap_{lap}_Track"
         l_col = f"Lap_{lap}_Len"
-
-        # ✅ Only use rows where track is valid and not blank
         tmp = df[[t_col, l_col]].dropna()
         tmp = tmp[tmp[t_col] != ""]
-
         if tmp.empty:
             continue
-
-        grouped = tmp.groupby(t_col)[l_col].agg(['mean', 'std', 'count']).reset_index()
+        grouped = tmp.groupby(t_col)[l_col].agg(['mean','std','count']).reset_index()
         grouped['Lap'] = lap
-        grouped = grouped.rename(columns={t_col: 'Track'})
-
+        grouped = grouped.rename(columns={t_col:'Track'})
         results.append(grouped)
-
     if results:
         return pd.concat(results, ignore_index=True)
-
-    return pd.DataFrame(columns=['Lap', 'Track', 'mean', 'std', 'count'])
-
+    return pd.DataFrame(columns=['Lap','Track','mean','std','count'])
 
 def compute_transition_matrices(history: pd.DataFrame):
     mats = {}
@@ -311,7 +316,6 @@ def compute_transition_matrices(history: pd.DataFrame):
                 mats[(i, j)] = mat
     return mats
 
-
 def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
     if history.empty:
         return None
@@ -321,10 +325,8 @@ def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
     split = int(n * split_ratio)
     early = history.iloc[:split]
     late = history.iloc[split:]
-
     geom_early = compute_learned_geometry(early)
     geom_late = compute_learned_geometry(late)
-
     out = {'geometry': None, 'notes': ""}
 
     if geom_early is not None and geom_late is not None:
@@ -341,7 +343,6 @@ def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
             out['notes'] = "Geometry drift computed between early and late halves."
     return out
 
-
 def compute_volatility_from_probs(probs: dict):
     if not probs:
         return None
@@ -352,66 +353,10 @@ def compute_volatility_from_probs(probs: dict):
     second = items[1][1]
     return {'volatility': top - second, 'ranking': items}
 
+# ---------------------------------------------------------
+# 5. CORE SIMULATION
+# ---------------------------------------------------------
 
-# --- 2. DATA ARCHITECT (FIXED & HARDENED) ---
-def load_and_migrate_data():
-    cols = [
-        'Vehicle_1', 'Vehicle_2', 'Vehicle_3',
-        'Lap_1_Track', 'Lap_1_Len',
-        'Lap_2_Track', 'Lap_2_Len',
-        'Lap_3_Track', 'Lap_3_Len',
-        'Actual_Winner', 'Predicted_Winner',
-        'Lane', 'Top_Prob', 'Was_Correct'
-    ]
-
-    if not os.path.exists(CSV_FILE):
-        return pd.DataFrame(columns=cols)
-
-    try:
-        df = pd.read_csv(CSV_FILE, encoding="utf-8", engine="python")
-
-        # Remove BOM from column names if present
-        df.columns = [c.replace("\ufeff", "") for c in df.columns]
-
-        # Remove unnamed index columns
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-
-        # Rename legacy columns
-        rename_map = {
-            'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3',
-            'Visible_Track': 'Lap_1_Track', 'Visible_Lane_Length (%)': 'Lap_1_Len',
-            'Hidden_1': 'Lap_2_Track', 'Hidden_1_Len': 'Lap_2_Len',
-            'Hidden_2': 'Lap_3_Track', 'Hidden_2_Len': 'Lap_3_Len'
-        }
-        df = df.rename(columns=rename_map)
-
-        # Ensure all required columns exist
-        for c in cols:
-            if c not in df.columns:
-                df[c] = np.nan
-
-        # Clean string "None"
-        df = df.replace("None", np.nan)
-
-    except Exception:
-        return pd.DataFrame(columns=cols)
-
-    # Coerce prediction fields to numeric
-    for col in ["Top_Prob", "Was_Correct"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # Auto-clean tracks, lengths, lanes
-    df, issues = auto_clean_history(df)
-    st.session_state["data_quality_issues"] = issues
-
-    return df
-
-
-history = load_and_migrate_data()
-
-
-# --- 3. THE ML ENGINE (NEXT-GEN, UPGRADED GEOMETRY, SAME API) ---
 def run_simulation(
     v1, v2, v3,
     k_idx,
@@ -422,18 +367,16 @@ def run_simulation(
     beta_prior=1.0,
     smoothing=0.5,
     base_len_mean=33.3,
-    base_len_std=15.0,   # wider default because lengths are very random
+    base_len_std=15.0,
     calib_min_hist=50
 ):
     vehicles = [v1, v2, v3]
 
     # 1. BAYESIAN REINFORCEMENT
     vpi_raw = {v: 1.0 for v in vehicles}
-
     if not history_df.empty and 'Actual_Winner' in history_df.columns:
         winners = history_df['Actual_Winner'].dropna()
         wins = winners.value_counts()
-
         if any(c.startswith('Vehicle_') for c in history_df.columns):
             all_veh = pd.concat(
                 [history_df[c] for c in history_df.columns if c.startswith('Vehicle_')],
@@ -442,26 +385,22 @@ def run_simulation(
             races = all_veh.value_counts()
         else:
             races = wins
-
         posterior_means = {}
         for v in vehicles:
             w = wins.get(v, 0)
             r = races.get(v, w)
             post = (w + alpha_prior) / (r + alpha_prior + beta_prior)
             posterior_means[v] = post
-
         mean_post = np.mean(list(posterior_means.values())) if posterior_means else 1.0
         if mean_post > 0:
             for v in vehicles:
                 vpi_raw[v] = posterior_means[v] / mean_post
-
     vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
 
-    # 2. UPGRADED GEOMETRY: track-specific, across all laps
+    # 2. GEOMETRY
     def learned_length_dist(track_type):
         if history_df.empty:
             return base_len_mean, base_len_std
-
         vals_all = []
         for lap in [1, 2, 3]:
             t_col = f"Lap_{lap}_Track"
@@ -475,26 +414,21 @@ def run_simulation(
                 vals_all.append(subset)
         if not vals_all:
             return base_len_mean, base_len_std
-
         vals = pd.concat(vals_all)
         if len(vals) < 5:
             return base_len_mean, base_len_std
-
         mu = vals.mean()
         sigma = vals.std(ddof=1)
         if not np.isfinite(mu) or sigma <= 0:
             return base_len_mean, base_len_std
-
         return float(mu), float(sigma)
 
-    # 3. SMOOTHED MARKOV TRANSITIONS
+    # 3. MARKOV TRANSITIONS
     lap_probs = {0: None, 1: None, 2: None}
-
     if not history_df.empty:
         known_col = f"Lap_{k_idx + 1}_Track"
         if known_col in history_df.columns:
             matches = history_df[history_df[known_col] == k_type].tail(200)
-
             global_transitions = {}
             for j in range(3):
                 if j == k_idx:
@@ -511,11 +445,10 @@ def run_simulation(
                         arr = row.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
                         arr = arr + smoothing
                         global_transitions[j] = arr / arr.sum()
-
             for j in range(3):
                 if j == k_idx:
                     continue
-                t_col = f"Lap_{j+1}_Track"
+                t_col = f"Lap_{j + 1}_Track"
                 if t_col in matches.columns and not matches.empty:
                     counts = matches[t_col].value_counts()
                     arr = counts.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
@@ -525,10 +458,9 @@ def run_simulation(
                 if lap_probs[j] is None and j in global_transitions:
                     lap_probs[j] = global_transitions[j].values
 
-    # 4. SAMPLE TERRAIN AND LENGTHS
+    # 4. SAMPLE TERRAIN & LENGTHS
     sim_terrains = []
     sim_lengths = []
-
     for i in range(3):
         if i == k_idx:
             sim_terrains.append(np.full(iterations, k_type, dtype=object))
@@ -538,7 +470,6 @@ def run_simulation(
                 sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations, p=p))
             else:
                 sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations))
-
         terrain_i = sim_terrains[-1]
         lengths_i = np.empty(iterations, dtype=float)
         for t in np.unique(terrain_i):
@@ -585,16 +516,13 @@ def run_simulation(
     def estimate_temperature_from_history(df):
         if df.empty or 'Top_Prob' not in df.columns or 'Was_Correct' not in df.columns:
             return 1.0
-
         recent = df.dropna(subset=['Top_Prob', 'Was_Correct']).tail(200)
         if len(recent) < calib_min_hist:
             return 1.0
-
         avg_conf = recent['Top_Prob'].mean()
         avg_acc = recent['Was_Correct'].mean()
         if avg_conf <= 0 or avg_acc <= 0:
             return 1.0
-
         ratio = avg_conf / max(avg_acc, 1e-3)
         temp = np.clip(ratio, 0.7, 1.5)
         return float(temp)
@@ -609,13 +537,16 @@ def run_simulation(
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
 
+# ---------------------------------------------------------
+# 6. SIDEBAR (SETUP & PREDICTION)
+# ---------------------------------------------------------
 
-# --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("🚦 Race Setup")
     lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
     slot_name = st.selectbox("Revealed Slot", list(lap_map.keys()))
-    k_idx, k_type = lap_map[slot_name], st.selectbox("Revealed Track", TRACK_OPTIONS)
+    k_idx = lap_map[slot_name]
+    k_type = st.selectbox("Revealed Track", TRACK_OPTIONS)
 
     st.divider()
     v1_sel = st.selectbox("Vehicle 1", ALL_VEHICLES, index=ALL_VEHICLES.index("Supercar"))
@@ -630,8 +561,10 @@ with st.sidebar:
             'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name}
         }
 
+# ---------------------------------------------------------
+# 7. MAIN DASHBOARD
+# ---------------------------------------------------------
 
-# --- 5. DASHBOARD ---
 st.title("🏁 AI RACE MASTER PRO")
 
 if not history.empty and 'Actual_Winner' in history.columns:
@@ -647,12 +580,18 @@ if 'res' in st.session_state:
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
+# Export latest history for GitHub sync
+if not history.empty:
+    st.subheader("📥 Data export")
+    download_history(history)
 
-# --- SAVE RACE REPORT (FINAL BEHAVIOUR) ---
+# ---------------------------------------------------------
+# 8. SAVE RACE REPORT
+# ---------------------------------------------------------
+
 st.divider()
 st.subheader("📝 Save Race Report")
 
-# Ensure prediction exists
 if 'res' not in st.session_state:
     st.info("Run a prediction first.")
     st.stop()
@@ -662,13 +601,11 @@ ctx = res['ctx']
 predicted = res['p']
 predicted_winner = max(predicted, key=predicted.get)
 
-revealed_lap = ctx['idx']        # 0,1,2
-revealed_track = ctx['t']        # Track name
-revealed_slot = ctx['slot']      # Lap 1 / Lap 2 / Lap 3
+revealed_lap = ctx['idx']
+revealed_track = ctx['t']
+revealed_slot = ctx['slot']
 
 with st.form("race_report_form"):
-
-    # Winner selection (NO AUTO SELECT)
     winner = st.selectbox(
         "🏆 Actual Winner",
         ctx['v'],
@@ -676,10 +613,8 @@ with st.form("race_report_form"):
         placeholder="Select the actual winner..."
     )
 
-    # Lap inputs with revealed lap TRACK locked but % editable
     c1, c2, c3 = st.columns(3)
 
-    # --- LAP 1 ---
     with c1:
         if revealed_lap == 0:
             s1t = st.selectbox(
@@ -693,7 +628,6 @@ with st.form("race_report_form"):
             s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS)
             s1l = st.number_input("Lap 1 %", 1, 100, 33)
 
-    # --- LAP 2 ---
     with c2:
         if revealed_lap == 1:
             s2t = st.selectbox(
@@ -707,7 +641,6 @@ with st.form("race_report_form"):
             s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS)
             s2l = st.number_input("Lap 2 %", 1, 100, 33)
 
-    # --- LAP 3 ---
     with c3:
         if revealed_lap == 2:
             s3t = st.selectbox(
@@ -721,16 +654,13 @@ with st.form("race_report_form"):
             s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS)
             s3l = st.number_input("Lap 3 %", 1, 100, 34)
 
-    # Submit button
     save_clicked = st.form_submit_button("💾 Save & Train")
 
 if save_clicked:
-
     if winner is None:
         st.error("Please select the actual winner.")
         st.stop()
 
-    # Force numeric
     s1l = float(s1l)
     s2l = float(s2l)
     s3l = float(s3l)
@@ -739,7 +669,6 @@ if save_clicked:
         st.error("Lap lengths must total 100%.")
         st.stop()
 
-    # Prevent blank track names
     if not s1t or not s2t or not s3t:
         st.error("All laps must have a track selected.")
         st.stop()
@@ -761,25 +690,17 @@ if save_clicked:
         'Timestamp': pd.Timestamp.now()
     }
 
-    # Always reload fresh before saving
-    fresh = load_and_migrate_data()
-    new_history = pd.concat([fresh, pd.DataFrame([row])], ignore_index=True)
+    history = add_race_result(history, row)
+    save_history(history)
 
-    try:
-        # Save main file
-        new_history.to_csv(CSV_FILE, index=False)
-        # Save backup file
-        new_history.to_csv("race_history_backup.csv", index=False)
-    except Exception as e:
-        st.error(f"Failed to save race: {e}")
-        st.stop()
-
-    # Rerun immediately
+    st.success("✅ Race saved and model updated. Download the CSV to sync with GitHub if needed.")
     st.rerun()
-    
-# --- PREDICTION ANALYTICS PANEL ---
-if 'res' in st.session_state:
 
+# ---------------------------------------------------------
+# 9. PREDICTION ANALYTICS PANEL
+# ---------------------------------------------------------
+
+if 'res' in st.session_state:
     res = st.session_state['res']
     ctx = res['ctx']
     probs = res['p']
@@ -789,23 +710,15 @@ if 'res' in st.session_state:
     st.divider()
     st.subheader("🔍 Prediction Explanation")
 
-    # --- WHY THE AI CHOSE THIS WINNER ---
     explanation = ""
-
-    # Winner dominates key track?
     if probs[predicted_winner] > 80:
         explanation += f"- **{predicted_winner}** is significantly faster on the dominant lap.\n"
-
-    # Reinforcement learning boost
     if vpi[predicted_winner] > 1.05:
         explanation += f"- Reinforcement learning shows **{predicted_winner}** has strong historical performance.\n"
 
-    # Track-specific logic
     revealed_track = ctx['t']
-
     if revealed_track in ["Expressway", "Highway"]:
         explanation += "- High-speed tracks strongly favor Supercar / Sports Car.\n"
-
     if revealed_track in ["Dirt", "Bumpy", "Potholes"]:
         explanation += "- Rough tracks often favor ORV / Monster Truck.\n"
 
@@ -814,9 +727,8 @@ if 'res' in st.session_state:
 
     st.info(explanation)
 
-    # --- RACE TIGHTNESS + TOP-2 MARGIN ---
     sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-    (v1, p1), (v2, p2) = sorted_probs[0], sorted_probs[1]
+    (v1p, p1), (v2p, p2) = sorted_probs[0], sorted_probs[1]
     margin = p1 - p2
     tightness = max(0, 100 - margin)
 
@@ -826,18 +738,14 @@ if 'res' in st.session_state:
     with col2:
         st.metric("Top‑2 Margin", f"{margin:.1f} pts")
 
-    # --- CONFIDENCE BARS ---
     st.write("### Confidence by Vehicle")
     for v, p in probs.items():
         confidence_bar(v, p)
 
-    # --- CONFIDENCE DELTA ---
     if 'last_train_probs' in st.session_state:
         st.write("### 📈 Confidence Change Since Last Training")
-
         prev = st.session_state['last_train_probs']
         rows = []
-
         for v, p_now in probs.items():
             p_prev = prev.get(v, None)
             delta = p_now - p_prev if p_prev is not None else None
@@ -847,52 +755,37 @@ if 'res' in st.session_state:
                 "Prev %": p_prev if p_prev is not None else "-",
                 "Δ (Now - Prev)": f"{delta:+.1f}" if delta is not None else "-"
             })
-
         df_delta = pd.DataFrame(rows)
         st.dataframe(df_delta, use_container_width=True)
 
-    # 1. WHY THE AI CHOSE THIS WINNER (EXPLANATION PANEL)
     st.write("### 🧠 Why the AI Chose This Winner")
-
     detailed_explanation = ""
-
     if probs[predicted_winner] > 80:
         detailed_explanation += f"- **{predicted_winner}** is significantly faster on the dominant lap.\n"
-
     if vpi[predicted_winner] > 1.05:
         detailed_explanation += f"- Reinforcement learning shows **{predicted_winner}** has strong historical performance.\n"
-
     if revealed_track in ["Expressway", "Highway"]:
         detailed_explanation += "- High-speed tracks strongly favor Supercar / Sports Car.\n"
-
     if revealed_track in ["Dirt", "Bumpy", "Potholes"]:
         detailed_explanation += "- Rough tracks often favor ORV / Monster Truck.\n"
-
     if detailed_explanation == "":
         detailed_explanation = "The AI combined physics, learned geometry, and historical win patterns to select this winner."
-
     st.info(detailed_explanation)
 
-    # 2. CONFIDENCE & VOLATILITY
     sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
     top_prob = sorted_probs[0][1]
     second_prob = sorted_probs[1][1]
     volatility = top_prob - second_prob
-
     if volatility < 5:
         vol_text = "High randomness — unpredictable race"
     elif volatility < 15:
         vol_text = "Moderate confidence"
     else:
         vol_text = "High confidence"
-
     st.metric("Prediction Confidence", f"{top_prob:.1f}%", vol_text)
 
-    # 3. LAP-BY-LAP EXPECTED TIME (PHYSICS)
     st.write("### ⏱️ Lap-by-Lap Expected Time (Physics Model)")
-
     lap_data = []
-    # Use vehicles from context
     for v in ctx['v']:
         for lap_idx in range(3):
             track = ctx['t'] if lap_idx == ctx['idx'] else "Hidden"
@@ -902,13 +795,10 @@ if 'res' in st.session_state:
                 "Track": track,
                 "Speed": SPEED_DATA[v].get(track, "—") if track != "Hidden" else "—"
             })
-
     st.dataframe(pd.DataFrame(lap_data), use_container_width=True)
 
-    # 4. HIDDEN LAP PREDICTIONS (SUMMARY)
     st.write("### 🔮 Hidden Lap Predictions")
     st.caption("Based on learned Markov transitions and geometry.")
-
     st.json({
         "Revealed Lap": ctx['slot'],
         "Revealed Track": ctx['t'],
@@ -916,16 +806,17 @@ if 'res' in st.session_state:
         "Probabilities": probs
     })
 
+# ---------------------------------------------------------
+# 10. CSV HEALTH CHECK
+# ---------------------------------------------------------
 
 def csv_health_check(df: pd.DataFrame):
     issues = []
 
-    # 1. Check for unnamed columns
     unnamed = [c for c in df.columns if "Unnamed" in c]
     if unnamed:
         issues.append(f"Unnamed columns detected: {unnamed}")
 
-    # 2. Check for missing required columns
     required = [
         'Vehicle_1', 'Vehicle_2', 'Vehicle_3',
         'Lap_1_Track', 'Lap_1_Len',
@@ -938,12 +829,10 @@ def csv_health_check(df: pd.DataFrame):
     if missing:
         issues.append(f"Missing columns: {missing}")
 
-    # 3. Check for malformed rows
     bad_rows = df[df.isna().all(axis=1)]
     if not bad_rows.empty:
         issues.append(f"Empty/malformed rows: {len(bad_rows)}")
 
-    # 4. Check for invalid track names
     valid_tracks = set(TRACK_OPTIONS)
     for lap in [1, 2, 3]:
         col = f"Lap_{lap}_Track"
@@ -955,8 +844,10 @@ def csv_health_check(df: pd.DataFrame):
 
     return issues
 
+# ---------------------------------------------------------
+# 11. ANALYTICS TABS
+# ---------------------------------------------------------
 
-# --- 7. ANALYTICS (MODEL INSIGHTS & BRAIN) ---
 if not history.empty:
     st.divider()
     tabs = st.tabs([
@@ -981,8 +872,14 @@ if not history.empty:
         else:
             c1, c2, c3 = st.columns(3)
             c1.metric("Global Accuracy", f"{metrics['accuracy']*100:.1f}%")
-            c2.metric("Mean Top Probability", f"{metrics['mean_top_prob']*100:.1f}%" if pd.notna(metrics['mean_top_prob']) else "N/A")
-            c3.metric("Calibration Error |p̂ - acc|", f"{metrics['calib_error']*100:.2f}%" if pd.notna(metrics['calib_error']) else "N/A")
+            c2.metric(
+                "Mean Top Probability",
+                f"{metrics['mean_top_prob']*100:.1f}%" if pd.notna(metrics['mean_top_prob']) else "N/A"
+            )
+            c3.metric(
+                "Calibration Error |p̂ - acc|",
+                f"{metrics['calib_error']*100:.2f}%" if pd.notna(metrics['calib_error']) else "N/A"
+            )
 
             c4, c5 = st.columns(2)
             c4.metric("Brier Score (↓ better)", f"{metrics['brier']:.4f}" if pd.notna(metrics['brier']) else "N/A")
@@ -1018,11 +915,7 @@ if not history.empty:
                 ).reset_index()
                 st.write("#### Reliability Table")
                 st.dataframe(calib_table.style.format({'mean_prob': '{:.2f}', 'emp_acc': '{:.2f}'}))
-
-                st.line_chart(
-                    calib_table.set_index('Bucket')[['mean_prob', 'emp_acc']],
-                    height=300
-                )
+                st.line_chart(calib_table.set_index('Bucket')[['mean_prob', 'emp_acc']], height=300)
                 st.caption("If the lines track each other closely, the AI is well-calibrated.")
         else:
             st.info("Top_Prob / Was_Correct not available yet for calibration analysis.")
@@ -1042,7 +935,7 @@ if not history.empty:
             )
             st.caption("Large relative changes in mean length indicate environment or strategy drift.")
 
-    # 5) VOLATILITY & FEATURE IMPORTANCE (SIMULATED)
+    # 5) VOLATILITY & FEATURE IMPORTANCE
     with tabs[4]:
         st.write("### ⚡ Volatility & Sensitivity")
         if 'res' in st.session_state:
@@ -1084,7 +977,7 @@ if not history.empty:
         else:
             st.info("Run a prediction first to analyze volatility and sensitivity.")
 
-    # 6) ML PATTERN BRAIN (TRANSITIONS)
+    # 6) ML PATTERN BRAIN
     with tabs[5]:
         st.write("### 🧠 ML Pattern Brain (Track Transition Matrix)")
         if 'Lap_1_Track' in history.columns and 'Lap_2_Track' in history.columns:
@@ -1106,7 +999,7 @@ if not history.empty:
         else:
             st.info("Record more races to see Lane win rates.")
 
-    # 8) DATA QUALITY CHECKER + CSV HEALTH
+    # 8) DATA QUALITY CHECKER
     with tabs[7]:
         st.write("### 🧹 Data Quality Checker")
 
@@ -1143,12 +1036,11 @@ if not history.empty:
         st.write("### 📂 Race History")
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
         st.download_button(
-    "⬇️ Download Race History",
-    history.to_csv(index=False),
-    "race_history.csv",
-    mime="text/csv"
-)
-
+            "⬇️ Download Race History",
+            history.to_csv(index=False),
+            "race_history.csv",
+            mime="text/csv"
+        )
 
     # 10) WHAT-IF ANALYSIS PANEL
     with tabs[9]:
