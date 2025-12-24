@@ -143,7 +143,59 @@ with st.form("logger_form", clear_on_submit=True):
         st.toast("Telemetry data synchronized!", icon="⚡")
         st.rerun()
 
-# --- 7. ANALYTICS ---
+# --- 7. ANALYTICS & ACCURACY HEATMAP ---
 if not history.empty:
-    with st.expander("📊 AI LEARNING LOG"):
-        st.dataframe(history.tail(10), use_container_width=True)
+    st.divider()
+    st.header("📈 AI Learning Analytics")
+    
+    # Calculate accuracy only for rows where we have both a Prediction and an Actual result
+    valid_history = history[(history['Predicted'] != "N/A") & (history['Actual'].notna())].copy()
+    
+    if not valid_history.empty:
+        valid_history['Is_Correct'] = (valid_history['Predicted'] == valid_history['Actual']).astype(int)
+        
+        # 7a. Learning Progress Metrics
+        col_acc, col_sample = st.columns(2)
+        with col_acc:
+            # Calculate Global Accuracy
+            global_acc = valid_history['Is_Correct'].mean() * 100
+            st.metric("Global AI Accuracy", f"{global_acc:.1f}%")
+        
+        with col_sample:
+            # Focus on the "First 20 Races" or current sample size
+            sample_size = min(len(valid_history), 20)
+            st.metric("Learning Sample Size", f"{len(valid_history)} Races", delta=f"Base: First {sample_size}")
+
+        # 7b. Accuracy Heatmap (By Track Type)
+        st.subheader("🎯 Track-Specific Accuracy Heatmap")
+        
+        # Grouping by track to see where the AI is most 'calibrated'
+        heatmap_data = valid_history.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
+        heatmap_data.columns = ['Races Observed', 'Accuracy (%)']
+        heatmap_data['Accuracy (%)'] = heatmap_data['Accuracy (%)'] * 100
+        
+        # Displaying the Heatmap using Streamlit's dataframe styling
+        st.dataframe(
+            heatmap_data.sort_values(by='Accuracy (%)', ascending=False)
+            .style.background_gradient(cmap='RdYlGn', subset=['Accuracy (%)'])
+            .format("{:.1f}%", subset=['Accuracy (%)']),
+            use_container_width=True
+        )
+        
+        # 
+        
+        # 7c. Recent Performance Trend (Rolling Accuracy)
+        if len(valid_history) > 5:
+            st.subheader("📉 Accuracy Trend (Last 20 Races)")
+            valid_history['Rolling_Acc'] = valid_history['Is_Correct'].rolling(window=min(20, len(valid_history))).mean() * 100
+            
+            fig_trend = px.line(valid_history, x=valid_history.index, y='Rolling_Acc', 
+                                title="AI Learning Curve (Rolling Success Rate)",
+                                labels={'Rolling_Acc': 'Accuracy %', 'index': 'Race Number'})
+            fig_trend.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_trend, use_container_width=True)
+            
+            # 
+
+    with st.expander("🔍 View Full Telemetry Log"):
+        st.dataframe(history.sort_index(ascending=False), use_container_width=True)
