@@ -167,43 +167,43 @@ if os.path.exists(CSV_FILE):
         import matplotlib.pyplot as plt
 import seaborn as sns
 
-# --- STEP 6: THE TRACK LENGTH HEATMAP ---
+# --- STEP 6: THE TRACK LENGTH HEATMAP (FIXED VERSION) ---
 st.divider()
 st.subheader("🗺️ Track Length Heatmap")
-st.markdown("This map shows the typical length of each track type based on your history.")
 
 if os.path.exists(CSV_FILE):
     df_heat = pd.read_csv(CSV_FILE)
     
-    # We need to gather all instances of every track and their recorded lengths
-    # This combines Visible_Track, Hidden_1, and Hidden_2 into one list
-    t_data = []
-    for _, row in df_heat.iterrows():
-        t_data.append({'Track': row['Visible_Track'], 'Length': row['Visible_Length']})
-        t_data.append({'Track': row['Hidden_1'], 'Length': row['Hidden_1_Len']})
-        t_data.append({'Track': row['Hidden_2'], 'Length': row['Hidden_2_Len']})
-    
-    df_plot = pd.DataFrame(t_data)
+    # 1. Map your specific column names to what the code expects
+    # This fixes the KeyError by looking for either name
+    name_map = {
+        'Visible_Lane_Length (%)': 'Visible_Length',
+        'Hidden_Track_1_Length (%)': 'Hidden_1_Len',
+        'Hidden_Track_2_Length (%)': 'Hidden_2_Len',
+        'Visible_Track_Lane': 'Lane',
+        'Winner': 'Actual_Winner'
+    }
+    df_heat = df_heat.rename(columns=name_map)
 
-    if not df_plot.empty:
+    # 2. Check if the columns exist after renaming
+    required = ['Visible_Track', 'Visible_Length', 'Hidden_1', 'Hidden_1_Len', 'Hidden_2', 'Hidden_2_Len']
+    
+    if all(col in df_heat.columns for col in required):
+        t_data = []
+        for _, row in df_heat.iterrows():
+            t_data.append({'Track': row['Visible_Track'], 'Length': row['Visible_Length']})
+            t_data.append({'Track': row['Hidden_1'], 'Length': row['Hidden_1_Len']})
+            t_data.append({'Track': row['Hidden_2'], 'Length': row['Hidden_2_Len']})
+        
+        df_plot = pd.DataFrame(t_data)
+
         # Create the visualization
         fig, ax = plt.subplots(figsize=(10, 5))
-        
-        # We group by track and calculate the average length
         avg_lengths = df_plot.groupby('Track')['Length'].mean().sort_values(ascending=False)
         
-        # Plotting the Heatmap style bar
         sns.barplot(x=avg_lengths.index, y=avg_lengths.values, palette="YlOrRd", ax=ax)
-        
         ax.set_ylabel("Average Length (%)")
-        ax.set_xlabel("Track Type")
-        ax.set_title("Average Length by Track Type (Historical)")
-        
         st.pyplot(fig)
-        
-        # Insight Text
-        max_track = avg_lengths.idxmax()
-        min_track = avg_lengths.idxmin()
-        st.info(f"💡 **AI Insight:** In your history, **{max_track}** tends to be the longest section, while **{min_track}** is usually the shortest.")
     else:
-        st.write("Not enough data to generate heatmap yet.")
+        st.error(f"Column Mismatch! Your CSV columns are: {df_heat.columns.tolist()}")
+        st.info("Make sure your CSV header matches: Visible_Track, Visible_Lane_Length (%), etc.")
