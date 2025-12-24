@@ -551,9 +551,13 @@ with st.container():
 
 st.caption("Tip: Press **Ctrl + Enter** to save instantly.")
 
+# ✅ Quick Fill button MUST be OUTSIDE the form
+if st.button("⚡ Quick Fill Predicted Winner"):
+    st.session_state['winner_autofill'] = predicted_winner
+
 with st.form("tele_form"):
 
-    # ✅ Winner selection with auto-highlight + Quick Fill
+    # ✅ Winner selection with auto-highlight
     winner = st.selectbox(
         "🏆 Actual Winner",
         ctx['v'],
@@ -561,10 +565,6 @@ with st.form("tele_form"):
               if st.session_state.get('winner_autofill') in ctx['v'] else None,
         placeholder=f"Predicted: {predicted_winner}"
     )
-
-    if st.button("⚡ Quick Fill Predicted Winner"):
-        st.session_state['winner_autofill'] = predicted_winner
-        st.experimental_rerun()
 
     # ✅ Lap inputs
     c_a, c_b, c_c = st.columns(3)
@@ -584,6 +584,7 @@ with st.form("tele_form"):
                            disabled=(ctx['idx']==2))
         s3l = st.number_input("L3 %", 1, 100, 34)
 
+    # ✅ Submit button INSIDE the form
     save_clicked = st.form_submit_button("💾 SAVE & TRAIN")
 
     # ✅ Validation
@@ -616,6 +617,7 @@ with st.form("tele_form"):
         pd.concat([history, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_FILE, index=False)
         st.toast("✅ Race saved and AI trained!", icon="🧠")
         st.rerun()
+        
 # --- 7. ANALYTICS (MODEL INSIGHTS & BRAIN) ---
 if not history.empty:
     st.divider()
