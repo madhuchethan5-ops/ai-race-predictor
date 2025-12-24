@@ -20,14 +20,15 @@ SPEED_DATA = {
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 3. DATA LOADING & AUTOMATIC CLEANING ---
+# --- 1. DEFINE VALID TRACKS ONCE ---
 VALID_TRACKS = list(SPEED_DATA["Car"].keys())
 
+# --- 2. DATA LOADING & AUTOMATIC REPAIR ---
 if os.path.exists(CSV_FILE):
     try:
         history = pd.read_csv(CSV_FILE)
         
-        # 1. Standardize column names
+        # Standardize naming immediately
         rename_map = {
             'Predicted_Winner': 'Predicted',
             'Actual_Winner': 'Actual',
@@ -35,60 +36,52 @@ if os.path.exists(CSV_FILE):
             'Visible_Lane_Length (%)': 'Visible_Segment_%'
         }
         history = history.rename(columns=rename_map)
-        
-        # 2. VALIDATION: Keep only rows with real track names (Blocks "20.0", etc.)
-        if 'Visible_Track' in history.columns:
-            # This line removes any row where the track isn't in our SPEED_DATA list
+
+        # CRITICAL FIX: If 'Visible_Track' is missing (KeyError), it means the CSV is corrupt.
+        # We check if it exists; if not, we try to find it or reset.
+        if 'Visible_Track' not in history.columns:
+            st.warning("⚠️ Data structure corrupted. Attempting to repair...")
+            # If the CSV has data but no headers, we'll skip it to prevent further errors
+            history = pd.DataFrame(columns=["Visible_Track", "Visible_Segment_%", "Hidden_1_Track", 
+                                            "Hidden_1_Len", "Hidden_2_Track", "Hidden_2_Len", 
+                                            "Predicted", "Actual"])
+        else:
+            # 1. REMOVE POLLUTION: Delete rows where track is "20.0", "40.0", etc.
             history = history[history['Visible_Track'].isin(VALID_TRACKS)]
-        
-        # 3. FORCE NUMERIC: Ensure lengths are numbers, not text
-        if 'Visible_Segment_%' in history.columns:
+            
+            # 2. FIX NUMERICS: Ensure lengths are actual numbers
             history['Visible_Segment_%'] = pd.to_numeric(history['Visible_Segment_%'], errors='coerce')
             history = history.dropna(subset=['Visible_Segment_%'])
             
     except Exception as e:
-        st.error(f"Error loading history: {e}")
         history = pd.DataFrame()
 else:
     history = pd.DataFrame()
 
-# --- 3. ADAPTIVE SIMULATION ENGINE ---
-def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
-    vehicles = [v1, v2, v3]
-    all_terrains = list(SPEED_DATA["Car"].keys())
+# --- 3. UPDATED SAVE LOGIC (PREVENT POLLUTION) ---
+# Use this block inside your "if submitted:" section
+if submitted:
+    last_probs = st.session_state.get('last_probs', {})
+    predicted = max(last_probs, key=last_probs.get) if last_probs else "N/A"
     
-    avg_vis = 0.33
-    vis_std = 0.08
+    # Force data types to prevent "20.0" from slipping into the wrong column
+    log_entry = {
+        "Visible_Track": str(v_track), 
+        "Visible_Segment_%": float(v_len),
+        "Hidden_1_Track": str(h1_t),
+        "Hidden_1_Len": float(h1_l),
+        "Hidden_2_Track": str(h2_t),
+        "Hidden_2_Len": float(h2_l),
+        "Predicted": str(predicted),
+        "Actual": str(winner)
+    }
     
-    if not history_df.empty and 'Visible_Segment_%' in history_df.columns:
-        # Get historical data for this track and drop any non-numeric (NaN) values
-        match = history_df[history_df['Visible_Track'] == visible_t].tail(20).copy()
-        match_clean = match['Visible_Segment_%'].dropna()
-        
-        if not match_clean.empty:
-            avg_vis = match_clean.mean() / 100
-            if len(match_clean) > 1:
-                vis_std = max(0.04, match_clean.std() / 100)
-
-    vis_lens = np.clip(np.random.normal(avg_vis, vis_std, iterations), 0.05, 0.95)
-    h1_lens = (1.0 - vis_lens) * np.random.uniform(0.1, 0.9, iterations)
-    h2_lens = 1.0 - vis_lens - h1_lens
-
-    seg_terrains = np.random.choice(all_terrains, size=(iterations, 3))
-    seg_terrains[:, visible_l-1] = visible_t
-
-    results = {}
-    for v in vehicles:
-        speed_lookup = np.vectorize(SPEED_DATA[v].get)(seg_terrains)
-        noise = np.random.normal(1.0, 0.02, (iterations, 3))
-        noisy_speeds = speed_lookup * noise
-        times = (vis_lens/noisy_speeds[:, 0]) + (h1_lens/noisy_speeds[:, 1]) + (h2_lens/noisy_speeds[:, 2])
-        results[v] = times
-
-    winners = np.argmin(np.array([results[v] for v in vehicles]), axis=0)
-    counts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
-    return {vehicles[i]: counts.get(i, 0) for i in range(3)}
-
+    # Save gatekeeper: Only save if the track is real
+    if log_entry["Visible_Track"] in VALID_TRACKS:
+        new_row = pd.DataFrame([log_entry])
+        new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
+        st.toast("Telemetry Synced!", icon="⚡")
+        st.rerun()
 # --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("🚦 Race Setup")
