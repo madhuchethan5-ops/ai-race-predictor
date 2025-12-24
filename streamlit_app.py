@@ -4,7 +4,7 @@ import numpy as np
 import os
 from streamlit_extras.grid import grid
 
-# --- 1. GLOBAL CONFIGURATION ---
+# --- 1. GLOBAL CONFIGURATION (MASTER LISTS) ---
 SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
@@ -17,7 +17,7 @@ SPEED_DATA = {
     "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134,"Potholes": 77, "Bumpy": 99, "Highway": 320},
 }
 
-# SORTED MASTER LISTS
+# SORTED LISTS
 ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
 TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
 VALID_TRACKS = TRACK_OPTIONS
@@ -25,34 +25,35 @@ VALID_TRACKS = TRACK_OPTIONS
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 2. DATA MANAGER ---
+# --- 2. ROBUST DATA MANAGER ---
 def load_clean_history():
     if not os.path.exists(CSV_FILE):
         return pd.DataFrame()
     try:
         df = pd.read_csv(CSV_FILE)
         
-        # Standardize Columns
+        # 1. Standardize Names (Handles BOTH old V1 format and NEW Vehicle_1 format)
         rename_map = {
             'Predicted_Winner': 'Predicted', 'Actual_Winner': 'Actual', 
             'Visible_%': 'Visible_Segment_%', 'Visible_Lane_Length (%)': 'Visible_Segment_%',
             'Hidden_1': 'Hidden_1_Track', 'Hidden_2': 'Hidden_2_Track',
-            'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3', 'Lane': 'Active_Lane'
+            'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3', 
+            'Lane': 'Active_Lane'
         }
         df = df.rename(columns=rename_map)
         
-        # Merge Hidden Track Logic
+        # 2. INTELLIGENT MERGE (Fixes duplicate column issue if mixed data exists)
         if 'Hidden_1_Track' not in df.columns: df['Hidden_1_Track'] = np.nan
         if 'Hidden_1' in df.columns: 
             df['Hidden_1_Track'] = df['Hidden_1_Track'].fillna(df['Hidden_1'])
-            df = df.drop(columns=['Hidden_1'])
+            df = df.drop(columns=['Hidden_1'], errors='ignore')
 
         if 'Hidden_2_Track' not in df.columns: df['Hidden_2_Track'] = np.nan
         if 'Hidden_2' in df.columns: 
             df['Hidden_2_Track'] = df['Hidden_2_Track'].fillna(df['Hidden_2'])
-            df = df.drop(columns=['Hidden_2'])
+            df = df.drop(columns=['Hidden_2'], errors='ignore')
         
-        # Validate
+        # 3. Validation
         if 'Visible_Track' in df.columns:
             df = df[df['Visible_Track'].isin(VALID_TRACKS)]
         if 'Visible_Segment_%' in df.columns:
@@ -60,17 +61,17 @@ def load_clean_history():
             df = df.dropna(subset=['Visible_Segment_%'])
             
         return df
-    except Exception:
+    except Exception as e:
         return pd.DataFrame()
 
 history = load_clean_history()
 
-# --- 3. PATTERN RECOGNITION ENGINE ---
+# --- 3. PATTERN RECOGNITION SIMULATION ENGINE (TRUE AI) ---
 def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
     all_terrains = TRACK_OPTIONS
     
-    # Defaults
+    # --- DEFAULTS (Prior Knowledge) ---
     avg_vis = 0.33
     vis_std = 0.12
     h1_probs = None 
@@ -78,18 +79,19 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
     avg_h1_split = 0.5 
     std_h1_split = 0.15
 
-    # LEARN FROM HISTORY
+    # --- LEARNING FROM HISTORY ---
     if not history_df.empty:
+        # Filter for relevant history (Current Visible Track)
         match = history_df[history_df['Visible_Track'] == visible_t].tail(50)
         
         if not match.empty:
-            # A. VISIBLE LENGTH
+            # A. LEARN VISIBLE LENGTH
             clean_vis = pd.to_numeric(match['Visible_Segment_%'], errors='coerce').dropna()
             if not clean_vis.empty:
                  avg_vis = clean_vis.mean() / 100
                  if len(clean_vis) > 1: vis_std = max(0.04, clean_vis.std() / 100)
 
-            # B. HIDDEN PATTERNS
+            # B. LEARN HIDDEN TRACK PROBABILITIES (Markov Chain Logic)
             if 'Hidden_1_Track' in match.columns:
                 h1_counts = match['Hidden_1_Track'].value_counts(normalize=True)
                 h1_probs = h1_counts.reindex(TRACK_OPTIONS, fill_value=0).values
@@ -102,7 +104,7 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
                 if h2_probs.sum() > 0: h2_probs = h2_probs / h2_probs.sum()
                 else: h2_probs = None
 
-            # C. HIDDEN SPLIT
+            # C. LEARN HIDDEN SPLIT RATIO
             if 'Hidden_1_Len' in match.columns and 'Hidden_2_Len' in match.columns:
                 h1_len = pd.to_numeric(match['Hidden_1_Len'], errors='coerce').fillna(33)
                 h2_len = pd.to_numeric(match['Hidden_2_Len'], errors='coerce').fillna(33)
@@ -113,21 +115,32 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
                     avg_h1_split = ratios.mean()
                     if len(ratios) > 1: std_h1_split = max(0.05, ratios.std())
 
-    # MONTE CARLO
+    # --- MONTE CARLO EXECUTION ---
+    # 1. Generate Visible Lengths (Learned)
     vis_lens = np.clip(np.random.normal(avg_vis, vis_std, iterations), 0.05, 0.95)
     remaining = 1.0 - vis_lens
 
+    # 2. Generate Hidden Split (Learned)
     h1_ratios = np.clip(np.random.normal(avg_h1_split, std_h1_split, iterations), 0.1, 0.9)
     h1_lens = remaining * h1_ratios
     h2_lens = remaining - h1_lens
 
-    if h1_probs is not None: h1_terrains = np.random.choice(all_terrains, size=iterations, p=h1_probs)
-    else: h1_terrains = np.random.choice(all_terrains, size=iterations)
+    # 3. Generate Hidden Terrains (Learned Probabilities)
+    if h1_probs is not None:
+        h1_terrains = np.random.choice(all_terrains, size=iterations, p=h1_probs)
+    else:
+        h1_terrains = np.random.choice(all_terrains, size=iterations)
 
-    if h2_probs is not None: h2_terrains = np.random.choice(all_terrains, size=iterations, p=h2_probs)
-    else: h2_terrains = np.random.choice(all_terrains, size=iterations)
+    if h2_probs is not None:
+        h2_terrains = np.random.choice(all_terrains, size=iterations, p=h2_probs)
+    else:
+        h2_terrains = np.random.choice(all_terrains, size=iterations)
         
-    seg_terrains = np.column_stack([np.full(iterations, visible_t), h1_terrains, h2_terrains])
+    seg_terrains = np.column_stack([
+        np.full(iterations, visible_t), 
+        h1_terrains,
+        h2_terrains
+    ])
 
     results = {}
     for v in vehicles:
@@ -142,49 +155,49 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
     
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
 
-# --- 4. SIDEBAR (DYNAMIC SELECTION) ---
+# --- 4. SIDEBAR (WITH EXCLUSION LOGIC & IMPORT) ---
 with st.sidebar:
     st.header("🚦 Race Setup")
     v_track = st.selectbox("Visible Track", TRACK_OPTIONS)
     v_lane = st.radio("Active Lane", [1, 2, 3], horizontal=True)
     st.divider()
     
-    # --- DYNAMIC VEHICLE SELECTORS ---
+    # --- DYNAMIC VEHICLE SELECTORS (EXCLUSION LOGIC) ---
     # Vehicle 1
     c1 = st.selectbox("Vehicle 1 (Top)", ALL_VEHICLES, index=ALL_VEHICLES.index("Supercar"))
     
-    # Vehicle 2 (Remove C1 from options)
+    # Vehicle 2 (Remove c1 from options)
     v2_options = [v for v in ALL_VEHICLES if v != c1]
-    # Ensure default index is valid
-    default_v2 = "Sports Car" if "Sports Car" in v2_options else v2_options[0]
-    c2 = st.selectbox("Vehicle 2 (Mid)", v2_options, index=v2_options.index(default_v2))
+    default_v2_idx = v2_options.index("Sports Car") if "Sports Car" in v2_options else 0
+    c2 = st.selectbox("Vehicle 2 (Mid)", v2_options, index=default_v2_idx)
     
-    # Vehicle 3 (Remove C1 and C2 from options)
+    # Vehicle 3 (Remove c1 and c2 from options)
     v3_options = [v for v in ALL_VEHICLES if v not in [c1, c2]]
-    default_v3 = "Car" if "Car" in v3_options else v3_options[0]
-    c3 = st.selectbox("Vehicle 3 (Bot)", v3_options, index=v3_options.index(default_v3))
+    default_v3_idx = v3_options.index("Car") if "Car" in v3_options else 0
+    c3 = st.selectbox("Vehicle 3 (Bot)", v3_options, index=default_v3_idx)
     
-    # Button Logic using Session State
+    # --- PREDICT BUTTON (PERSISTENT) ---
     if st.button("🚀 PREDICT OUTCOME", type="primary", use_container_width=True):
         probs = run_simulation(c1, c2, c3, v_track, v_lane, history)
         st.session_state['last_probs'] = probs
         st.session_state['last_vehicles'] = [c1, c2, c3]
         st.session_state['last_lane'] = v_lane
-        st.session_state['has_predicted'] = True
+        st.session_state['has_predicted'] = True  # Keep result visible
     
     st.divider()
     
-    # --- IMPORT TOOL (UPDATED) ---
+    # --- IMPORT TOOL (FIXED FOR NEW FILE) ---
     st.write("📂 **Import & Fix Data**")
     uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
     if uploaded_file is not None:
         if st.button("📥 Process & Merge"):
             try:
-                # Read CSV, usually defaults to comma separator
                 new_data = pd.read_csv(uploaded_file)
                 
-                # Check if it's the new format (which has correct names) or old
-                # Use standard renaming just in case to be safe
+                # 1. Clean Unnamed columns (indices)
+                new_data = new_data.loc[:, ~new_data.columns.str.contains('^Unnamed')]
+                
+                # 2. Rename Old formats if they exist, otherwise keep New formats
                 rename_map = {
                     'Predicted_Winner': 'Predicted', 'Actual_Winner': 'Actual', 
                     'Visible_%': 'Visible_Segment_%', 'Visible_Lane_Length (%)': 'Visible_Segment_%',
@@ -193,29 +206,29 @@ with st.sidebar:
                 }
                 new_data = new_data.rename(columns=rename_map)
                 
-                # Remove unnamed columns (like index columns from export)
-                new_data = new_data.loc[:, ~new_data.columns.str.contains('^Unnamed')]
-
+                # 3. Load Master
                 if os.path.exists(CSV_FILE):
                     master_df = pd.read_csv(CSV_FILE)
                 else:
                     master_df = pd.DataFrame()
                 
+                # 4. Concat
                 combined_df = pd.concat([master_df, new_data], ignore_index=True)
                 
-                # Run the merge logic again on the whole set
+                # 5. Fix Mixed Columns
                 if 'Hidden_1_Track' not in combined_df.columns: combined_df['Hidden_1_Track'] = np.nan
                 if 'Hidden_1' in combined_df.columns: 
                     combined_df['Hidden_1_Track'] = combined_df['Hidden_1_Track'].fillna(combined_df['Hidden_1'])
+                    
                 if 'Hidden_2_Track' not in combined_df.columns: combined_df['Hidden_2_Track'] = np.nan
                 if 'Hidden_2' in combined_df.columns: 
                     combined_df['Hidden_2_Track'] = combined_df['Hidden_2_Track'].fillna(combined_df['Hidden_2'])
                 
                 combined_df.to_csv(CSV_FILE, index=False)
-                st.success(f"Merged! Total Records: {len(combined_df)}")
+                st.success(f"Imported! Total Records: {len(combined_df)}")
                 st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Import Error: {e}")
 
     with st.expander("🛠️ Admin Tools"):
         if st.button("🗑️ Force Wipe Database"):
@@ -223,13 +236,12 @@ with st.sidebar:
                 os.remove(CSV_FILE)
                 st.rerun()
 
-# --- 5. DASHBOARD ---
+# --- 5. MAIN DASHBOARD ---
 st.title("🏎️ AI RACE PREDICTOR PRO")
 
-# Display Results if a prediction exists in session state
+# Display Results if stored in session state
 if st.session_state.get('has_predicted', False):
     probs = st.session_state['last_probs']
-    
     m_grid = grid(3, vertical_align="center")
     for veh, val in probs.items():
         m_grid.metric(veh, f"{val:.1f}%")
@@ -239,7 +251,7 @@ if st.session_state.get('has_predicted', False):
     elif gap > 15: st.warning("⚠️ MODERATE RISK")
     else: st.error("⚡ EXTREME VOLATILITY")
 
-# --- 6. TELEMETRY LOGGING (SAVES FULL CONTEXT) ---
+# --- 6. TELEMETRY LOGGING ---
 st.divider()
 st.subheader("📝 POST-RACE TELEMETRY")
 logger_vehicles = st.session_state.get('last_vehicles', [c1, c2, c3])
@@ -283,8 +295,7 @@ with st.form("logger_form", clear_on_submit=False):
                 updated_df = pd.concat([current_df, new_row], ignore_index=True)
                 updated_df.to_csv(CSV_FILE, index=False)
                 st.toast(f"Saved Full Race Context! Total: {len(updated_df)}", icon="✅")
-                # We do NOT rerun here immediately so you can see the toast, 
-                # but you might want to manually refresh or click predict again.
+                # Do NOT rerun immediately so toast is visible
             except Exception as e:
                 st.error(f"Save Error: {e}")
         else:
