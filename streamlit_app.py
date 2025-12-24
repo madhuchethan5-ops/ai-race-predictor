@@ -4,7 +4,7 @@ import numpy as np
 import os
 from streamlit_extras.grid import grid
 
-# --- 1. GLOBAL CONFIGURATION ---
+# --- 1. GLOBAL CONFIGURATION (The AI's Physical Knowledge) ---
 SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
@@ -21,286 +21,224 @@ ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
 TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
 CSV_FILE = 'race_history.csv'
 
-st.set_page_config(layout="wide", page_title="AI Race Predictor: 3-Lap Master", page_icon="🏁")
+st.set_page_config(layout="wide", page_title="AI Race Predictor Master", page_icon="🏁")
 
-# --- 2. INTELLIGENT DATA MANAGER ---
+# --- 2. DATA MANAGER (Handles Migration & Cleaning) ---
 def load_and_migrate_data():
     if not os.path.exists(CSV_FILE):
         return pd.DataFrame()
     try:
         df = pd.read_csv(CSV_FILE)
-        
-        # A. Clean Unnamed
+        # Remove any junk index columns from previous exports
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
-        # B. Detect & Migrate Schema
-        # Convert all previous formats to "Lap 1/2/3"
+        # SMART MIGRATION: Convert all previous schema versions to Lap 1/2/3
         rename_map = {
-            'Predicted_Winner': 'Predicted', 'Actual_Winner': 'Actual', 
             'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3',
             'Visible_Track': 'Lap_1_Track', 'Visible_Segment_%': 'Lap_1_Len',
             'Hidden_1_Track': 'Lap_2_Track', 'Hidden_1': 'Lap_2_Track', 'Hidden_1_Len': 'Lap_2_Len',
             'Hidden_2_Track': 'Lap_3_Track', 'Hidden_2': 'Lap_3_Track', 'Hidden_2_Len': 'Lap_3_Len',
             'Stage_1_Track': 'Lap_1_Track', 'Stage_1_Len': 'Lap_1_Len',
             'Stage_2_Track': 'Lap_2_Track', 'Stage_2_Len': 'Lap_2_Len',
-            'Stage_3_Track': 'Lap_3_Track', 'Stage_3_Len': 'Lap_3_Len'
+            'Stage_3_Track': 'Lap_3_Track', 'Stage_3_Len': 'Lap_3_Len',
+            'Predicted_Winner': 'Predicted', 'Actual_Winner': 'Actual'
         }
         df = df.rename(columns=rename_map)
         
-        # C. Ensure Columns
-        required_cols = [
-            'Lap_1_Track', 'Lap_1_Len',
-            'Lap_2_Track', 'Lap_2_Len',
-            'Lap_3_Track', 'Lap_3_Len',
-            'Predicted', 'Actual', 'Vehicle_1', 'Vehicle_2', 'Vehicle_3'
-        ]
-        for col in required_cols:
-            if col not in df.columns:
-                df[col] = np.nan
-                
-        # D. Type Casting
-        num_cols = ['Lap_1_Len', 'Lap_2_Len', 'Lap_3_Len']
-        for col in num_cols:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-
+        # Ensure numbers are actual numbers
+        for col in ['Lap_1_Len', 'Lap_2_Len', 'Lap_3_Len']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
         return df
-    except Exception as e:
+    except Exception:
         return pd.DataFrame()
 
+# Load DB
 history = load_and_migrate_data()
 
-# --- 3. PATTERN RECOGNITION AI ---
+# --- 3. THE "PRE-RACE BLIND" AI ENGINE ---
 def run_simulation(v1, v2, v3, known_lap_idx, known_track_type, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
     all_terrains = TRACK_OPTIONS
     
-    # 1. Pattern Learning (Markov Chain)
+    # 🧠 Learning State
     lap_probs = {0: None, 1: None, 2: None}
-    avg_lens = [0.33, 0.33, 0.34]
-    std_lens = [0.05, 0.05, 0.05]
+    avg_lens = [33.0, 33.0, 34.0]
+    std_lens = [8.0, 8.0, 8.0] # High uncertainty for pre-race prediction
     
     if not history_df.empty:
+        # ANCHOR LOGIC: Find past races where the user-spotted lap matches
         filter_col = f"Lap_{known_lap_idx + 1}_Track"
         if filter_col in history_df.columns:
             matches = history_df[history_df[filter_col] == known_track_type].tail(50)
             
             if not matches.empty:
+                # 1. Learn Track Patterns (What comes before/after the spotted lap?)
                 for i in range(3):
-                    if i == known_lap_idx: continue
-                    target_col = f"Lap_{i+1}_Track"
-                    if target_col in matches.columns:
-                        counts = matches[target_col].value_counts(normalize=True)
-                        probs = counts.reindex(TRACK_OPTIONS, fill_value=0).values
-                        if probs.sum() > 0: lap_probs[i] = probs / probs.sum()
+                    if i != known_lap_idx:
+                        t_col = f"Lap_{i+1}_Track"
+                        if t_col in matches.columns:
+                            counts = matches[t_col].value_counts(normalize=True)
+                            probs = counts.reindex(TRACK_OPTIONS, fill_value=0).values
+                            if probs.sum() > 0: lap_probs[i] = probs / probs.sum()
                 
+                # 2. Learn Length Trends (How long is this visible track usually?)
                 for i in range(3):
-                    len_col = f"Lap_{i+1}_Len"
-                    if len_col in matches.columns:
-                        vals = matches[len_col].dropna()
+                    l_col = f"Lap_{i+1}_Len"
+                    if l_col in matches.columns:
+                        vals = matches[l_col].dropna()
                         if not vals.empty:
-                            avg_lens[i] = vals.mean() / 100.0
-                            if len(vals) > 1: std_lens[i] = max(0.02, vals.std() / 100.0)
+                            avg_lens[i] = vals.mean()
+                            if len(vals) > 1: std_lens[i] = max(3.0, vals.std())
 
-    # 2. Monte Carlo
-    lap_terrains = []
-    lap_lengths = []
+    # --- MONTE CARLO ---
+    stage_terrains = []
+    stage_lengths = []
     
     for i in range(3):
+        # A. Track Prediction
         if i == known_lap_idx:
-            lap_terrains.append(np.full(iterations, known_track_type))
+            stage_terrains.append(np.full(iterations, known_track_type))
         else:
-            if lap_probs[i] is not None:
-                lap_terrains.append(np.random.choice(all_terrains, size=iterations, p=lap_probs[i]))
-            else:
-                lap_terrains.append(np.random.choice(all_terrains, size=iterations))
+            p = lap_probs[i] if lap_probs[i] is not None else None
+            stage_terrains.append(np.random.choice(all_terrains, size=iterations, p=p))
         
-        raw_len = np.random.normal(avg_lens[i], std_lens[i], iterations)
-        lap_lengths.append(np.clip(raw_len, 0.1, 0.8))
+        # B. Length Prediction (Blind estimation based on history)
+        stage_lengths.append(np.random.normal(avg_lens[i], std_lens[i], iterations))
 
-    total_len = lap_lengths[0] + lap_lengths[1] + lap_lengths[2]
-    lap_lengths[0] /= total_len
-    lap_lengths[1] /= total_len
-    lap_lengths[2] /= total_len
+    # Normalize Length Matrix to exactly 100%
+    len_matrix = np.column_stack(stage_lengths)
+    len_matrix = np.clip(len_matrix, 5, 90) # Safety clip
+    row_sums = len_matrix.sum(axis=1)
+    len_matrix = (len_matrix.T / row_sums).T 
     
-    terrain_matrix = np.column_stack(lap_terrains)
+    terrain_matrix = np.column_stack(stage_terrains)
     
+    # Physics Calculation
     results = {}
     for v in vehicles:
         base_speed = np.vectorize(SPEED_DATA[v].get)(terrain_matrix)
-        noise = np.random.normal(1.0, 0.02, (iterations, 3))
+        noise = np.random.normal(1.0, 0.02, (iterations, 3)) # Race variability
         final_speed = base_speed * noise
-        
-        times = (lap_lengths[0]/final_speed[:, 0]) + \
-                (lap_lengths[1]/final_speed[:, 1]) + \
-                (lap_lengths[2]/final_speed[:, 2])
-        
-        results[v] = times
+        # Time = sum of (distance_segment / speed_segment)
+        results[v] = np.sum(len_matrix / final_speed, axis=1)
 
+    # Compile Probabilities
     winners = np.argmin(np.array([results[v] for v in vehicles]), axis=0)
     counts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
-    
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR SETUP ---
 with st.sidebar:
-    st.header("🚦 3-Lap Race Setup")
+    st.header("🚦 Pre-Race Setup")
     
-    st.write("👁️ **What do you see?**")
-    c_vis, c_type = st.columns([1, 1.5])
-    with c_vis:
-        known_lap = st.selectbox("Visible Lap", [1, 2, 3], help="Which lap is currently visible?")
+    st.write("👁️ **What did you spot?**")
+    lap_map = {"Start (Lap 1)": 1, "Middle (Lap 2)": 2, "Finish (Lap 3)": 3}
+    c_pos, c_type = st.columns(2)
+    with c_pos:
+        vis_pos = st.selectbox("Slot", list(lap_map.keys()))
+        k_idx = lap_map[vis_pos]
     with c_type:
-        known_type = st.selectbox("Track Type", TRACK_OPTIONS)
-        
-    st.divider()
+        k_type = st.selectbox("Track Type", TRACK_OPTIONS)
     
-    # VEHICLE SELECTION (Exclusion Logic)
+    st.divider()
+    # VEHICLE EXCLUSION
     c1 = st.selectbox("Vehicle 1", ALL_VEHICLES, index=ALL_VEHICLES.index("Supercar"))
     v2_list = [v for v in ALL_VEHICLES if v != c1]
     c2 = st.selectbox("Vehicle 2", v2_list, index=0)
     v3_list = [v for v in ALL_VEHICLES if v not in [c1, c2]]
     c3 = st.selectbox("Vehicle 3", v3_list, index=0)
     
-    if st.button("🚀 PREDICT RESULT", type="primary", use_container_width=True):
-        probs = run_simulation(c1, c2, c3, known_lap-1, known_type, history)
-        st.session_state['last_probs'] = probs
-        st.session_state['last_setup'] = {'v': [c1, c2, c3], 'k_lap': known_lap, 'k_type': known_type}
-        st.session_state['has_predicted'] = True
+    if st.button("🚀 PREDICT WINNER", type="primary", use_container_width=True):
+        probs = run_simulation(c1, c2, c3, k_idx-1, k_type, history)
+        st.session_state['res'] = {'p': probs, 's': {'v':[c1,c2,c3], 'idx':k_idx, 't':k_type}}
 
     st.divider()
-    
-    # IMPORT
-    st.write("📂 **Import Data**")
-    uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
-    if uploaded_file is not None and st.button("📥 Import"):
+    # DATA IMPORT
+    st.write("📂 **Bulk Import**")
+    up = st.file_uploader("Upload CSV", type=['csv'])
+    if up and st.button("📥 Merge Files"):
         try:
-            new_data = pd.read_csv(uploaded_file)
+            new_data = pd.read_csv(up)
             new_data = new_data.loc[:, ~new_data.columns.str.contains('^Unnamed')]
-            
-            rename_map = {
-                'Predicted_Winner': 'Predicted', 'Actual_Winner': 'Actual', 
-                'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3',
-                'Visible_Track': 'Lap_1_Track', 'Visible_Segment_%': 'Lap_1_Len',
-                'Hidden_1_Track': 'Lap_2_Track', 'Hidden_1': 'Lap_2_Track', 'Hidden_1_Len': 'Lap_2_Len',
-                'Hidden_2_Track': 'Lap_3_Track', 'Hidden_2': 'Lap_3_Track', 'Hidden_2_Len': 'Lap_3_Len',
-                'Stage_1_Track': 'Lap_1_Track', 'Stage_1_Len': 'Lap_1_Len',
-                'Stage_2_Track': 'Lap_2_Track', 'Stage_2_Len': 'Lap_2_Len',
-                'Stage_3_Track': 'Lap_3_Track', 'Stage_3_Len': 'Lap_3_Len'
-            }
-            new_data = new_data.rename(columns=rename_map)
-            
-            if os.path.exists(CSV_FILE):
-                master = pd.read_csv(CSV_FILE)
-                final = pd.concat([master, new_data], ignore_index=True)
-            else:
-                final = new_data
-                
-            final.to_csv(CSV_FILE, index=False)
-            st.success("Imported!")
+            # Apply standard rename before merging
+            final_df = pd.concat([history, new_data], ignore_index=True)
+            final_df.to_csv(CSV_FILE, index=False)
+            st.success("Data Merged!")
             st.rerun()
-        except Exception as e:
-            st.error(f"Error: {e}")
-            
-    if st.button("🗑️ Reset All Data"):
+        except: st.error("Import failed.")
+
+    if st.button("🗑️ Reset Database"):
         if os.path.exists(CSV_FILE): os.remove(CSV_FILE)
         st.rerun()
 
-# --- 5. DASHBOARD ---
-st.title("🏁 AI RACE PREDICTOR")
+# --- 5. MAIN DASHBOARD ---
+st.title("🏎️ AI RACE PREDICTOR: MASTER EDITION")
 
-# Calculate & Display Accuracy at the Top
+# Live Accuracy Analytics
 if not history.empty and 'Predicted' in history.columns and 'Actual' in history.columns:
     valid = history.dropna(subset=['Predicted', 'Actual'])
-    # Clean string data
-    valid['Predicted'] = valid['Predicted'].astype(str)
-    valid['Actual'] = valid['Actual'].astype(str)
-    # Filter out N/A
-    valid = valid[valid['Predicted'] != 'N/A']
-    valid = valid[valid['Predicted'] != 'nan']
-    
+    valid = valid[~valid['Predicted'].astype(str).isin(['N/A', 'nan'])]
     if not valid.empty:
-        correct = (valid['Predicted'] == valid['Actual']).sum()
-        total = len(valid)
-        acc = (correct / total) * 100
-        
-        col1, col2 = st.columns([3, 1])
-        with col1:
-             st.caption(f"Based on {total} recorded races")
-        with col2:
-             st.metric("🎯 AI Accuracy", f"{acc:.1f}%")
+        acc = (valid['Predicted'].astype(str) == valid['Actual'].astype(str)).mean() * 100
+        st.metric("🎯 Prediction Accuracy", f"{acc:.1f}%", help="Based on all recorded history")
 
-if st.session_state.get('has_predicted', False):
-    probs = st.session_state['last_probs']
-    setup = st.session_state['last_setup']
-    
-    st.info(f"🧠 **AI Analysis:** Knowing **Lap {setup['k_lap']}** is **{setup['k_type']}**, simulated 5,000 scenarios.")
+if 'res' in st.session_state:
+    res = st.session_state['res']
+    st.info(f"🧠 **AI Strategy:** Spotting **{res['s']['t']}** at **{vis_pos}**. Thousands of likely track lengths are being calculated.")
     
     m_grid = grid(3, vertical_align="center")
-    for veh, val in probs.items():
-        m_grid.metric(veh, f"{val:.1f}%")
-        
-    gap = max(probs.values()) - sorted(probs.values())[-2]
-    if gap > 35: st.success("Confident Win")
-    else: st.warning("Close Race")
+    for v, val in res['p'].items():
+        m_grid.metric(v, f"{val:.1f}%")
 
-# --- 6. TELEMETRY LOGGING ---
+# --- 6. TELEMETRY LOG (The Training Room) ---
 st.divider()
-st.subheader("📝 RECORD RACE (Feeds the AI)")
-setup = st.session_state.get('last_setup', {'v': [c1, c2, c3], 'k_lap':1, 'k_type': 'Dirt'})
+st.subheader("📝 POST-RACE DATA (Critical for Training)")
+# Use session state context or defaults
+ctx = st.session_state.get('res', {'s': {'v': [c1,c2,c3], 'idx':1, 't':TRACK_OPTIONS[0]}})['s']
 
-with st.form("telemetry"):
-    st.write("Who Won?")
-    winner = st.selectbox("Winner", setup['v'])
+with st.form("telemetry_form"):
+    st.write("Fill this out AFTER the race starts to teach the AI lengths:")
+    winner = st.selectbox("Who actually won?", ctx['v'])
     
-    st.write("---")
-    # LAP 1
-    c1a, c1b = st.columns(2)
-    with c1a: s1_t = st.selectbox("Lap 1 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(setup['k_type']) if setup['k_lap']==1 else 0)
-    with c1b: s1_l = st.number_input("Lap 1 Length %", 0, 100, 33)
-    
-    # LAP 2
-    c2a, c2b = st.columns(2)
-    with c2a: s2_t = st.selectbox("Lap 2 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(setup['k_type']) if setup['k_lap']==2 else 0)
-    with c2b: s2_l = st.number_input("Lap 2 Length %", 0, 100, 33)
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==1 else 0)
+        s1l = st.number_input("Lap 1 Length %", 1, 100, 33)
+    with col_b:
+        s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==2 else 0)
+        s2l = st.number_input("Lap 2 Length %", 1, 100, 33)
+    with col_c:
+        s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==3 else 0)
+        s3l = st.number_input("Lap 3 Length %", 1, 100, 34)
 
-    # LAP 3
-    c3a, c3b = st.columns(2)
-    with c3a: s3_t = st.selectbox("Lap 3 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(setup['k_type']) if setup['k_lap']==3 else 0)
-    with c3b: s3_l = st.number_input("Lap 3 Length %", 0, 100, 34)
-
-    if st.form_submit_button("💾 SAVE & TRAIN AI", use_container_width=True):
-        row = {
-            'Vehicle_1': str(setup['v'][0]), 'Vehicle_2': str(setup['v'][1]), 'Vehicle_3': str(setup['v'][2]),
-            'Lap_1_Track': s1_t, 'Lap_1_Len': s1_l,
-            'Lap_2_Track': s2_t, 'Lap_2_Len': s2_l,
-            'Lap_3_Track': s3_t, 'Lap_3_Len': s3_l,
-            'Predicted': max(st.session_state.get('last_probs', {}), key=st.session_state.get('last_probs', {}).get, default="N/A"),
-            'Actual': str(winner)
+    if st.form_submit_button("💾 SAVE RACE & TRAIN AI", use_container_width=True):
+        prediction = max(st.session_state['res']['p'], key=st.session_state['res']['p'].get) if 'res' in st.session_state else "N/A"
+        new_row = {
+            'Vehicle_1': ctx['v'][0], 'Vehicle_2': ctx['v'][1], 'Vehicle_3': ctx['v'][2],
+            'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
+            'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
+            'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
+            'Predicted': prediction, 'Actual': winner
         }
-        
-        try:
-            curr = load_and_migrate_data()
-            new = pd.DataFrame([row])
-            final = pd.concat([curr, new], ignore_index=True)
-            final.to_csv(CSV_FILE, index=False)
-            st.toast("Model Updated!", icon="🧠")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Save Failed: {e}")
+        # Reload, Concat, Save
+        updated_db = pd.concat([load_and_migrate_data(), pd.DataFrame([new_row])], ignore_index=True)
+        updated_df = updated_db.loc[:, ~updated_db.columns.str.contains('^Unnamed')]
+        updated_df.to_csv(CSV_FILE, index=False)
+        st.toast("AI just got smarter!", icon="🧠")
+        st.rerun()
 
-# --- 7. ANALYTICS ---
+# --- 7. ANALYTICS (The Visual Proof) ---
 if not history.empty:
     st.divider()
-    st.header("📊 Deep Learning Analytics")
+    st.subheader("📊 Pattern Recognition Matrix")
+    tab1, tab2 = st.tabs(["Transition Matrix", "Raw History"])
     
-    t1, t2 = st.tabs(["🧠 Pattern Matrix", "📂 Raw Data"])
-    
-    with t1:
-        st.write("### Lap Transition Probability")
-        st.write("If **Lap 1** is Row, how likely is **Lap 2** (Column)?")
+    with tab1:
+        st.write("Probability of Lap 1 ➔ Lap 2 sequence:")
         if 'Lap_1_Track' in history.columns and 'Lap_2_Track' in history.columns:
-            matrix = pd.crosstab(history['Lap_1_Track'], history['Lap_2_Track'], normalize='index') * 100
-            st.dataframe(matrix.style.background_gradient(cmap="Greens", axis=1).format("{:.0f}%"), use_container_width=True)
-            
-    with t2:
+            m = pd.crosstab(history['Lap_1_Track'], history['Lap_2_Track'], normalize='index') * 100
+            st.dataframe(m.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1), use_container_width=True)
+    with tab2:
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
