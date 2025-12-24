@@ -750,6 +750,7 @@ if save_clicked:
         'Lane': revealed_slot,
         'Top_Prob': predicted[predicted_winner] / 100.0,
         'Was_Correct': float(predicted_winner == winner)
+        'Timestamp': pd.Timestamp.now(),
     }
 
     fresh = load_and_migrate_data() 
@@ -757,6 +758,7 @@ if save_clicked:
 
     try:
         new_history.to_csv(CSV_FILE, index=False)
+        new_history.to_csv("race_history_backup.csv", index=False)
     except Exception as e:
         st.error(f"Failed to save race: {e}")
         st.stop()
@@ -765,6 +767,12 @@ if save_clicked:
     st.cache_data.clear()
 
     st.success("✅ Saved & AI trained!")
+    st.download_button(
+    "⬇️ Download Race History",
+    new_history.to_csv(index=False),
+    "race_history.csv",
+    mime="text/csv"
+)
     st.rerun()
 
 # --- PREDICTION ANALYTICS PANEL ---
