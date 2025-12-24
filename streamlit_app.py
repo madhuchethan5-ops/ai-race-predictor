@@ -26,38 +26,37 @@ st.set_page_config(layout="wide", page_title="AI Race Master Pro", page_icon="ðŸ
 
 # --- 2. THE DATA ARCHITECT (MIGRATION & VALIDATION) ---
 def load_and_migrate_data():
-    """Handles different CSV versions and prepares data for the ML engine."""
+    """Handles different CSV versions and ensures 'Actual' column exists."""
     if not os.path.exists(CSV_FILE):
-        return pd.DataFrame()
+        # Create an empty DataFrame with the correct headers immediately
+        return pd.DataFrame(columns=['Vehicle_1', 'Vehicle_2', 'Vehicle_3', 
+                                   'Lap_1_Track', 'Lap_1_Len', 'Lap_2_Track', 'Lap_2_Len', 
+                                   'Lap_3_Track', 'Lap_3_Len', 'Predicted', 'Actual'])
     try:
         df = pd.read_csv(CSV_FILE)
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed')] # Remove ghost columns
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
-        # Comprehensive Mapper for all historical schema versions
         rename_map = {
             'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3',
             'Visible_Track': 'Lap_1_Track', 'Visible_Segment_%': 'Lap_1_Len',
-            'Hidden_1_Track': 'Lap_2_Track', 'Hidden_1_Len': 'Lap_2_Len',
-            'Hidden_2_Track': 'Lap_3_Track', 'Hidden_2_Len': 'Lap_3_Len',
-            'Stage_1_Track': 'Lap_1_Track', 'Stage_2_Track': 'Lap_2_Track', 'Stage_3_Track': 'Lap_3_Track',
-            'Stage_1_Len': 'Lap_1_Len', 'Stage_2_Len': 'Lap_2_Len', 'Stage_3_Len': 'Lap_3_Len'
+            'Hidden_1_Track': 'Lap_2_Track', 'Hidden_2_Track': 'Lap_3_Track'
         }
         df = df.rename(columns=rename_map)
         
-        # Data Integrity: Force numeric lengths and validate 100% rule
+        # CRITICAL FIX: Ensure 'Actual' and 'Predicted' columns exist even if file is new
+        if 'Actual' not in df.columns:
+            df['Actual'] = np.nan
+        if 'Predicted' not in df.columns:
+            df['Predicted'] = np.nan
+            
         for i in range(1, 4):
             l_col = f'Lap_{i}_Len'
             if l_col in df.columns:
                 df[l_col] = pd.to_numeric(df[l_col], errors='coerce').fillna(33.3)
-            else:
-                df[l_col] = 33.3
         
         return df
     except Exception as e:
-        st.error(f"Load Error: {e}")
-        return pd.DataFrame()
-
-history = load_and_migrate_data()
+        return pd.DataFrame(columns=['Actual', 'Predicted']) # Fallback to prevent crash
 
 # --- 3. THE COMPLETE AI ML ENGINE (BIDIRECTIONAL & SELF-TRAINING) ---
 def run_master_simulation(v1, v2, v3, k_idx, k_type, history_df, iterations=5000):
@@ -249,12 +248,18 @@ if not history.empty:
 
     with tab3:
         st.write("### Vehicle Performance Index (VPI)")
-        st.caption("How much boost the AI is currently granting to each vehicle based on its win record.")
-        win_rec = history['Actual'].value_counts()
-        vpi_data = []
-        for v in ALL_VEHICLES:
-            vpi_data.append({'Vehicle': v, 'Total Wins': win_rec.get(v, 0), 'AI ML Boost': f"x{1.0 + (win_rec.get(v,0)*0.005):.3f}"})
-        st.dataframe(pd.DataFrame(vpi_data).set_index('Vehicle'), use_container_width=True)
+        if not history.empty and 'Actual' in history.columns and history['Actual'].notna().any():
+            win_rec = history['Actual'].value_counts()
+            vpi_data = []
+            for v in ALL_VEHICLES:
+                vpi_data.append({
+                    'Vehicle': v, 
+                    'Total Wins': win_rec.get(v, 0), 
+                    'AI ML Boost': f"x{1.0 + (win_rec.get(v,0)*0.005):.3f}"
+                })
+            st.dataframe(pd.DataFrame(vpi_data).set_index('Vehicle'), use_container_width=True)
+        else:
+            st.info("No race winners recorded yet. VPI will update once you save your first race.")
 
     with tab4:
         st.write("### Bulk Data Merge")
