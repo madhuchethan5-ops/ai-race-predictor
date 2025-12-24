@@ -361,6 +361,7 @@ def load_and_migrate_data():
         'Lane', 'Top_Prob', 'Was_Correct'
     ]
 
+    # If file missing, return empty structure
     if not os.path.exists(CSV_FILE):
         return pd.DataFrame(columns=cols)
 
@@ -392,7 +393,7 @@ def load_and_migrate_data():
         df = df.replace("None", np.nan)
 
     except Exception:
-        # If CSV is unreadable, return empty structure
+        # If CSV unreadable, return empty structure
         return pd.DataFrame(columns=cols)
 
     # ✅ FIX: Force numeric types for prediction fields
