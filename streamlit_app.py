@@ -226,3 +226,18 @@ if not history.empty:
 
     with st.expander("🔍 Inspect Raw Database"):
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
+# --- NEW: VISUAL PERFORMANCE GRAPH ---
+            st.subheader("📉 AI Learning Curve (Rolling 10-Race Average)")
+            
+            # 1. Create a "1" for Correct, "0" for Wrong
+            valid['Is_Correct'] = (valid['Predicted'] == valid['Actual']).astype(int)
+            
+            # 2. Calculate Rolling Average (The "Trend")
+            # This smooths out the line so you see the general direction of improvement
+            valid['Accuracy_Trend'] = valid['Is_Correct'].rolling(window=10, min_periods=1).mean() * 100
+            
+            # 3. Plot the Line Chart
+            st.line_chart(valid['Accuracy_Trend'], color="#00FF00", height=250)
+            
+            st.caption("✅ **Green Line Rising:** The AI is successfully learning your track patterns.")
+            st.caption("🔻 **Line Flat/Falling:** The track is unpredictable or data is inconsistent.")
