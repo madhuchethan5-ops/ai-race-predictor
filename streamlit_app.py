@@ -522,15 +522,44 @@ if 'res' in st.session_state:
 
 # --- 6. TELEMETRY (LOCKED SLOT & LANE TRACKING) ---
 st.divider()
-st.subheader("📝 POST-RACE REPORT (Revealed slot is locked)")
+st.subheader("📝 Save Race Report (Revealed slot is locked)")
 
-default_ctx = {'v': [v1_sel, v2_sel, v3_sel], 'idx': 0, 't': TRACK_OPTIONS[0], 'slot': 'Lap 1'}
-ctx = st.session_state.get('res', {'ctx': default_ctx})['ctx']
-current_slot = ctx.get('slot', 'Lap 1')
+predicted = st.session_state['res']['p']
+predicted_winner = max(predicted, key=predicted.get)
+
+# --- Race Summary Card ---
+with st.container():
+    st.markdown("### 🧾 Race Summary")
+    v1, v2, v3 = ctx['v']
+    revealed_lap = ctx['idx'] + 1
+    revealed_track = ctx['t']
+
+    st.info(
+        f"**Vehicles:** {v1}, {v2}, {v3}\n\n"
+        f"**Revealed Lap:** Lap {revealed_lap}\n"
+        f"**Revealed Track:** {revealed_track}\n\n"
+        f"**Predicted Winner:** {predicted_winner} "
+        f"({predicted[predicted_winner]:.1f}%)"
+    )
+
+st.caption("Tip: Press **Ctrl + Enter** to save instantly.")
 
 with st.form("tele_form"):
-    winner = st.selectbox("🏆 Actual Winner", ctx['v'])
-    
+    # Winner selection with auto-highlight
+    winner = st.selectbox(
+        "🏆 Actual Winner",
+        ctx['v'],
+        index=ctx['v'].index(st.session_state.get('winner_autofill'))
+              if st.session_state.get('winner_autofill') in ctx['v'] else None,
+        placeholder=f"Predicted: {predicted_winner}"
+    )
+
+    # Quick Fill button
+    if st.button("⚡ Quick Fill Predicted Winner"):
+        st.session_state['winner_autofill'] = predicted_winner
+        st.experimental_rerun()
+
+    # Lap inputs
     c_a, c_b, c_c = st.columns(3)
     with c_a:
         s1t = st.selectbox("L1 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==0 else 0, disabled=(ctx['idx']==0))
@@ -542,35 +571,36 @@ with st.form("tele_form"):
         s3t = st.selectbox("L3 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==2 else 0, disabled=(ctx['idx']==2))
         s3l = st.number_input("L3 %", 1, 100, 34)
 
-    if st.form_submit_button("💾 SAVE & TRAIN"):
+    save_clicked = st.form_submit_button("💾 SAVE & TRAIN")
+
+    if save_clicked:
+        if winner is None:
+            st.error("❌ Please select the actual winner before saving.")
+            st.stop()
+
         if s1l + s2l + s3l != 100:
             st.error("❌ Total must be 100%")
-        else:
-            if 'res' in st.session_state:
-                probs_now = st.session_state['res']['p']
-                p_val = max(probs_now, key=probs_now.get)
-                top_prob = probs_now[p_val] / 100.0
-            else:
-                p_val = "N/A"
-                top_prob = np.nan
+            st.stop()
 
-            was_correct = (p_val == winner) if p_val != "N/A" else np.nan
+        p_val = predicted_winner
+        top_prob = predicted[p_val] / 100.0
+        was_correct = (p_val == winner)
 
-            row = {
-                'Vehicle_1': ctx['v'][0], 'Vehicle_2': ctx['v'][1], 'Vehicle_3': ctx['v'][2],
-                'Lap_1_Track': s1t, 'Lap_1_Len': s1l, 
-                'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
-                'Lap_3_Track': s3t, 'Lap_3_Len': s3l, 
-                'Predicted_Winner': p_val, 
-                'Actual_Winner': winner, 
-                'Lane': current_slot,
-                'Top_Prob': top_prob,
-                'Was_Correct': was_correct
-            }
-            pd.concat([history, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_FILE, index=False)
-            st.toast("AI Learned and Lane Context Saved!", icon="🧠")
-            st.rerun()
+        row = {
+            'Vehicle_1': ctx['v'][0], 'Vehicle_2': ctx['v'][1], 'Vehicle_3': ctx['v'][2],
+            'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
+            'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
+            'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
+            'Predicted_Winner': p_val,
+            'Actual_Winner': winner,
+            'Lane': current_slot,
+            'Top_Prob': top_prob,
+            'Was_Correct': was_correct
+        }
 
+        pd.concat([history, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_FILE, index=False)
+        st.toast("✅ Race saved and AI trained!", icon="🧠")
+        st.rerun()
 # --- 7. ANALYTICS (MODEL INSIGHTS & BRAIN) ---
 if not history.empty:
     st.divider()
