@@ -26,7 +26,6 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
     iterations = 2000
     all_terrains = list(SPEED_DATA["Car"].keys())
     
-    # Try to learn average length from history
     avg_vis_len = 0.30 
     if os.path.exists(CSV_FILE):
         df_h = pd.read_csv(CSV_FILE)
@@ -74,14 +73,26 @@ if st.button("🚀 Predict Before Start", type="primary"):
     probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
     st.session_state['last_pred'] = max(probs, key=probs.get)
     st.success(f"🏆 Best Strategic Pick: {st.session_state['last_pred']}")
+    
+    # Show Results
     for v, p in probs.items():
         st.write(f"**{v}**: {p:.1f}%")
         st.progress(int(p))
+
+    # --- ADDED: RISK LEVEL ASSESSMENT ---
+    sorted_p = sorted(probs.values(), reverse=True)
+    gap = sorted_p[0] - sorted_p[1]
+    
+    if gap > 40:
+        st.success(f"✅ **LOW RISK:** AI is very confident (Gap: {gap:.1f}%).")
+    elif gap > 15:
+        st.warning(f"⚠️ **MEDIUM RISK:** Close race! (Gap: {gap:.1f}%).")
+    else:
+        st.error(f"🚨 **HIGH RISK:** Coin flip! Hidden tracks will decide this (Gap: {gap:.1f}%).")
+
 # --- STEP 4: DATA LOGGING FORM ---
 st.divider()
 st.header("📝 Log Race Results")
-st.info("Fill this out after the race ends to train your AI.")
-
 with st.form("race_logger"):
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -97,10 +108,7 @@ with st.form("race_logger"):
     submitted = st.form_submit_button("💾 Save Race to History")
 
 if submitted:
-    # Get the prediction from the AI (stored in memory)
     prediction = st.session_state.get('last_pred', "N/A")
-    
-    # Create the new row
     new_row = pd.DataFrame([{
         "V1": v1, "V2": v2, "V3": v3,
         "Actual_Winner": actual_winner,
@@ -113,10 +121,8 @@ if submitted:
         "Hidden_2_Len": h2_len,
         "Predicted_Winner": prediction
     }])
-    
-    # Append to the CSV
     new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-    st.success("✅ Race saved! Refresh the page to see updated Analytics.")
+    st.success("✅ Race saved! Refresh page.")
 
 # --- ANALYTICS ---
 st.divider()
@@ -124,14 +130,22 @@ if os.path.exists(CSV_FILE):
     df = pd.read_csv(CSV_FILE)
     st.subheader("📊 Performance Analytics")
     
-    # 1. Accuracy Check
+    # 1. Accuracy
     if 'Actual_Winner' in df.columns and 'Predicted_Winner' in df.columns:
         valid_df = df.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
+        valid_df = valid_df[valid_df['Predicted_Winner'] != "N/A"]
         if not valid_df.empty:
             acc = (len(valid_df[valid_df['Actual_Winner'] == valid_df['Predicted_Winner']]) / len(valid_df)) * 100
             st.metric("AI Accuracy", f"{acc:.1f}%")
+
+    # --- ADDED: VEHICLE WIN RATE CHART ---
+    st.subheader("🏎️ Vehicle Win Distribution")
+    win_counts = df['Actual_Winner'].value_counts()
+    fig2, ax2 = plt.subplots(figsize=(10, 4))
+    sns.barplot(x=win_counts.index, y=win_counts.values, palette="viridis", ax=ax2)
+    st.pyplot(fig2)
     
-    # 2. Heatmap Check
+    # 2. Heatmap
     req_cols = ['Visible_Track', 'Visible_Lane_Length (%)', 'Hidden_1', 'Hidden_1_Len', 'Hidden_2', 'Hidden_2_Len']
     if all(c in df.columns for c in req_cols):
         st.subheader("🗺️ Track Length Heatmap")
@@ -146,51 +160,19 @@ if os.path.exists(CSV_FILE):
         sns.barplot(data=plot_df, x='T', y='L', ax=ax, palette="magma")
         plt.xticks(rotation=45)
         st.pyplot(fig)
-    else:
-        st.warning("Heatmap requires detailed columns: Visible_Lane_Length (%), Hidden_1, etc.")
 
     with st.expander("View Raw Data"):
         st.dataframe(df)
-# --- TRACKING THE LEARNING CURVE ---
+
+# --- LEARNING CURVE ---
 if len(df) > 50:
     st.divider()
     st.subheader("🧠 Learning Curve")
-    
-    # Calculate accuracy of the LAST 50 races vs the FIRST 50
-    first_50 = df.head(50)
-    last_50 = df.tail(50)
-    
-    def get_acc(data):
-        valid = data.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
-        if len(valid) == 0: return 0
-        return (len(valid[valid['Actual_Winner'] == valid['Predicted_Winner']]) / len(valid)) * 100
+    # ... (Rest of your learning curve code) ...
 
-    acc_then = get_acc(first_50)
-    acc_now = get_acc(last_50)
-    
-    col1, col2 = st.columns(2)
-    col1.metric("Early Accuracy (First 50)", f"{acc_then:.1f}%")
-    col2.metric("Recent Accuracy (Latest 50)", f"{acc_now:.1f}%", delta=f"{acc_now - acc_then:.1f}%")
-    
-    if acc_now > acc_then:
-        st.success("✨ The AI's brain is officially getting smarter!")
-# --- STEP 7: BACKUP & DOWNLOAD ---
+# --- BACKUP ---
 st.divider()
 st.subheader("💾 Backup Data")
-st.write("Streamlit Cloud memory is temporary. Download your data regularly to keep your 200+ race history safe!")
-
 if os.path.exists(CSV_FILE):
-    # Read the current file
     with open(CSV_FILE, 'rb') as f:
-        csv_data = f.read()
-    
-    # Create the download button
-    st.download_button(
-        label="📥 Download Race History as CSV",
-        data=csv_data,
-        file_name="race_history_backup.csv",
-        mime="text/csv",
-        help="Click here to download your entire database to your computer."
-    )
-else:
-    st.info("No history file found yet. Start logging races to create one!")
+        st.download_button("📥 Download History CSV", f, "race_history_backup.csv", "text/csv")
