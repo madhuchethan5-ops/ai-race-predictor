@@ -589,8 +589,19 @@ if 'res' in st.session_state:
 
 # Export latest history for GitHub sync
 if not history.empty:
-    st.subheader("📥 Data export")
-    download_history(history)
+st.divider()
+tabs = st.tabs([
+    "📊 Performance Dashboard",
+    "📈 Learning Curves",
+    "🎯 Calibration Analyzer",
+    "🌊 Drift Detector",
+    "⚡ Volatility & Importance",
+    "🧠 ML Pattern Brain",
+    "🚦 Lane Tracker",
+    "🧹 Data Quality Checker",
+    "📂 History",
+    "🧪 What-If Simulator"
+])
 
 # ---------------------------------------------------------
 # 8. SAVE RACE REPORT
