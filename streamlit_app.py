@@ -185,6 +185,13 @@ def load_history():
     df = df.replace("None", np.nan)
     df, issues = auto_clean_history(df)
     st.session_state["data_quality_issues"] = issues
+
+    # ✅ Force numeric conversion for ML columns
+    numeric_cols = ["Top_Prob", "Was_Correct"]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     return df
 
 def save_history(df):
