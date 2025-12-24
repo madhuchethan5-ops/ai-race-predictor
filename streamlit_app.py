@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# --- STEP 1: YOUR EXACT SPEED DATA ---
+# --- DATA ---
 SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
@@ -16,51 +18,25 @@ SPEED_DATA = {
     "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134,"Potholes": 77, "Bumpy": 99, "Highway": 320},
 }
 
-# --- FILE MANAGEMENT: Create/Load History ---
 CSV_FILE = 'race_history.csv'
-if not os.path.exists(CSV_FILE):
-    # Initialize file if it doesn't exist
-    df_init = pd.DataFrame(columns=["V1", "V2", "V3", "Visible_Track", "Lane", "Predicted_Winner", "Actual_Winner"])
-    df_init.to_csv(CSV_FILE, index=False)
 
-# --- STEP 2: APP LAYOUT ---
-st.set_page_config(page_title="Race Predictor & Logger", page_icon="🏎️")
-st.title("🏎️ AI Race Predictor & Logger")
-
-# Sidebar for Inputs
-with st.sidebar:
-    st.header("1. Race Setup")
-    v1 = st.selectbox("Vehicle 1", list(SPEED_DATA.keys()), index=8)
-    v2 = st.selectbox("Vehicle 2", list(SPEED_DATA.keys()), index=7)
-    v3 = st.selectbox("Vehicle 3", list(SPEED_DATA.keys()), index=5)
-    
-    st.divider()
-    visible_track = st.selectbox("Visible Track", ["Expressway", "Desert", "Dirt", "Potholes", "Bumpy", "Highway"])
-    visible_lane = st.radio("Visible Lane Position", [1, 2, 3])
-
-# --- STEP 3: PREDICTION ENGINE ---
+# --- SIMULATION ENGINE ---
 def run_simulation(v1, v2, v3, visible_t, visible_l):
     wins = {v1: 0, v2: 0, v3: 0}
     iterations = 2000
     all_terrains = list(SPEED_DATA["Car"].keys())
     
-    # --- NEW: LEARNING FROM HISTORY ---
+    # Try to learn average length from history
+    avg_vis_len = 0.30 
     if os.path.exists(CSV_FILE):
-        df_hist = pd.read_csv(CSV_FILE)
-        # Find average length for this specific visible track from your 200 races
-        specific_hist = df_hist[df_hist['Visible_Track'] == visible_t]
-        if not specific_hist.empty:
-            avg_vis_len = specific_hist['Visible_Length'].mean() / 100
-        else:
-            avg_vis_len = 0.30 # Default if track is new
-    else:
-        avg_vis_len = 0.30
+        df_h = pd.read_csv(CSV_FILE)
+        col_name = 'Visible_Lane_Length (%)'
+        if col_name in df_h.columns and not df_h[df_h['Visible_Track'] == visible_t].empty:
+            avg_vis_len = df_h[df_h['Visible_Track'] == visible_t][col_name].mean() / 100
 
     for _ in range(iterations):
-        # We allow a small variation around the historical average
         vis_len = np.clip(np.random.normal(avg_vis_len, 0.1), 0.05, 0.95)
         rem_len = 1.0 - vis_len
-        
         h1_len = rem_len * np.random.uniform(0.2, 0.8)
         h2_len = rem_len - h1_len
         
@@ -77,133 +53,61 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
         
         times = {}
         for v in [v1, v2, v3]:
-            time = sum([(lengths[i]/SPEED_DATA[v][t_list[i]]) for i in range(3)])
-            times[v] = time
+            times[v] = sum([(lengths[i]/SPEED_DATA[v][t_list[i]]) for i in range(3)])
         
         winner = min(times, key=times.get)
         wins[winner] += 1
-    
     return {k: (v / iterations) * 100 for k, v in wins.items()}
 
-# --- MAIN PAGE: PREDICTION ---
-st.markdown("### 📊 Live Prediction")
-if st.button("🚀 Predict Winner", type="primary"):
-    with st.spinner('Running Monte Carlo Simulation...'):
-        probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
-    
-    likely_winner = max(probs, key=probs.get)
-    st.session_state['last_prediction'] = likely_winner  # Save for logging
-    
-    st.success(f"🏆 Predicted Winner: **{likely_winner}**")
-    
-    for vehicle, percent in probs.items():
-        st.write(f"**{vehicle}**: {percent:.1f}%")
-        st.progress(int(percent))
+# --- UI ---
+st.title("🏎️ AI Race Strategic Predictor")
 
+with st.sidebar:
+    st.header("Race Setup")
+    v1 = st.selectbox("Vehicle 1", list(SPEED_DATA.keys()), index=8)
+    v2 = st.selectbox("Vehicle 2", list(SPEED_DATA.keys()), index=7)
+    v3 = st.selectbox("Vehicle 3", list(SPEED_DATA.keys()), index=5)
+    visible_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
+    visible_lane = st.radio("Visible Lane", [1, 2, 3])
+
+if st.button("🚀 Predict Before Start", type="primary"):
+    probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
+    st.session_state['last_pred'] = max(probs, key=probs.get)
+    st.success(f"🏆 Best Strategic Pick: {st.session_state['last_pred']}")
+    for v, p in probs.items():
+        st.write(f"**{v}**: {p:.1f}%")
+        st.progress(int(p))
+
+# --- ANALYTICS ---
 st.divider()
-
-# --- STEP 4: DATA LOGGING (THE NEW PART) ---
-st.markdown("### 📝 Log Results (Build Your Database)")
-st.info("After the race is over, select the actual winner below and click 'Save'.")
-
-# Dropdown to pick who actually won
-actual_winner = st.selectbox("Who actually won?", [v1, v2, v3], key="winner_select")
-
-if st.button("💾 Save Result to Database"):
-    # Load current history
-    df_history = pd.read_csv(CSV_FILE)
-    
-    # Create new row
-    new_data = {
-        "V1": v1, "V2": v2, "V3": v3,
-        "Visible_Track": visible_track,
-        "Lane": visible_lane,
-        "Predicted_Winner": st.session_state.get('last_prediction', "N/A"),
-        "Actual_Winner": actual_winner
-    }
-    
-    # Save to CSV
-    df_new = pd.DataFrame([new_data])
-    df_history = pd.concat([df_history, df_new], ignore_index=True)
-    df_history.to_csv(CSV_FILE, index=False)
-    
-    st.success(f"✅ Saved! Database now has {len(df_history)} races.")
-
-# Show History
-with st.expander("📂 View Race History"):
-    if os.path.exists(CSV_FILE):
-        st.dataframe(pd.read_csv(CSV_FILE).tail(10)) # Show last 10 races
-        # --- STEP 5: ANALYTICS DASHBOARD ---
-st.divider()
-st.header("📈 AI Performance Analytics")
-
 if os.path.exists(CSV_FILE):
-    df_history = pd.read_csv(CSV_FILE)
-    if not df_history.empty:
-        # Calculate Accuracy
-        correct = len(df_history[df_history['Predicted_Winner'] == df_history['Actual_Winner']])
-        total = len(df_history)
-        accuracy = (correct / total) * 100
-        
-        # Display Metrics
-        col1, col2 = st.columns(2)
-        col1.metric("Total Races Tracked", total)
-        col2.metric("AI Accuracy", f"{accuracy:.1f}%")
-        
-        # Win Distribution Chart
-        st.subheader("Actual Wins by Vehicle")
-        win_counts = df_history['Actual_Winner'].value_counts()
-        st.bar_chart(win_counts)
-        
-        # Show recent errors
-        st.subheader("Recent Prediction Misses")
-        misses = df_history[df_history['Predicted_Winner'] != df_history['Actual_Winner']].tail(5)
-        if not misses.empty:
-            st.table(misses[['Visible_Track', 'Predicted_Winner', 'Actual_Winner']])
-        else:
-            st.success("The AI has been 100% accurate in recent races!")
-    else:
-        st.info("Log your first race to see analytics here.")
-        import matplotlib.pyplot as plt
-import seaborn as sns
-
-# --- STEP 6: THE TRACK LENGTH HEATMAP (FIXED VERSION) ---
-st.divider()
-st.subheader("🗺️ Track Length Heatmap")
-
-if os.path.exists(CSV_FILE):
-    df_heat = pd.read_csv(CSV_FILE)
+    df = pd.read_csv(CSV_FILE)
+    st.subheader("📊 Performance Analytics")
     
-    # 1. Map your specific column names to what the code expects
-    # This fixes the KeyError by looking for either name
-    name_map = {
-        'Visible_Lane_Length (%)': 'Visible_Length',
-        'Hidden_Track_1_Length (%)': 'Hidden_1_Len',
-        'Hidden_Track_2_Length (%)': 'Hidden_2_Len',
-        'Visible_Track_Lane': 'Lane',
-        'Winner': 'Actual_Winner'
-    }
-    df_heat = df_heat.rename(columns=name_map)
-
-    # 2. Check if the columns exist after renaming
-    required = ['Visible_Track', 'Visible_Length', 'Hidden_1', 'Hidden_1_Len', 'Hidden_2', 'Hidden_2_Len']
+    # 1. Accuracy Check
+    if 'Actual_Winner' in df.columns and 'Predicted_Winner' in df.columns:
+        valid_df = df.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
+        if not valid_df.empty:
+            acc = (len(valid_df[valid_df['Actual_Winner'] == valid_df['Predicted_Winner']]) / len(valid_df)) * 100
+            st.metric("AI Accuracy", f"{acc:.1f}%")
     
-    if all(col in df_heat.columns for col in required):
-        t_data = []
-        for _, row in df_heat.iterrows():
-            t_data.append({'Track': row['Visible_Track'], 'Length': row['Visible_Length']})
-            t_data.append({'Track': row['Hidden_1'], 'Length': row['Hidden_1_Len']})
-            t_data.append({'Track': row['Hidden_2'], 'Length': row['Hidden_2_Len']})
+    # 2. Heatmap Check
+    req_cols = ['Visible_Track', 'Visible_Lane_Length (%)', 'Hidden_1', 'Hidden_1_Len', 'Hidden_2', 'Hidden_2_Len']
+    if all(c in df.columns for c in req_cols):
+        st.subheader("🗺️ Track Length Heatmap")
+        t_list = []
+        for _, r in df.iterrows():
+            t_list.append({'T': r['Visible_Track'], 'L': r['Visible_Lane_Length (%)']})
+            t_list.append({'T': r['Hidden_1'], 'L': r['Hidden_1_Len']})
+            t_list.append({'T': r['Hidden_2'], 'L': r['Hidden_2_Len']})
         
-        df_plot = pd.DataFrame(t_data)
-
-        # Create the visualization
-        fig, ax = plt.subplots(figsize=(10, 5))
-        avg_lengths = df_plot.groupby('Track')['Length'].mean().sort_values(ascending=False)
-        
-        sns.barplot(x=avg_lengths.index, y=avg_lengths.values, palette="YlOrRd", ax=ax)
-        ax.set_ylabel("Average Length (%)")
+        plot_df = pd.DataFrame(t_list)
+        fig, ax = plt.subplots()
+        sns.barplot(data=plot_df, x='T', y='L', ax=ax, palette="magma")
+        plt.xticks(rotation=45)
         st.pyplot(fig)
     else:
-        st.error(f"Column Mismatch! Your CSV columns are: {df_heat.columns.tolist()}")
-        st.info("Make sure your CSV header matches: Visible_Track, Visible_Lane_Length (%), etc.")
+        st.warning("Heatmap requires detailed columns: Visible_Lane_Length (%), Hidden_1, etc.")
+
+    with st.expander("View Raw Data"):
+        st.dataframe(df)
