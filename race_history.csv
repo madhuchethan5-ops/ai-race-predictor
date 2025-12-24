@@ -1,4 +1,4 @@
-Race_No,V1,V2,V3,Winner,Visible_Track_Lane,Visible_Track,Visible_Length,Hidden_1,Hidden_1_Len,Hidden_2,Hidden_2_Len
+V1,V2,V3,Visible_Track,Lane,Predicted_Winner,Actual_Winner
 1,ORV,Monster Truck,SUV,SUV,1,Dirt,10,Dirt,80,Highway,10
 2,ATV,ORV,Car,ORV,3,Bumpy,20,Dirt,60,Desert,20
 3,Motorcycle,Monster Truck,SUV,SUV,1,Bumpy,10,Dirt,45,Dirt,45
