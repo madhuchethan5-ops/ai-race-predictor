@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import os
 import plotly.express as px
-from streamlit_extras.stylable_container import stylable_container
 from streamlit_extras.grid import grid
 
 # --- 1. DATA & CONFIG ---
@@ -22,23 +21,20 @@ SPEED_DATA = {
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 2. THE SIMULATION ENGINE (FIXED KEYERROR) ---
+# --- 2. THE SIMULATION ENGINE ---
 def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
     all_terrains = list(SPEED_DATA["Car"].keys())
     
     avg_vis = 0.30
     if not history_df.empty:
-        # Check for multiple possible column names to prevent KeyError
         possible_cols = ['Visible_Segment_%', 'Visible_Lane_Length (%)', 'Visible_%']
         col_name = next((c for c in possible_cols if c in history_df.columns), None)
-        
         if col_name and 'Visible_Track' in history_df.columns:
             match = history_df[history_df['Visible_Track'] == visible_t]
             if not match.empty:
                 avg_vis = match[col_name].mean() / 100
 
-    # Vectorized Monte Carlo
     vis_lens = np.clip(np.random.normal(avg_vis, 0.1, iterations), 0.05, 0.95)
     h1_lens = (1.0 - vis_lens) * np.random.uniform(0.2, 0.8, iterations)
     h2_lens = 1.0 - vis_lens - h1_lens
@@ -58,53 +54,30 @@ def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iter
     counts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
 
-# --- 4. TELEMETRY LOGGING (CLEAN COLUMN NAMES) ---
-st.divider()
-with st.form("logger", clear_on_submit=True):
-    st.subheader("📝 POST-RACE TELEMETRY")
-    f1, f2, f3, f4 = st.columns(4)
-    with f1: winner = st.selectbox("Actual Winner", [c1, c2, c3])
-    with f2: v_len = st.number_input("Visible %", 5, 95, 30)
-    with f3: h1_t = st.selectbox("Hidden 1", list(SPEED_DATA["Car"].keys()))
-    with f4: h2_t = st.selectbox("Hidden 2", list(SPEED_DATA["Car"].keys()))
-    
-    if st.form_submit_button("💾 ARCHIVE DATA", use_container_width=True):
-        last_probs = st.session_state.get('last_probs', {})
-        predicted = max(last_probs, key=last_probs.get) if last_probs else "N/A"
-        
-        log_entry = {
-            "Visible_Track": v_track,
-            "Visible_Segment_%": v_len, # Standardizing on this name
-            "Predicted": predicted,
-            "Actual": winner,
-            "H1_Track": h1_t,
-            "H2_Track": h2_t
-        }
-        
-        new_row = pd.DataFrame([log_entry])
-        new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-        st.toast("Telemetry synchronized!")
-        st.rerun()
-# --- 3. UI RENDER ---
+# --- 3. DATA PERSISTENCE ---
 if os.path.exists(CSV_FILE):
     history = pd.read_csv(CSV_FILE)
 else:
     history = pd.DataFrame()
 
+# --- 4. SIDEBAR SETUP (Always Available) ---
 with st.sidebar:
-    st.header("🚦 Setup")
+    st.header("🚦 Race Setup")
     v_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
     v_lane = st.radio("Active Lane", [1, 2, 3], horizontal=True)
-    c1 = st.selectbox("Vehicle 1", list(SPEED_DATA.keys()), index=8)
-    c2 = st.selectbox("Vehicle 2", list(SPEED_DATA.keys()), index=7)
-    c3 = st.selectbox("Vehicle 3", list(SPEED_DATA.keys()), index=5)
+    st.divider()
+    c1 = st.selectbox("Vehicle 1 (Top)", list(SPEED_DATA.keys()), index=8)
+    c2 = st.selectbox("Vehicle 2 (Mid)", list(SPEED_DATA.keys()), index=7)
+    c3 = st.selectbox("Vehicle 3 (Bot)", list(SPEED_DATA.keys()), index=5)
     predict_btn = st.button("🚀 EXECUTE PREDICTION", type="primary", use_container_width=True)
 
+# --- 5. MAIN INTERFACE ---
 st.title("🏎️ AI RACE PREDICTOR PRO")
 
 if predict_btn:
     probs = run_simulation_vectorized(c1, c2, c3, v_track, v_lane, history)
     st.session_state['last_probs'] = probs
+    st.session_state['last_vehicles'] = [c1, c2, c3] # Save for logging
     
     m_grid = grid(3, vertical_align="center")
     for veh, val in probs.items():
@@ -112,47 +85,76 @@ if predict_btn:
 
     col_chart, col_risk = st.columns([2, 1])
     with col_chart:
-        fig = px.pie(names=list(probs.keys()), values=list(probs.values()), hole=0.4, title="Win Probabilities")
+        fig = px.pie(names=list(probs.keys()), values=list(probs.values()), 
+                     hole=0.4, title="Win Probabilities",
+                     color_discrete_sequence=px.colors.qualitative.Pastel)
         fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
     
     with col_risk:
         st.subheader("🚨 Strategic Risk")
-        gap = max(probs.values()) - sorted(probs.values())[-2]
+        sorted_probs = sorted(probs.values())
+        gap = sorted_probs[-1] - sorted_probs[-2]
         if gap > 30:
-            st.success("HIGH CONFIDENCE")
+            st.success("HIGH CONFIDENCE: Strong statistical favorite.")
         else:
-            st.warning("VOLATILE OUTCOME")
+            st.warning("VOLATILE: Outcome sensitive to hidden tracks.")
 
-# --- 4. TELEMETRY LOGGING (FIXED DATA PERSISTENCE) ---
+# --- 6. POST-RACE TELEMETRY (FIXED) ---
 st.divider()
-with st.form("logger", clear_on_submit=True):
-    st.subheader("📝 POST-RACE TELEMETRY")
+st.subheader("📝 POST-RACE TELEMETRY")
+
+# Use current sidebar vehicles as default, or fall back to standard list
+logger_vehicles = st.session_state.get('last_vehicles', [c1, c2, c3])
+
+with st.form("logger_form", clear_on_submit=True):
     f1, f2, f3, f4 = st.columns(4)
-    with f1: winner = st.selectbox("Actual Winner", [c1, c2, c3])
-    with f2: v_len = st.number_input("Visible %", 5, 95, 30)
-    with f3: h1_t = st.selectbox("Hidden 1", list(SPEED_DATA["Car"].keys()))
-    with f4: h2_t = st.selectbox("Hidden 2", list(SPEED_DATA["Car"].keys()))
+    with f1: 
+        winner = st.selectbox("Actual Winner", logger_vehicles)
+    with f2: 
+        v_len = st.number_input("Visible %", 5, 95, 30)
+    with f3: 
+        h1_t = st.selectbox("Hidden 1", list(SPEED_DATA["Car"].keys()))
+    with f4: 
+        h2_t = st.selectbox("Hidden 2", list(SPEED_DATA["Car"].keys()))
     
-    if st.form_submit_button("💾 ARCHIVE DATA", use_container_width=True):
+    # This button MUST be inside the 'with st.form' block
+    submitted = st.form_submit_button("💾 ARCHIVE RACE DATA", use_container_width=True)
+    
+    if submitted:
         last_probs = st.session_state.get('last_probs', {})
         predicted = max(last_probs, key=last_probs.get) if last_probs else "N/A"
         
-        # This dictionary actually captures your inputs now
         log_entry = {
             "Visible_Track": v_track,
             "Visible_Segment_%": v_len,
             "Predicted": predicted,
             "Actual": winner,
             "H1_Track": h1_t,
-            "H2_Track": h2_t
+            "H2_Track": h2_t,
+            "V1": logger_vehicles[0],
+            "V2": logger_vehicles[1],
+            "V3": logger_vehicles[2]
         }
         
         new_row = pd.DataFrame([log_entry])
         new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-        st.toast("Telemetry synchronized!")
+        st.toast("Telemetry synchronized!", icon="⚡")
         st.rerun()
 
+# --- 7. HISTORY & DOWNLOAD ---
 if not history.empty:
-    with st.expander("📊 HISTORY"):
+    with st.expander("📊 HISTORY & ANALYTICS"):
+        col_stats, col_dl = st.columns([3, 1])
+        with col_stats:
+            if 'Predicted' in history.columns and 'Actual' in history.columns:
+                valid_stats = history[history['Predicted'] != "N/A"]
+                if not valid_stats.empty:
+                    acc = (valid_stats['Predicted'] == valid_stats['Actual']).mean() * 100
+                    st.metric("Overall AI Accuracy", f"{acc:.1f}%")
+        
+        with col_dl:
+            st.download_button("📥 Download CSV", data=history.to_csv(index=False), 
+                               file_name="race_history.csv", mime="text/csv")
+        
         st.dataframe(history.tail(10), use_container_width=True)
