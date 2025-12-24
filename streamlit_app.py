@@ -148,3 +148,18 @@ with st.form("logger_form", clear_on_submit=True):
 if not history.empty:
     with st.expander("📊 AI LEARNING LOG"):
         st.dataframe(history.tail(10), use_container_width=True)
+# --- REFINED ADAPTIVE BLOCK ---
+if not history_df.empty:
+    # Use only the last 20 races of this track type to 'learn' recent patterns
+    match = history_df[history_df['Visible_Track'] == visible_t].tail(20)
+    if not match.empty:
+        avg_vis = match['Visible_Segment_%'].mean() / 100
+        # AI also learns the 'unpredictability' (Standard Deviation) from your history
+        vis_std = max(0.05, match['Visible_Segment_%'].std() / 100) if len(match) > 1 else 0.08
+    else:
+        vis_std = 0.08
+else:
+    vis_std = 0.08
+
+# The simulation now uses your historical 'Unpredictability' (vis_std)
+vis_lens = np.clip(np.random.normal(avg_vis, vis_std, iterations), 0.05, 0.95)
