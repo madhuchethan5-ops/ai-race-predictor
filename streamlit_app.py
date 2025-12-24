@@ -752,7 +752,7 @@ if save_clicked:
         'Was_Correct': float(predicted_winner == winner)
     }
 
-    new_history = pd.concat([history, pd.DataFrame([row])], ignore_index=True)
+    fresh = load_and_migrate_data() new_history = pd.concat([fresh, pd.DataFrame([row])], ignore_index=True)
 
     try:
         new_history.to_csv(CSV_FILE, index=False)
