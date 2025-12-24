@@ -163,6 +163,30 @@ if os.path.exists(CSV_FILE):
 
     with st.expander("View Raw Data"):
         st.dataframe(df)
+        # --- TRACK DIFFICULTY TABLE ---
+st.divider()
+st.subheader("🚩 Track Difficulty (AI Failure Rate)")
+st.markdown("Which visible tracks cause the most incorrect predictions?")
+
+if not valid_df.empty:
+    # Create a column to check if AI was correct
+    valid_df['Is_Correct'] = valid_df['Actual_Winner'] == valid_df['Predicted_Winner']
+    
+    # Group by the visible track and calculate the success rate
+    difficulty_df = valid_df.groupby('Visible_Track')['Is_Correct'].agg(['count', 'mean'])
+    difficulty_df.columns = ['Total Races', 'Success Rate (%)']
+    difficulty_df['Success Rate (%)'] = (difficulty_df['Success Rate (%)'] * 100).round(1)
+    
+    # Calculate Failure Rate
+    difficulty_df['Failure Rate (%)'] = 100 - difficulty_df['Success Rate (%)']
+    
+    # Sort by highest failure rate
+    difficulty_df = difficulty_df.sort_values(by='Failure Rate (%)', ascending=False)
+    
+    # Display the table with color coding
+    st.table(difficulty_df.style.background_gradient(subset=['Failure Rate (%)'], cmap='Reds'))
+    
+    st.info("💡 **Strategy:** If a track has a high Failure Rate, it means the hidden segments are very unpredictable on that terrain. Be careful with high bets there!")
 
 # --- LEARNING CURVE ---
 if len(df) > 50:
