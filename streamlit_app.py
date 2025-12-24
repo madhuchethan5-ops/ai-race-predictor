@@ -21,22 +21,22 @@ SPEED_DATA = {
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 2. THE SIMULATION ENGINE ---
+# --- 2. ADAPTIVE SIMULATION ENGINE ---
 def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
     all_terrains = list(SPEED_DATA["Car"].keys())
     
+    # AI LEARNING BLOCK: Adjusts distribution based on historical telemetry
     avg_vis = 0.30
     if not history_df.empty:
-        possible_cols = ['Visible_Segment_%', 'Visible_Lane_Length (%)', 'Visible_%']
-        col_name = next((c for c in possible_cols if c in history_df.columns), None)
-        if col_name and 'Visible_Track' in history_df.columns:
-            match = history_df[history_df['Visible_Track'] == visible_t]
-            if not match.empty:
-                avg_vis = match[col_name].mean() / 100
+        # Check if we have enough data for this specific track
+        match = history_df[history_df['Visible_Track'] == visible_t]
+        if not match.empty:
+            avg_vis = match['Visible_Segment_%'].mean() / 100
 
-    vis_lens = np.clip(np.random.normal(avg_vis, 0.1, iterations), 0.05, 0.95)
-    h1_lens = (1.0 - vis_lens) * np.random.uniform(0.2, 0.8, iterations)
+    # Stochastic Modeling
+    vis_lens = np.clip(np.random.normal(avg_vis, 0.08, iterations), 0.05, 0.95)
+    h1_lens = (1.0 - vis_lens) * np.random.uniform(0.1, 0.9, iterations)
     h2_lens = 1.0 - vis_lens - h1_lens
 
     seg_terrains = np.random.choice(all_terrains, size=(iterations, 3))
@@ -45,7 +45,8 @@ def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iter
     results = {}
     for v in vehicles:
         speed_lookup = np.vectorize(SPEED_DATA[v].get)(seg_terrains)
-        noise = np.random.normal(1.0, 0.05, (iterations, 3))
+        # Model 2% driver variance/luck
+        noise = np.random.normal(1.0, 0.02, (iterations, 3))
         noisy_speeds = speed_lookup * noise
         times = (vis_lens/noisy_speeds[:, 0]) + (h1_lens/noisy_speeds[:, 1]) + (h2_lens/noisy_speeds[:, 2])
         results[v] = times
@@ -54,13 +55,13 @@ def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iter
     counts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
 
-# --- 3. DATA PERSISTENCE ---
+# --- 3. DATA LOADING ---
 if os.path.exists(CSV_FILE):
     history = pd.read_csv(CSV_FILE)
 else:
     history = pd.DataFrame()
 
-# --- 4. SIDEBAR SETUP (Always Available) ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.header("🚦 Race Setup")
     v_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
@@ -77,7 +78,7 @@ st.title("🏎️ AI RACE PREDICTOR PRO")
 if predict_btn:
     probs = run_simulation_vectorized(c1, c2, c3, v_track, v_lane, history)
     st.session_state['last_probs'] = probs
-    st.session_state['last_vehicles'] = [c1, c2, c3] # Save for logging
+    st.session_state['last_vehicles'] = [c1, c2, c3]
     
     m_grid = grid(3, vertical_align="center")
     for veh, val in probs.items():
@@ -86,40 +87,43 @@ if predict_btn:
     col_chart, col_risk = st.columns([2, 1])
     with col_chart:
         fig = px.pie(names=list(probs.keys()), values=list(probs.values()), 
-                     hole=0.4, title="Win Probabilities",
-                     color_discrete_sequence=px.colors.qualitative.Pastel)
+                     hole=0.4, title="Probability of Winning",
+                     color_discrete_sequence=px.colors.qualitative.Bold)
         fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
     
     with col_risk:
         st.subheader("🚨 Strategic Risk")
-        sorted_probs = sorted(probs.values())
-        gap = sorted_probs[-1] - sorted_probs[-2]
-        if gap > 30:
-            st.success("HIGH CONFIDENCE: Strong statistical favorite.")
-        else:
-            st.warning("VOLATILE: Outcome sensitive to hidden tracks.")
+        gap = max(probs.values()) - sorted(probs.values())[-2]
+        if gap > 30: st.success("HIGH CONFIDENCE")
+        else: st.warning("VOLATILE RACE")
 
-# --- 6. POST-RACE TELEMETRY (FIXED) ---
+# --- 6. DETAILED TELEMETRY (NEW LENGTH INPUTS) ---
 st.divider()
 st.subheader("📝 POST-RACE TELEMETRY")
-
-# Use current sidebar vehicles as default, or fall back to standard list
 logger_vehicles = st.session_state.get('last_vehicles', [c1, c2, c3])
 
 with st.form("logger_form", clear_on_submit=True):
-    f1, f2, f3, f4 = st.columns(4)
-    with f1: 
-        winner = st.selectbox("Actual Winner", logger_vehicles)
-    with f2: 
-        v_len = st.number_input("Visible %", 5, 95, 30)
-    with f3: 
-        h1_t = st.selectbox("Hidden 1", list(SPEED_DATA["Car"].keys()))
-    with f4: 
-        h2_t = st.selectbox("Hidden 2", list(SPEED_DATA["Car"].keys()))
+    # Row 1: Winners & Visible Segment
+    r1_c1, r1_c2 = st.columns(2)
+    with r1_c1: winner = st.selectbox("Actual Winner", logger_vehicles)
+    with r1_c2: v_len = st.number_input("Visible Segment Length %", 5, 95, 33)
     
-    # This button MUST be inside the 'with st.form' block
-    submitted = st.form_submit_button("💾 ARCHIVE RACE DATA", use_container_width=True)
+    # Row 2: Hidden Segment 1
+    r2_c1, r2_c2 = st.columns(2)
+    with r2_c1: h1_t = st.selectbox("Hidden Track 1 Type", list(SPEED_DATA["Car"].keys()))
+    with r2_c2: h1_l = st.number_input("Hidden Segment 1 Length %", 5, 95, 33)
+    
+    # Row 3: Hidden Segment 2
+    r3_c1, r3_c2 = st.columns(2)
+    with r3_c1: h2_t = st.selectbox("Hidden Track 2 Type", list(SPEED_DATA["Car"].keys()))
+    with r3_c2: h2_l = st.number_input("Hidden Segment 2 Length %", 5, 95, 34)
+
+    # Calculate total and warn if user exceeds 100%
+    if (v_len + h1_l + h2_l) != 100:
+        st.caption(f"⚠️ Warning: Total length is {v_len + h1_l + h2_l}%. Try to keep it near 100%.")
+
+    submitted = st.form_submit_button("💾 SYNC TELEMETRY TO AI BRAIN", use_container_width=True)
     
     if submitted:
         last_probs = st.session_state.get('last_probs', {})
@@ -128,33 +132,19 @@ with st.form("logger_form", clear_on_submit=True):
         log_entry = {
             "Visible_Track": v_track,
             "Visible_Segment_%": v_len,
+            "Hidden_1_Track": h1_t,
+            "Hidden_1_Len": h1_l,
+            "Hidden_2_Track": h2_t,
+            "Hidden_2_Len": h2_l,
             "Predicted": predicted,
-            "Actual": winner,
-            "H1_Track": h1_t,
-            "H2_Track": h2_t,
-            "V1": logger_vehicles[0],
-            "V2": logger_vehicles[1],
-            "V3": logger_vehicles[2]
+            "Actual": winner
         }
         
-        new_row = pd.DataFrame([log_entry])
-        new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
-        st.toast("Telemetry synchronized!", icon="⚡")
+        pd.DataFrame([log_entry]).to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
+        st.toast("Telemetry data synchronized!", icon="⚡")
         st.rerun()
 
-# --- 7. HISTORY & DOWNLOAD ---
+# --- 7. ANALYTICS ---
 if not history.empty:
-    with st.expander("📊 HISTORY & ANALYTICS"):
-        col_stats, col_dl = st.columns([3, 1])
-        with col_stats:
-            if 'Predicted' in history.columns and 'Actual' in history.columns:
-                valid_stats = history[history['Predicted'] != "N/A"]
-                if not valid_stats.empty:
-                    acc = (valid_stats['Predicted'] == valid_stats['Actual']).mean() * 100
-                    st.metric("Overall AI Accuracy", f"{acc:.1f}%")
-        
-        with col_dl:
-            st.download_button("📥 Download CSV", data=history.to_csv(index=False), 
-                               file_name="race_history.csv", mime="text/csv")
-        
+    with st.expander("📊 AI LEARNING LOG"):
         st.dataframe(history.tail(10), use_container_width=True)
