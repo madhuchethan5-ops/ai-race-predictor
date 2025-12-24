@@ -25,17 +25,19 @@ st.set_page_config(layout="wide", page_title="AI Race Master Pro", page_icon="�
 
 # --- 2. DATA ARCHITECT (FIXED & HARDENED) ---
 def load_and_migrate_data():
-    cols = ['Vehicle_1', 'Vehicle_2', 'Vehicle_3', 'Lap_1_Track', 'Lap_1_Len', 
-            'Lap_2_Track', 'Lap_2_Len', 'Lap_3_Track', 'Lap_3_Len', 
-            'Actual_Winner', 'Predicted_Winner']
-    
+    cols = ['Vehicle_1', 'Vehicle_2', 'Vehicle_3',
+            'Lap_1_Track', 'Lap_1_Len',
+            'Lap_2_Track', 'Lap_2_Len',
+            'Lap_3_Track', 'Lap_3_Len',
+            'Actual_Winner', 'Predicted_Winner',
+            'Lane', 'Top_Prob', 'Was_Correct']
+
     if not os.path.exists(CSV_FILE):
         return pd.DataFrame(columns=cols)
     try:
         df = pd.read_csv(CSV_FILE)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-        
-        # Standardizing all previous column versions to ensure data is considered
+
         rename_map = {
             'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3',
             'Visible_Track': 'Lap_1_Track', 'Visible_Lane_Length (%)': 'Lap_1_Len',
@@ -43,13 +45,11 @@ def load_and_migrate_data():
             'Hidden_2': 'Lap_3_Track', 'Hidden_2_Len': 'Lap_3_Len'
         }
         df = df.rename(columns=rename_map)
-        
-        # Ensure all columns exist and fill missing values properly
+
         for c in cols:
             if c not in df.columns:
                 df[c] = np.nan
-        
-        # Clean up any 'None' strings from previous exports
+
         df = df.replace('None', np.nan)
         return df
     except Exception:
@@ -57,51 +57,201 @@ def load_and_migrate_data():
 
 history = load_and_migrate_data()
 
-# --- 3. THE ML ENGINE ---
-def run_simulation(v1, v2, v3, k_idx, k_type, history_df, iterations=5000):
+# --- 3. THE ML ENGINE (NEXT-GEN, SAME API) ---
+def run_simulation(
+    v1, v2, v3,
+    k_idx,           # known lap index: 0, 1, or 2
+    k_type,          # known track type for that lap
+    history_df,
+    iterations=5000,
+    alpha_prior=1.0, # Bayesian prior wins
+    beta_prior=1.0,  # Bayesian prior losses
+    smoothing=0.5,   # Markov/Dirichlet smoothing
+    base_len_mean=33.3,
+    base_len_std=5.0,
+    calib_min_hist=50 # minimum rows for temperature calibration
+):
     vehicles = [v1, v2, v3]
-    lap_probs = {0: None, 1: None, 2: None}
-    
-    # ML PHASE 1: VPI Boost (Reinforcement Learning from your winning data)
-    vpi = {v: 1.0 for v in vehicles}
+
+    # 1. BAYESIAN REINFORCEMENT (vehicle performance index, VPI)
+    vpi_raw = {v: 1.0 for v in vehicles}
+
     if not history_df.empty and 'Actual_Winner' in history_df.columns:
-        wins = history_df['Actual_Winner'].dropna().value_counts()
-        for v in vehicles:
-            vpi[v] = 1.0 + (wins.get(v, 0) * 0.005)
+        winners = history_df['Actual_Winner'].dropna()
+        wins = winners.value_counts()
 
-    # ML PHASE 2: Markov Chain Transitions (Learning the track sequence)
-    if not history_df.empty:
-        filter_col = f"Lap_{k_idx + 1}_Track"
-        matches = history_df[history_df[filter_col] == k_type].tail(50)
-        if not matches.empty:
-            for i in range(3):
-                if i != k_idx:
-                    t_col = f"Lap_{i+1}_Track"
-                    if t_col in matches.columns:
-                        counts = matches[t_col].value_counts(normalize=True)
-                        probs = counts.reindex(TRACK_OPTIONS, fill_value=0).values
-                        if probs.sum() > 0: lap_probs[i] = probs / probs.sum()
-
-    # MONTE CARLO PHYSICS
-    sim_terrains, sim_lengths = [], []
-    for i in range(3):
-        if i == k_idx: sim_terrains.append(np.full(iterations, k_type))
+        if any(c.startswith('Vehicle_') for c in history_df.columns):
+            all_veh = pd.concat(
+                [history_df[c] for c in history_df.columns if c.startswith('Vehicle_')],
+                axis=0
+            ).dropna()
+            races = all_veh.value_counts()
         else:
-            p = lap_probs[i] if lap_probs[i] is not None else None
-            sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations, p=p))
-        sim_lengths.append(np.random.normal(33.3, 5, iterations))
+            races = wins
 
-    len_matrix = (np.column_stack(sim_lengths).T / np.column_stack(sim_lengths).sum(axis=1)).T 
+        posterior_means = {}
+        for v in vehicles:
+            w = wins.get(v, 0)
+            r = races.get(v, w)
+            post = (w + alpha_prior) / (r + alpha_prior + beta_prior)
+            posterior_means[v] = post
+
+        mean_post = np.mean(list(posterior_means.values())) if posterior_means else 1.0
+        if mean_post > 0:
+            for v in vehicles:
+                vpi_raw[v] = posterior_means[v] / mean_post
+
+    vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
+
+    # 2. LEARNED GEOMETRY / TRACK-SPECIFIC LENGTH DISTRIBUTIONS
+    def learned_length_dist(lap_idx, track_type):
+        if history_df.empty:
+            return base_len_mean, base_len_std
+
+        t_col = f"Lap_{lap_idx + 1}_Track"
+        l_col = f"Lap_{lap_idx + 1}_Len"
+        if t_col not in history_df.columns or l_col not in history_df.columns:
+            return base_len_mean, base_len_std
+
+        mask = (history_df[t_col] == track_type)
+        subset = history_df[mask]
+        if subset.empty:
+            return base_len_mean, base_len_std
+
+        vals = pd.to_numeric(subset[l_col], errors='coerce').dropna()
+        if len(vals) < 5:
+            return base_len_mean, base_len_std
+
+        mu = vals.mean()
+        sigma = vals.std(ddof=1)
+        if not np.isfinite(mu) or sigma <= 0:
+            return base_len_mean, base_len_std
+
+        return float(mu), float(sigma)
+
+    # 3. SMOOTHED MARKOV TRANSITIONS FOR HIDDEN LAPS
+    lap_probs = {0: None, 1: None, 2: None}
+
+    if not history_df.empty:
+        known_col = f"Lap_{k_idx + 1}_Track"
+        if known_col in history_df.columns:
+            matches = history_df[history_df[known_col] == k_type].tail(200)
+
+            global_transitions = {}
+            for j in range(3):
+                if j == k_idx:
+                    continue
+                from_col = f"Lap_{k_idx + 1}_Track"
+                to_col   = f"Lap_{j + 1}_Track"
+                if from_col in history_df.columns and to_col in history_df.columns:
+                    valid = history_df[[from_col, to_col]].dropna()
+                    if valid.empty:
+                        continue
+                    counts = valid.groupby([from_col, to_col]).size().unstack(fill_value=0)
+                    if k_type in counts.index:
+                        row = counts.loc[k_type]
+                        arr = row.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
+                        arr = arr + smoothing
+                        global_transitions[j] = arr / arr.sum()
+
+            for j in range(3):
+                if j == k_idx:
+                    continue
+                t_col = f"Lap_{j+1}_Track"
+                if t_col in matches.columns and not matches.empty:
+                    counts = matches[t_col].value_counts()
+                    arr = counts.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
+                    arr = arr + smoothing
+                    probs = arr / arr.sum()
+                    lap_probs[j] = probs.values
+                if lap_probs[j] is None and j in global_transitions:
+                    lap_probs[j] = global_transitions[j].values
+
+    # 4. SAMPLE TERRAIN AND LENGTHS WITH LEARNED GEOMETRY
+    sim_terrains = []
+    sim_lengths = []
+
+    for i in range(3):
+        if i == k_idx:
+            sim_terrains.append(np.full(iterations, k_type, dtype=object))
+        else:
+            p = lap_probs[i]
+            if p is not None and np.isfinite(p).all() and p.sum() > 0:
+                sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations, p=p))
+            else:
+                sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations))
+
+        terrain_i = sim_terrains[-1]
+        lengths_i = np.empty(iterations, dtype=float)
+        for t in np.unique(terrain_i):
+            mu, sigma = learned_length_dist(i, t)
+            sigma = max(sigma, 1e-3)
+            mask = (terrain_i == t)
+            n = mask.sum()
+            if n > 0:
+                lengths_i[mask] = np.random.normal(mu, sigma, size=n)
+        lengths_i = np.clip(lengths_i, 1.0, None)
+        sim_lengths.append(lengths_i)
+
+    len_matrix_raw = np.column_stack(sim_lengths)
+    len_sums = len_matrix_raw.sum(axis=1, keepdims=True)
+    len_sums[len_sums == 0] = 1.0
+    len_matrix = len_matrix_raw / len_sums
+
     terrain_matrix = np.column_stack(sim_terrains)
-    
-    results = {}
-    for v in vehicles:
-        base_speed = np.vectorize(SPEED_DATA[v].get)(terrain_matrix)
-        results[v] = np.sum(len_matrix / (base_speed * vpi[v] * np.random.normal(1.0, 0.02, (iterations, 3))), axis=1)
 
-    winners = np.argmin(np.array([results[v] for v in vehicles]), axis=0)
-    win_pcts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
-    return {vehicles[i]: win_pcts.get(i, 0) for i in range(3)}, vpi
+    # 5. BETTER NOISE MODELING FOR VEHICLE SPEEDS
+    def sample_vehicle_times(vehicle):
+        base_speed = np.vectorize(SPEED_DATA[vehicle].get)(terrain_matrix)
+        base_speed = np.clip(base_speed, 0.1, None)
+
+        speed_std = 0.03 * base_speed
+
+        veh_factor = np.random.normal(1.0, 0.03, size=(iterations, 1))
+        lap_factor = np.random.normal(1.0, 0.02, size=(iterations, 3))
+
+        effective_speed = base_speed * veh_factor * lap_factor
+        effective_speed = np.clip(effective_speed, 0.1, None)
+
+        return np.sum(len_matrix / (effective_speed * vpi[vehicle]), axis=1)
+
+    results = {v: sample_vehicle_times(v) for v in vehicles}
+
+    # 6. RAW MONTE CARLO WIN PROBABILITIES
+    total_times = np.vstack([results[v] for v in vehicles])
+    winners = np.argmin(total_times, axis=0)
+    freq = pd.Series(winners).value_counts(normalize=True).sort_index()
+    raw_probs = np.array([freq.get(i, 0.0) for i in range(3)], dtype=float)
+    raw_probs = np.clip(raw_probs, 1e-6, 1.0)
+    raw_probs /= raw_probs.sum()
+
+    # 7. SIMPLE CALIBRATION (TEMPERATURE SCALING)
+    def estimate_temperature_from_history(df):
+        if df.empty or 'Top_Prob' not in df.columns or 'Was_Correct' not in df.columns:
+            return 1.0
+
+        recent = df.dropna(subset=['Top_Prob', 'Was_Correct']).tail(200)
+        if len(recent) < calib_min_hist:
+            return 1.0
+
+        avg_conf = recent['Top_Prob'].mean()
+        avg_acc  = recent['Was_Correct'].mean()
+        if avg_conf <= 0 or avg_acc <= 0:
+            return 1.0
+
+        ratio = avg_conf / max(avg_acc, 1e-3)
+        temp = np.clip(ratio, 0.7, 1.5)
+        return float(temp)
+
+    temp = estimate_temperature_from_history(history_df)
+
+    logits = np.log(raw_probs)
+    calibrated_logits = logits / temp
+    calibrated_probs = np.exp(calibrated_logits)
+    calibrated_probs /= calibrated_probs.sum()
+
+    win_pcts = calibrated_probs * 100.0
+    return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
@@ -117,12 +267,15 @@ with st.sidebar:
     
     if st.button("🚀 PREDICT", type="primary", use_container_width=True):
         probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
-        st.session_state['res'] = {'p': probs, 'vpi': vpi_res, 'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type}}
+        st.session_state['res'] = {
+            'p': probs,
+            'vpi': vpi_res,
+            'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name}
+        }
 
 # --- 5. DASHBOARD ---
 st.title("🏁 AI RACE MASTER PRO")
 
-# AI ACCURACY DISPLAY
 if not history.empty and 'Actual_Winner' in history.columns:
     valid = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
     if not valid.empty:
@@ -140,11 +293,8 @@ if 'res' in st.session_state:
 st.divider()
 st.subheader("📝 POST-RACE REPORT (Revealed slot is locked)")
 
-# Hardened Context: Prevents KeyError by checking if 'slot' exists in session state
 default_ctx = {'v': [v1_sel, v2_sel, v3_sel], 'idx': 0, 't': TRACK_OPTIONS[0], 'slot': 'Lap 1'}
 ctx = st.session_state.get('res', {'ctx': default_ctx})['ctx']
-
-# Double-check for the specific 'slot' key to prevent crashes on first load
 current_slot = ctx.get('slot', 'Lap 1')
 
 with st.form("tele_form"):
@@ -165,9 +315,16 @@ with st.form("tele_form"):
         if s1l + s2l + s3l != 100:
             st.error("❌ Total must be 100%")
         else:
-            p_val = max(st.session_state['res']['p'], key=st.session_state['res']['p'].get) if 'res' in st.session_state else "N/A"
-            
-            # SAVING KEY DATA: Uses current_slot to ensure 'Lane' is never 'None'
+            if 'res' in st.session_state:
+                probs_now = st.session_state['res']['p']
+                p_val = max(probs_now, key=probs_now.get)
+                top_prob = probs_now[p_val] / 100.0
+            else:
+                p_val = "N/A"
+                top_prob = np.nan
+
+            was_correct = (p_val == winner) if p_val != "N/A" else np.nan
+
             row = {
                 'Vehicle_1': ctx['v'][0], 'Vehicle_2': ctx['v'][1], 'Vehicle_3': ctx['v'][2],
                 'Lap_1_Track': s1t, 'Lap_1_Len': s1l, 
@@ -175,11 +332,14 @@ with st.form("tele_form"):
                 'Lap_3_Track': s3t, 'Lap_3_Len': s3l, 
                 'Predicted_Winner': p_val, 
                 'Actual_Winner': winner, 
-                'Lane': current_slot
+                'Lane': current_slot,
+                'Top_Prob': top_prob,
+                'Was_Correct': was_correct
             }
             pd.concat([history, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_FILE, index=False)
             st.toast("AI Learned and Lane Context Saved!", icon="🧠")
             st.rerun()
+
 # --- 7. ANALYTICS (LANE TRACKER & ML BRAIN) ---
 if not history.empty:
     st.divider()
@@ -187,7 +347,6 @@ if not history.empty:
     
     with t1:
         st.write("### Track Transition Matrix")
-        
         if 'Lap_1_Track' in history.columns and 'Lap_2_Track' in history.columns:
             m = pd.crosstab(history['Lap_1_Track'], history['Lap_2_Track'], normalize='index') * 100
             st.dataframe(m.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
