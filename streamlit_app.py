@@ -17,8 +17,13 @@ SPEED_DATA = {
     "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134,"Potholes": 77, "Bumpy": 99, "Highway": 320},
 }
 
+# --- MASTER SORTED LISTS (DEFINED GLOBALLY) ---
+# This forces the order to be A-Z for the entire app.
+VEHICLE_OPTIONS = sorted(list(SPEED_DATA.keys()))
+TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
+
 CSV_FILE = 'race_history.csv'
-VALID_TRACKS = list(SPEED_DATA["Car"].keys())
+VALID_TRACKS = TRACK_OPTIONS
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
 # --- 2. SELF-HEALING DATA LOADER ---
@@ -54,7 +59,7 @@ history = load_clean_history()
 # --- 3. ADAPTIVE BAYESIAN SIMULATION ENGINE ---
 def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
-    all_terrains = list(SPEED_DATA["Car"].keys())
+    all_terrains = TRACK_OPTIONS # Use the sorted list
     
     # --- LEARNING PHASE ---
     avg_vis = 0.33
@@ -91,23 +96,20 @@ def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000
     
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
 
-# --- 4. CONTROL PANEL (STRICTLY SORTED) ---
+# --- 4. CONTROL PANEL (USING MASTER SORTED LIST) ---
 with st.sidebar:
     st.header("🚦 Race Setup")
     
-    # Create a sorted list of vehicles for the dropdowns
-    sorted_vehicles = sorted(list(SPEED_DATA.keys()))
-    
-    # Track Selection (Sorted)
-    v_track = st.selectbox("Visible Track", sorted(list(SPEED_DATA["Car"].keys())))
+    # Track Selection (Uses Sorted List)
+    v_track = st.selectbox("Visible Track", TRACK_OPTIONS)
     v_lane = st.radio("Active Lane", [1, 2, 3], horizontal=True)
     st.divider()
     
-    # Vehicle Selection (Sorted A-Z)
-    # We use .index() to find where "Supercar" etc. are in the new sorted list so defaults don't break
-    c1 = st.selectbox("Vehicle 1 (Top)", sorted_vehicles, index=sorted_vehicles.index("Supercar"))
-    c2 = st.selectbox("Vehicle 2 (Mid)", sorted_vehicles, index=sorted_vehicles.index("Sports Car"))
-    c3 = st.selectbox("Vehicle 3 (Bot)", sorted_vehicles, index=sorted_vehicles.index("Car"))
+    # Vehicle Selection (Uses Sorted List)
+    # We use .index() to find the correct default regardless of sort order
+    c1 = st.selectbox("Vehicle 1 (Top)", VEHICLE_OPTIONS, index=VEHICLE_OPTIONS.index("Supercar"))
+    c2 = st.selectbox("Vehicle 2 (Mid)", VEHICLE_OPTIONS, index=VEHICLE_OPTIONS.index("Sports Car"))
+    c3 = st.selectbox("Vehicle 3 (Bot)", VEHICLE_OPTIONS, index=VEHICLE_OPTIONS.index("Car"))
     
     predict_btn = st.button("🚀 PREDICT OUTCOME", type="primary", use_container_width=True)
     
@@ -141,7 +143,7 @@ if predict_btn:
     else:
         st.error("⚡ EXTREME VOLATILITY: Too close to call.")
 
-# --- 6. TELEMETRY LOGGING (SORTED A-Z) ---
+# --- 6. TELEMETRY LOGGING (USING MASTER SORTED LIST) ---
 st.divider()
 st.subheader("📝 POST-RACE TELEMETRY")
 logger_vehicles = st.session_state.get('last_vehicles', [c1, c2, c3])
@@ -152,13 +154,13 @@ with st.form("logger_form", clear_on_submit=True):
     with c_b: v_len = st.number_input("Visible Segment Length %", 0.0, 100.0, 33.0, step=1.0)
     
     c_c, c_d = st.columns(2)
-    # SORTED Hidden Track Types
-    with c_c: h1_t = st.selectbox("Hidden 1 Type", sorted(list(SPEED_DATA["Car"].keys())))
+    # Using TRACK_OPTIONS ensures these are A-Z sorted
+    with c_c: h1_t = st.selectbox("Hidden 1 Type", TRACK_OPTIONS)
     with c_d: h1_l = st.number_input("Hidden 1 Length %", 0.0, 100.0, 33.0, step=1.0)
     
     c_e, c_f = st.columns(2)
-    # SORTED Hidden Track Types
-    with c_e: h2_t = st.selectbox("Hidden 2 Type", sorted(list(SPEED_DATA["Car"].keys())))
+    # Using TRACK_OPTIONS ensures these are A-Z sorted
+    with c_e: h2_t = st.selectbox("Hidden 2 Type", TRACK_OPTIONS)
     with c_f: h2_l = st.number_input("Hidden 2 Length %", 0.0, 100.0, 34.0, step=1.0)
 
     if st.form_submit_button("💾 FEED DATA TO AI", use_container_width=True):
