@@ -51,7 +51,7 @@ def load_clean_history():
             df['Hidden_2_Track'] = df['Hidden_2_Track'].fillna(df['Hidden_2'])
             df = df.drop(columns=['Hidden_2'], errors='ignore')
         
-        # 3. Clean "Unnamed" columns often created by CSV exports
+        # 3. Clean "Unnamed"
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
         # 4. Strict Type Enforcement
@@ -61,7 +61,6 @@ def load_clean_history():
         if 'Visible_Segment_%' in df.columns:
             df['Visible_Segment_%'] = pd.to_numeric(df['Visible_Segment_%'], errors='coerce')
         
-        # Drop junk rows
         df = df.dropna(subset=['Visible_Segment_%'])
             
         return df
@@ -156,16 +155,12 @@ with st.sidebar:
     st.divider()
     
     # --- DYNAMIC EXCLUSION LOGIC ---
-    # 1. Select Vehicle 1
     c1 = st.selectbox("Vehicle 1 (Top)", ALL_VEHICLES, index=ALL_VEHICLES.index("Supercar"))
     
-    # 2. Filter List for Vehicle 2 (Exclude c1)
     v2_list = [v for v in ALL_VEHICLES if v != c1]
-    # Handle index error if previous selection is no longer valid
     def_v2 = "Sports Car" if "Sports Car" in v2_list else v2_list[0]
     c2 = st.selectbox("Vehicle 2 (Mid)", v2_list, index=v2_list.index(def_v2))
     
-    # 3. Filter List for Vehicle 3 (Exclude c1 and c2)
     v3_list = [v for v in ALL_VEHICLES if v not in [c1, c2]]
     def_v3 = "Car" if "Car" in v3_list else v3_list[0]
     c3 = st.selectbox("Vehicle 3 (Bot)", v3_list, index=v3_list.index(def_v3))
@@ -187,10 +182,8 @@ with st.sidebar:
         if st.button("📥 Process & Merge"):
             try:
                 new_data = pd.read_csv(uploaded_file)
-                # Clean Columns
                 new_data = new_data.loc[:, ~new_data.columns.str.contains('^Unnamed')]
                 
-                # Rename
                 rename_map = {
                     'Predicted_Winner': 'Predicted', 'Actual_Winner': 'Actual', 
                     'Visible_%': 'Visible_Segment_%', 'Visible_Lane_Length (%)': 'Visible_Segment_%',
@@ -199,7 +192,6 @@ with st.sidebar:
                 }
                 new_data = new_data.rename(columns=rename_map)
                 
-                # Combine
                 if os.path.exists(CSV_FILE):
                     master_df = pd.read_csv(CSV_FILE)
                 else:
@@ -207,7 +199,6 @@ with st.sidebar:
                 
                 combined_df = pd.concat([master_df, new_data], ignore_index=True)
                 
-                # Merge Columns
                 if 'Hidden_1_Track' not in combined_df.columns: combined_df['Hidden_1_Track'] = np.nan
                 if 'Hidden_1' in combined_df.columns: 
                     combined_df['Hidden_1_Track'] = combined_df['Hidden_1_Track'].fillna(combined_df['Hidden_1'])
@@ -218,7 +209,7 @@ with st.sidebar:
                 
                 combined_df.to_csv(CSV_FILE, index=False)
                 st.success(f"Imported! Total Records: {len(combined_df)}")
-                st.rerun() # FORCE REFRESH TO SHOW NEW DATA
+                st.rerun() 
             except Exception as e:
                 st.error(f"Import Error: {e}")
 
@@ -261,7 +252,6 @@ with st.form("logger_form", clear_on_submit=False):
     with c_e: h2_t = st.selectbox("Hidden 2 Type", TRACK_OPTIONS)
     with c_f: h2_l = st.number_input("Hidden 2 Length %", 0.0, 100.0, 34.0, step=1.0)
 
-    # UPDATED BUTTON
     submitted = st.form_submit_button("💾 SAVE RACE RESULT", use_container_width=True)
     
     if submitted:
@@ -282,53 +272,63 @@ with st.form("logger_form", clear_on_submit=False):
         
         if log_entry["Visible_Track"] in VALID_TRACKS:
             try:
-                # Load Fresh
                 current_df = load_clean_history() 
                 new_row = pd.DataFrame([log_entry])
-                # Concat
                 updated_df = pd.concat([current_df, new_row], ignore_index=True)
-                # Save
                 updated_df.to_csv(CSV_FILE, index=False)
-                
                 st.toast(f"Saved! Total Records: {len(updated_df)}", icon="✅")
-                
-                # FORCE RELOAD TO SHOW DATA INSTANTLY
-                st.rerun()
+                st.rerun() # FORCE REFRESH
             except Exception as e:
                 st.error(f"Save Error: {e}")
         else:
             st.error("Invalid Track Name. Check settings.")
 
-# --- 7. REAL-TIME ANALYTICS ---
+# --- 7. REAL-TIME ANALYTICS WITH "BRAIN SCAN" ---
 if not history.empty:
     st.divider()
     st.header("📈 AI Evolution Metrics")
     
     valid = history.copy()
     
-    # 1. Global Accuracy
-    if 'Predicted' in valid.columns and 'Actual' in valid.columns:
-         # Clean data: drop missing, empty, or 'N/A'
-         valid['Predicted'] = valid['Predicted'].astype(str).replace('nan', 'N/A')
-         predictions_exist = valid[valid['Predicted'] != "N/A"].copy()
-         
-         if not predictions_exist.empty:
-             predictions_exist['Is_Correct'] = (predictions_exist['Predicted'] == predictions_exist['Actual']).astype(int)
-             
-             c_metrics, c_stats = st.columns([1, 2])
-             with c_metrics:
-                 st.metric("Global Accuracy", f"{(predictions_exist['Is_Correct'].mean()*100):.1f}%")
-
-    # 2. Learned Geometry (With crash protection)
-    st.subheader("🧠 Learned Track Geometry")
-    if 'Visible_Track' in valid.columns and 'Visible_Segment_%' in valid.columns:
-        valid['Visible_Segment_%'] = pd.to_numeric(valid['Visible_Segment_%'], errors='coerce')
-        valid = valid.dropna(subset=['Visible_Segment_%'])
+    # TABS FOR ANALYTICS
+    tab1, tab2, tab3 = st.tabs(["🧠 AI Brain Scan", "📊 Accuracy", "📝 Raw Data"])
+    
+    with tab1:
+        st.subheader("How the AI Predicts Hidden Tracks")
+        st.caption("This table shows the probability (%) of the NEXT track based on the visible track.")
         
-        if not valid.empty:
-            stats = valid.groupby('Visible_Track')['Visible_Segment_%'].agg(['mean', 'std', 'count'])
-            stats.columns = ['Avg Length %', 'Volatility', 'Races']
-            st.dataframe(stats.style.format("{:.1f}"), use_container_width=True)
-
-    with st.expander("🔍 Inspect Database (Live View)", expanded=True):
+        # Create a Cross-Tabulation (Heatmap Logic)
+        if 'Visible_Track' in valid.columns and 'Hidden_1_Track' in valid.columns:
+            # Drop invalid
+            clean_matrix = valid.dropna(subset=['Visible_Track', 'Hidden_1_Track'])
+            if not clean_matrix.empty:
+                # Calculate Probabilities
+                brain_matrix = pd.crosstab(
+                    clean_matrix['Visible_Track'], 
+                    clean_matrix['Hidden_1_Track'], 
+                    normalize='index'
+                ) * 100
+                
+                # Format and Display
+                st.dataframe(
+                    brain_matrix.style.format("{:.1f}%").background_gradient(cmap="Blues", axis=1),
+                    use_container_width=True
+                )
+            else:
+                st.info("Not enough data to form a pattern yet.")
+    
+    with tab2:
+        if 'Predicted' in valid.columns and 'Actual' in valid.columns:
+             valid['Predicted'] = valid['Predicted'].astype(str).replace('nan', 'N/A')
+             predictions_exist = valid[valid['Predicted'] != "N/A"].copy()
+             
+             if not predictions_exist.empty:
+                 predictions_exist['Is_Correct'] = (predictions_exist['Predicted'] == predictions_exist['Actual']).astype(int)
+                 st.metric("Global Accuracy", f"{(predictions_exist['Is_Correct'].mean()*100):.1f}%")
+                 
+                 st.write("**Accuracy Trend (Last 10 Races)**")
+                 predictions_exist['Trend'] = predictions_exist['Is_Correct'].rolling(10).mean() * 100
+                 st.line_chart(predictions_exist['Trend'])
+    
+    with tab3:
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
