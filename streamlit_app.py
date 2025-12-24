@@ -637,7 +637,7 @@ revealed_slot = ctx['slot']      # Lap 1 / Lap 2 / Lap 3
 
 with st.form("race_report_form"):
 
-    # ✅ Winner selection (NO AUTO SELECT)
+    # Winner selection (NO AUTO SELECT)
     winner = st.selectbox(
         "🏆 Actual Winner",
         ctx['v'],
@@ -645,14 +645,18 @@ with st.form("race_report_form"):
         placeholder="Select the actual winner..."
     )
 
-    # ✅ Lap inputs with revealed lap TRACK locked but % editable
+    # Lap inputs with revealed lap TRACK locked but % editable
     c1, c2, c3 = st.columns(3)
 
     # --- LAP 1 ---
     with c1:
         if revealed_lap == 0:
-            s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS,
-                               index=TRACK_OPTIONS.index(revealed_track), disabled=True)
+            s1t = st.selectbox(
+                "Lap 1 Track",
+                TRACK_OPTIONS,
+                index=TRACK_OPTIONS.index(revealed_track),
+                disabled=True
+            )
             s1l = st.number_input("Lap 1 %", 1, 100, 33)
         else:
             s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS)
@@ -661,8 +665,12 @@ with st.form("race_report_form"):
     # --- LAP 2 ---
     with c2:
         if revealed_lap == 1:
-            s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS,
-                               index=TRACK_OPTIONS.index(revealed_track), disabled=True)
+            s2t = st.selectbox(
+                "Lap 2 Track",
+                TRACK_OPTIONS,
+                index=TRACK_OPTIONS.index(revealed_track),
+                disabled=True
+            )
             s2l = st.number_input("Lap 2 %", 1, 100, 33)
         else:
             s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS)
@@ -671,17 +679,20 @@ with st.form("race_report_form"):
     # --- LAP 3 ---
     with c3:
         if revealed_lap == 2:
-            s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS,
-                               index=TRACK_OPTIONS.index(revealed_track), disabled=True)
+            s3t = st.selectbox(
+                "Lap 3 Track",
+                TRACK_OPTIONS,
+                index=TRACK_OPTIONS.index(revealed_track),
+                disabled=True
+            )
             s3l = st.number_input("Lap 3 %", 1, 100, 34)
         else:
             s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS)
             s3l = st.number_input("Lap 3 %", 1, 100, 34)
 
-    # ✅ Submit button
+    # Submit button
     save_clicked = st.form_submit_button("💾 Save & Train")
 
-    # ✅ FIXED INDENTATION — MUST ALIGN WITH save_clicked
     if save_clicked:
 
         if winner is None:
