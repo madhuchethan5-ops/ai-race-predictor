@@ -520,13 +520,13 @@ if 'res' in st.session_state:
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
-# --- 6. TELEMETRY (LOCKED SLOT & LANE TRACKING) ---
+# --- 6. TELEMETRY (MINIMAL RACE REPORT) ---
 st.divider()
-st.subheader("📝 Save Race Report (Revealed slot is locked)")
+st.subheader("📝 Save Race Report")
 
-# ✅ SAFETY CHECK — ensure prediction exists
+# ✅ Ensure prediction exists
 if 'res' not in st.session_state:
-    st.info("Run a prediction first before saving a race report.")
+    st.info("Run a prediction first.")
     st.stop()
 
 res = st.session_state['res']
@@ -534,70 +534,55 @@ ctx = res['ctx']
 predicted = res['p']
 predicted_winner = max(predicted, key=predicted.get)
 
-# ✅ Race Summary Card
-with st.container():
-    st.markdown("### 🧾 Race Summary")
-    v1, v2, v3 = ctx['v']
-    revealed_lap = ctx['idx'] + 1
-    revealed_track = ctx['t']
-
-    st.info(
-        f"**Vehicles:** {v1}, {v2}, {v3}\n\n"
-        f"**Revealed Lap:** Lap {revealed_lap}\n"
-        f"**Revealed Track:** {revealed_track}\n\n"
-        f"**Predicted Winner:** {predicted_winner} "
-        f"({predicted[predicted_winner]:.1f}%)"
-    )
-
-st.caption("Tip: Press **Ctrl + Enter** to save instantly.")
-
-# ✅ Quick Fill button MUST be OUTSIDE the form
-if st.button("⚡ Quick Fill Predicted Winner"):
+# ✅ Quick Fill (outside form)
+col_qf = st.columns(1)[0]
+if col_qf.button(f"⚡ Quick Fill Winner ({predicted_winner})"):
     st.session_state['winner_autofill'] = predicted_winner
+    st.experimental_rerun()
 
-with st.form("tele_form"):
+with st.form("race_report_form"):
 
-    # ✅ Winner selection with auto-highlight
+    # ✅ Winner selection (simple)
     winner = st.selectbox(
         "🏆 Actual Winner",
         ctx['v'],
         index=ctx['v'].index(st.session_state.get('winner_autofill'))
-              if st.session_state.get('winner_autofill') in ctx['v'] else None,
-        placeholder=f"Predicted: {predicted_winner}"
+              if st.session_state.get('winner_autofill') in ctx['v'] else None
     )
 
-    # ✅ Lap inputs
-    c_a, c_b, c_c = st.columns(3)
-    with c_a:
-        s1t = st.selectbox("L1 Track", TRACK_OPTIONS,
+    # ✅ Lap inputs (simple)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS,
                            index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==0 else 0,
                            disabled=(ctx['idx']==0))
-        s1l = st.number_input("L1 %", 1, 100, 33)
-    with c_b:
-        s2t = st.selectbox("L2 Track", TRACK_OPTIONS,
+        s1l = st.number_input("Lap 1 %", 1, 100, 33)
+    with c2:
+        s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS,
                            index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==1 else 0,
                            disabled=(ctx['idx']==1))
-        s2l = st.number_input("L2 %", 1, 100, 33)
-    with c_c:
-        s3t = st.selectbox("L3 Track", TRACK_OPTIONS,
+        s2l = st.number_input("Lap 2 %", 1, 100, 33)
+    with c3:
+        s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS,
                            index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==2 else 0,
                            disabled=(ctx['idx']==2))
-        s3l = st.number_input("L3 %", 1, 100, 34)
+        s3l = st.number_input("Lap 3 %", 1, 100, 34)
 
-    # ✅ Submit button INSIDE the form
-    save_clicked = st.form_submit_button("💾 SAVE & TRAIN")
+    # ✅ Submit button
+    save_clicked = st.form_submit_button("💾 Save & Train")
 
-    # ✅ Validation
     if save_clicked:
 
+        # ✅ Validation
         if winner is None:
-            st.error("❌ Please select the actual winner before saving.")
+            st.error("Select the winner.")
             st.stop()
 
         if s1l + s2l + s3l != 100:
-            st.error("❌ Total must be 100%")
+            st.error("Lap lengths must total 100%.")
             st.stop()
 
+        # ✅ Save row
         p_val = predicted_winner
         top_prob = predicted[p_val] / 100.0
         was_correct = (p_val == winner)
@@ -615,7 +600,7 @@ with st.form("tele_form"):
         }
 
         pd.concat([history, pd.DataFrame([row])], ignore_index=True).to_csv(CSV_FILE, index=False)
-        st.toast("✅ Race saved and AI trained!", icon="🧠")
+        st.toast("✅ Saved & AI trained!", icon="🧠")
         st.rerun()
         
 # --- 7. ANALYTICS (MODEL INSIGHTS & BRAIN) ---
