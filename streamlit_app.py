@@ -736,7 +736,7 @@ if save_clicked:
         st.error("Lap lengths must total 100%.")
         st.stop()
 
-    # ✅ Prevent blank track names (Option B)
+    # Prevent blank track names
     if not s1t or not s2t or not s3t:
         st.error("All laps must have a track selected.")
         st.stop()
@@ -758,22 +758,21 @@ if save_clicked:
         'Timestamp': pd.Timestamp.now()
     }
 
-    # ✅ Always reload fresh before saving
+    # Always reload fresh before saving
     fresh = load_and_migrate_data()
     new_history = pd.concat([fresh, pd.DataFrame([row])], ignore_index=True)
 
     try:
-        # ✅ Save main file
+        # Save main file
         new_history.to_csv(CSV_FILE, index=False)
-        # ✅ Save backup file
+        # Save backup file
         new_history.to_csv("race_history_backup.csv", index=False)
     except Exception as e:
         st.error(f"Failed to save race: {e}")
         st.stop()
 
-    # ✅ Rerun immediately — no UI output before this
-    st.experimental_rerun()
-    return
+    # Rerun immediately
+    st.rerun()
     
 # --- PREDICTION ANALYTICS PANEL ---
 if 'res' in st.session_state:
