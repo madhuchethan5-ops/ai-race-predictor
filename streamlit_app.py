@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
 
 # --- STEP 1: YOUR EXACT SPEED DATA ---
-# These are the raw speed values (Higher = Faster)
 SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
@@ -16,93 +16,96 @@ SPEED_DATA = {
     "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134,"Potholes": 77, "Bumpy": 99, "Highway": 320},
 }
 
+# --- FILE MANAGEMENT: Create/Load History ---
+CSV_FILE = 'race_history.csv'
+if not os.path.exists(CSV_FILE):
+    # Initialize file if it doesn't exist
+    df_init = pd.DataFrame(columns=["V1", "V2", "V3", "Visible_Track", "Lane", "Predicted_Winner", "Actual_Winner"])
+    df_init.to_csv(CSV_FILE, index=False)
+
 # --- STEP 2: APP LAYOUT ---
-st.set_page_config(page_title="Race Predictor", page_icon="🏎️")
-st.title("🏎️ AI Race Predictor Pro")
-st.markdown("### Enter Live Race Conditions")
+st.set_page_config(page_title="Race Predictor & Logger", page_icon="🏎️")
+st.title("🏎️ AI Race Predictor & Logger")
 
 # Sidebar for Inputs
 with st.sidebar:
-    st.header("Race Setup")
-    
-    # Dropdowns for Vehicles
-    v1 = st.selectbox("Vehicle 1", list(SPEED_DATA.keys()), index=8) # Default: Supercar
-    v2 = st.selectbox("Vehicle 2", list(SPEED_DATA.keys()), index=7) # Default: Sports Car
-    v3 = st.selectbox("Vehicle 3", list(SPEED_DATA.keys()), index=5) # Default: Car
+    st.header("1. Race Setup")
+    v1 = st.selectbox("Vehicle 1", list(SPEED_DATA.keys()), index=8)
+    v2 = st.selectbox("Vehicle 2", list(SPEED_DATA.keys()), index=7)
+    v3 = st.selectbox("Vehicle 3", list(SPEED_DATA.keys()), index=5)
     
     st.divider()
-    
-    # Track Conditions
-    visible_track = st.selectbox("Visible Track (Shown)", ["Expressway", "Desert", "Dirt", "Potholes", "Bumpy", "Highway"])
-    visible_lane = st.radio("Which Lane is Visible?", [1, 2, 3])
+    visible_track = st.selectbox("Visible Track", ["Expressway", "Desert", "Dirt", "Potholes", "Bumpy", "Highway"])
+    visible_lane = st.radio("Visible Lane Position", [1, 2, 3])
 
-# --- STEP 3: THE AI SIMULATION (Monte Carlo) ---
+# --- STEP 3: PREDICTION ENGINE ---
 def run_simulation(v1, v2, v3, visible_t, visible_l):
     wins = {v1: 0, v2: 0, v3: 0}
-    iterations = 2000  # Run 2,000 virtual races for accuracy
-    
-    # Get all possible tracks to choose from for hidden sections
+    iterations = 2000
     all_terrains = list(SPEED_DATA["Car"].keys())
 
     for _ in range(iterations):
-        # 1. Randomize Lane Lengths (e.g., Lane 1=50%, Lane 2=30%, Lane 3=20%)
-        # Dirichlet distribution ensures they sum to 1.0 (100%)
         lengths = np.random.dirichlet(np.ones(3), size=1)[0]
-        
-        # 2. Assign Tracks to Lanes
-        # The visible lane is fixed. The other two are random guesses.
         t1 = visible_t if visible_l == 1 else np.random.choice(all_terrains)
         t2 = visible_t if visible_l == 2 else np.random.choice(all_terrains)
         t3 = visible_t if visible_l == 3 else np.random.choice(all_terrains)
-        
         tracks = [t1, t2, t3]
-
-        # 3. Calculate Race Time for each vehicle
-        # Logic: Time = Distance / Speed
-        # We assume Total Distance = 1000 units. 
-        # So Lane Distance = Length * 1000.
+        
         times = {}
         for v in [v1, v2, v3]:
-            # Calculate time taken for each lane
-            time_lane_1 = (lengths[0] * 1000) / SPEED_DATA[v][tracks[0]]
-            time_lane_2 = (lengths[1] * 1000) / SPEED_DATA[v][tracks[1]]
-            time_lane_3 = (lengths[2] * 1000) / SPEED_DATA[v][tracks[2]]
-            
-            # Total race time
-            times[v] = time_lane_1 + time_lane_2 + time_lane_3
+            time = sum([(lengths[i] * 1000) / SPEED_DATA[v][tracks[i]] for i in range(3)])
+            times[v] = time
         
-        # 4. Determine Winner (Lowest Time Wins)
         winner = min(times, key=times.get)
         wins[winner] += 1
     
-    # Convert wins to percentages
     return {k: (v / iterations) * 100 for k, v in wins.items()}
 
-# --- STEP 4: DISPLAY RESULTS ---
+# --- MAIN PAGE: PREDICTION ---
+st.markdown("### 📊 Live Prediction")
 if st.button("🚀 Predict Winner", type="primary"):
-    with st.spinner('Simulating 2,000 possible race scenarios...'):
+    with st.spinner('Running Monte Carlo Simulation...'):
         probs = run_simulation(v1, v2, v3, visible_track, visible_lane)
     
-    # Find the most likely winner
     likely_winner = max(probs, key=probs.get)
-    st.success(f"🏆 Most Likely Winner: **{likely_winner}**")
-
-    # Display Progress Bars
-    st.subheader("Win Probability")
+    st.session_state['last_prediction'] = likely_winner  # Save for logging
+    
+    st.success(f"🏆 Predicted Winner: **{likely_winner}**")
+    
     for vehicle, percent in probs.items():
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            st.write(f"**{vehicle}**")
-        with col2:
-            st.progress(int(percent))
-            st.caption(f"{percent:.1f}% Chance")
+        st.write(f"**{vehicle}**: {percent:.1f}%")
+        st.progress(int(percent))
 
-    # Show the Stats Table for reference
-    st.divider()
-    with st.expander("See Raw Speed Stats for Selected Vehicles"):
-        df = pd.DataFrame({
-            v1: SPEED_DATA[v1],
-            v2: SPEED_DATA[v2],
-            v3: SPEED_DATA[v3]
-        })
-        st.dataframe(df.transpose())
+st.divider()
+
+# --- STEP 4: DATA LOGGING (THE NEW PART) ---
+st.markdown("### 📝 Log Results (Build Your Database)")
+st.info("After the race is over, select the actual winner below and click 'Save'.")
+
+# Dropdown to pick who actually won
+actual_winner = st.selectbox("Who actually won?", [v1, v2, v3], key="winner_select")
+
+if st.button("💾 Save Result to Database"):
+    # Load current history
+    df_history = pd.read_csv(CSV_FILE)
+    
+    # Create new row
+    new_data = {
+        "V1": v1, "V2": v2, "V3": v3,
+        "Visible_Track": visible_track,
+        "Lane": visible_lane,
+        "Predicted_Winner": st.session_state.get('last_prediction', "N/A"),
+        "Actual_Winner": actual_winner
+    }
+    
+    # Save to CSV
+    df_new = pd.DataFrame([new_data])
+    df_history = pd.concat([df_history, df_new], ignore_index=True)
+    df_history.to_csv(CSV_FILE, index=False)
+    
+    st.success(f"✅ Saved! Database now has {len(df_history)} races.")
+
+# Show History
+with st.expander("📂 View Race History"):
+    if os.path.exists(CSV_FILE):
+        st.dataframe(pd.read_csv(CSV_FILE).tail(10)) # Show last 10 races
