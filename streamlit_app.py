@@ -4,6 +4,7 @@ import numpy as np
 import os
 from streamlit_extras.grid import grid
 
+st.write("RUNNING FILE:", __file__)
 
 def get_confidence_color(prob: float) -> str:
     """Return a hex color based on confidence strength."""
