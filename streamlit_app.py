@@ -4,6 +4,103 @@ import numpy as np
 import os
 from streamlit_extras.grid import grid
 
+import streamlit as st
+import pandas as pd
+
+def get_confidence_color(prob: float) -> str:
+    """Return a hex color based on confidence strength."""
+    if prob >= 70:
+        return "#2e7d32"  # strong green
+    elif prob >= 40:
+        return "#f9a825"  # yellow / amber
+    else:
+        return "#c62828"  # red
+
+
+def confidence_bar(vehicle: str, prob: float):
+    """Render a color-coded confidence bar for a vehicle."""
+    color = get_confidence_color(prob)
+    st.markdown(
+        f"""
+        <div style="margin-bottom:8px;">
+            <div style="font-weight:600; margin-bottom:2px;">{vehicle}</div>
+            <div style="background:#eee; height:10px; border-radius:5px;">
+                <div style="
+                    width:{prob}%;
+                    height:10px;
+                    background:{color};
+                    border-radius:5px;">
+                </div>
+            </div>
+            <div style="font-size:12px; color:#555; margin-top:2px;">
+                {prob:.1f}% confidence
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def race_confidence_summary(probs: dict):
+    """
+    Show race tightness score + top-2 margin.
+    probs is a dict {vehicle: prob}.
+    """
+    if len(probs) < 2:
+        return
+
+    sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+    (v1, p1), (v2, p2) = sorted_probs[0], sorted_probs[1]
+    margin = p1 - p2  # in percentage points
+    # Tightness score: 0 = blowout, 100 = coinflip
+    tightness = max(0, 100 - margin)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(
+            "Race tightness score",
+            f"{tightness:.1f}",
+            help="Higher = closer race. Lower = one car clearly dominates."
+        )
+    with col2:
+        st.metric(
+            "Top‑2 margin",
+            f"{margin:.1f} pts",
+            help=f"Difference between {v1} and {v2} confidence."
+        )
+
+
+def confidence_delta_panel(current_probs: dict):
+    """
+    Show how much the model changed since last train.
+    Uses st.session_state['last_train_probs'] if available.
+    """
+    if 'last_train_probs' not in st.session_state:
+        return  # nothing to compare yet
+
+    prev = st.session_state['last_train_probs']
+    if not isinstance(prev, dict):
+        return
+
+    st.markdown("### 📈 Confidence change since last training")
+
+    rows = []
+    for v, p_now in current_probs.items():
+        p_prev = prev.get(v, None)
+        if p_prev is None:
+            delta = None
+        else:
+            delta = p_now - p_prev
+        rows.append({
+            "Vehicle": v,
+            "Now %": p_now,
+            "Prev %": p_prev if p_prev is not None else "-",
+            "Δ (Now - Prev)": f"{delta:+.1f}" if delta is not None else "-"
+        })
+
+    df_delta = pd.DataFrame(rows)
+    st.dataframe(df_delta, use_container_width=True)
+
 # --- 1. CORE PHYSICS CONFIGURATION ---
 SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
@@ -583,7 +680,7 @@ with st.form("race_report_form"):
 
     save_clicked = st.form_submit_button("💾 Save & Train")
 
-    if save_clicked:
+       if save_clicked:
 
         if winner is None:
             st.error("Please select the actual winner.")
@@ -592,6 +689,9 @@ with st.form("race_report_form"):
         if s1l + s2l + s3l != 100:
             st.error("Lap lengths must total 100%.")
             st.stop()
+
+        # Store current prediction for confidence delta on next prediction
+        st.session_state['last_train_probs'] = dict(predicted)
 
         row = {
             'Vehicle_1': ctx['v'][0],
@@ -612,20 +712,32 @@ with st.form("race_report_form"):
 
         st.success("✅ Saved & AI trained!")
         st.rerun()
-        
 # --- 7. PREDICTION EXPLANATION PANEL (AFTER SAVE REPORT) ---
 if 'res' in st.session_state:
-
-    st.divider()
-    st.subheader("🔍 Prediction Explanation")
-
     res = st.session_state['res']
     ctx = res['ctx']
-    probs = res['p']
-    vpi = res['vpi']
-
-    vehicles = ctx['v']
+    probs = res['p']       # dict: {vehicle: probability in %}
     predicted_winner = max(probs, key=probs.get)
+
+    st.subheader("🏁 Prediction")
+
+    # Main prediction header
+    st.markdown(
+        f"**Predicted winner:** `{predicted_winner}` "
+        f"({probs[predicted_winner]:.1f}% confidence)"
+    )
+
+    # Color‑coded confidence bars
+    st.markdown("#### Confidence by vehicle")
+    for v, p in probs.items():
+        confidence_bar(v, p)
+
+    # Race tightness + top‑2 margin
+    st.markdown("#### Race confidence summary")
+    race_confidence_summary(probs)
+
+    # Confidence delta vs last training (if exists)
+    confidence_delta_panel(probs)
 
     # -------------------------------
     # ✅ 1. WHY THE AI CHOSE THIS WINNER (FIRST)
