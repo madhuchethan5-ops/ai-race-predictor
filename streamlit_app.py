@@ -267,29 +267,29 @@ def compute_learning_curve(history: pd.DataFrame, window: int = 30):
         return df
 
 
-def compute_learned_geometry(history: pd.DataFrame):
-    """Mean/std of Lap lengths per track, across all laps (because lengths vary wildly)."""
-    if history.empty:
-        return None
-    rows = []
+def compute_learned_geometry(df):
+    results = []
+
     for lap in [1, 2, 3]:
         t_col = f"Lap_{lap}_Track"
         l_col = f"Lap_{lap}_Len"
-        if t_col not in history.columns or l_col not in history.columns:
-            continue
-        tmp = history[[t_col, l_col]].copy()
-        tmp[l_col] = pd.to_numeric(tmp[l_col], errors='coerce')
-        tmp = tmp.dropna()
+
+        tmp = df[df['Lap'] == lap]
+
+        # ✅ Ignore blank or missing track names
+        tmp = tmp[tmp[t_col].notna() & (tmp[t_col] != "")]
+
         if tmp.empty:
             continue
-        g = tmp.groupby(t_col)[l_col].agg(['mean', 'std', 'count']).reset_index()
-        g['Lap'] = lap
-        rows.append(g)
-    if not rows:
-        return None
-    geom = pd.concat(rows, ignore_index=True)
-    geom = geom.rename(columns={geom.columns[0]: 'Track'})
-    return geom[['Lap', 'Track', 'mean', 'std', 'count']]
+
+        grouped = tmp.groupby(t_col)[l_col].agg(['mean', 'std', 'count']).reset_index()
+        grouped['Lap'] = lap
+        results.append(grouped)
+
+    if results:
+        return pd.concat(results, ignore_index=True)
+
+    return pd.DataFrame(columns=['Lap', 'Track', 'mean', 'std', 'count'])
 
 
 def compute_transition_matrices(history: pd.DataFrame):
@@ -727,12 +727,18 @@ if save_clicked:
         st.error("Please select the actual winner.")
         st.stop()
 
+    # Force numeric
     s1l = float(s1l)
     s2l = float(s2l)
     s3l = float(s3l)
 
     if s1l + s2l + s3l != 100:
         st.error("Lap lengths must total 100%.")
+        st.stop()
+
+    # ✅ Prevent blank track names (Option B)
+    if not s1t or not s2t or not s3t:
+        st.error("All laps must have a track selected.")
         st.stop()
 
     st.session_state['last_train_probs'] = dict(predicted)
@@ -752,17 +758,20 @@ if save_clicked:
         'Timestamp': pd.Timestamp.now()
     }
 
+    # ✅ Always reload fresh before saving
     fresh = load_and_migrate_data()
     new_history = pd.concat([fresh, pd.DataFrame([row])], ignore_index=True)
 
     try:
+        # ✅ Save main file
         new_history.to_csv(CSV_FILE, index=False)
+        # ✅ Save backup file
         new_history.to_csv("race_history_backup.csv", index=False)
     except Exception as e:
         st.error(f"Failed to save race: {e}")
         st.stop()
 
-    # ✅ Rerun IMMEDIATELY — before any UI output
+    # ✅ Rerun immediately — no UI output before this
     st.experimental_rerun()
     
 # --- PREDICTION ANALYTICS PANEL ---
