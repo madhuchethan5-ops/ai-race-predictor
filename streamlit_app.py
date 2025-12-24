@@ -22,16 +22,21 @@ SPEED_DATA = {
 CSV_FILE = 'race_history.csv'
 st.set_page_config(layout="wide", page_title="AI Race Predictor Pro", page_icon="🏎️")
 
-# --- 2. THE SIMULATION ENGINE (FIXED) ---
+# --- 2. THE SIMULATION ENGINE (FIXED KEYERROR) ---
 def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
     all_terrains = list(SPEED_DATA["Car"].keys())
     
     avg_vis = 0.30
-    if not history_df.empty and 'Visible_Track' in history_df.columns:
-        match = history_df[history_df['Visible_Track'] == visible_t]
-        if not match.empty:
-            avg_vis = match['Visible_Segment_%'].mean() / 100
+    if not history_df.empty:
+        # Check for multiple possible column names to prevent KeyError
+        possible_cols = ['Visible_Segment_%', 'Visible_Lane_Length (%)', 'Visible_%']
+        col_name = next((c for c in possible_cols if c in history_df.columns), None)
+        
+        if col_name and 'Visible_Track' in history_df.columns:
+            match = history_df[history_df['Visible_Track'] == visible_t]
+            if not match.empty:
+                avg_vis = match[col_name].mean() / 100
 
     # Vectorized Monte Carlo
     vis_lens = np.clip(np.random.normal(avg_vis, 0.1, iterations), 0.05, 0.95)
@@ -43,11 +48,9 @@ def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iter
 
     results = {}
     for v in vehicles:
-        # Vectorized speed lookup
         speed_lookup = np.vectorize(SPEED_DATA[v].get)(seg_terrains)
         noise = np.random.normal(1.0, 0.05, (iterations, 3))
         noisy_speeds = speed_lookup * noise
-        
         times = (vis_lens/noisy_speeds[:, 0]) + (h1_lens/noisy_speeds[:, 1]) + (h2_lens/noisy_speeds[:, 2])
         results[v] = times
 
@@ -55,6 +58,33 @@ def run_simulation_vectorized(v1, v2, v3, visible_t, visible_l, history_df, iter
     counts = pd.Series(winners).value_counts(normalize=True).sort_index() * 100
     return {vehicles[i]: counts.get(i, 0) for i in range(3)}
 
+# --- 4. TELEMETRY LOGGING (CLEAN COLUMN NAMES) ---
+st.divider()
+with st.form("logger", clear_on_submit=True):
+    st.subheader("📝 POST-RACE TELEMETRY")
+    f1, f2, f3, f4 = st.columns(4)
+    with f1: winner = st.selectbox("Actual Winner", [c1, c2, c3])
+    with f2: v_len = st.number_input("Visible %", 5, 95, 30)
+    with f3: h1_t = st.selectbox("Hidden 1", list(SPEED_DATA["Car"].keys()))
+    with f4: h2_t = st.selectbox("Hidden 2", list(SPEED_DATA["Car"].keys()))
+    
+    if st.form_submit_button("💾 ARCHIVE DATA", use_container_width=True):
+        last_probs = st.session_state.get('last_probs', {})
+        predicted = max(last_probs, key=last_probs.get) if last_probs else "N/A"
+        
+        log_entry = {
+            "Visible_Track": v_track,
+            "Visible_Segment_%": v_len, # Standardizing on this name
+            "Predicted": predicted,
+            "Actual": winner,
+            "H1_Track": h1_t,
+            "H2_Track": h2_t
+        }
+        
+        new_row = pd.DataFrame([log_entry])
+        new_row.to_csv(CSV_FILE, mode='a', header=not os.path.exists(CSV_FILE), index=False)
+        st.toast("Telemetry synchronized!")
+        st.rerun()
 # --- 3. UI RENDER ---
 if os.path.exists(CSV_FILE):
     history = pd.read_csv(CSV_FILE)
