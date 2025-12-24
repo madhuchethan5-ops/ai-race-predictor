@@ -56,23 +56,27 @@ def run_simulation(v1, v2, v3, visible_t, visible_l):
         wins[min(times, key=times.get)] += 1
     return {k: (v / iterations) * 100 for k, v in wins.items()}
 
-# --- 3. SIDEBAR (FIT-TO-SCREEN INPUTS) ---
+# --- 3. SIDEBAR (SPEED-OPTIMIZED) ---
 with st.sidebar:
-    st.markdown("<h2 style='font-weight: 300;'>🚦 Setup</h2>", unsafe_allow_html=True)
+    # Action Button at the TOP for zero-scroll access
+    predict_clicked = st.button("🚀 RUN AI PREDICTION", type="primary", use_container_width=True)
     
+    st.markdown("<h3 style='font-weight: 300; margin-top: -10px;'>🚦 Setup</h3>", unsafe_allow_html=True)
+    
+    # Using small labels and compact widgets
     with st.expander("🌍 Environment", expanded=True):
-        visible_track = st.selectbox("Visible Track", list(SPEED_DATA["Car"].keys()))
-        visible_lane = st.radio("Which Lane is Visible?", [1, 2, 3], horizontal=True)
+        visible_track = st.selectbox("Track", list(SPEED_DATA["Car"].keys()), label_visibility="collapsed")
+        visible_lane = st.radio("Lane", [1, 2, 3], horizontal=True)
+    
+    st.markdown("<p style='margin-bottom: -15px; font-size: 14px;'>🏎️ <b>Competitors</b></p>", unsafe_allow_html=True)
+    # Removing labels to save vertical space
+    v1 = st.selectbox("V1", list(SPEED_DATA.keys()), index=8, label_visibility="collapsed")
+    v2 = st.selectbox("V2", list(SPEED_DATA.keys()), index=7, label_visibility="collapsed")
+    v3 = st.selectbox("V3", list(SPEED_DATA.keys()), index=5, label_visibility="collapsed")
     
     st.divider()
-    
-    with st.expander("🏎️ Competitors", expanded=True):
-        v1 = st.selectbox("Vehicle 1 (Top)", list(SPEED_DATA.keys()), index=8)
-        v2 = st.selectbox("Vehicle 2 (Mid)", list(SPEED_DATA.keys()), index=7)
-        v3 = st.selectbox("Vehicle 3 (Bot)", list(SPEED_DATA.keys()), index=5)
-    
-    st.divider()
-    predict_clicked = st.button("🚀 Run AI Prediction", type="primary", use_container_width=True)
+    # Duplicate button at the bottom just in case, but the top one is your primary
+    st.button("🚀 Run AI Prediction", key="bottom_btn", use_container_width=True)
 
 # --- 4. MAIN SCREEN (COMPACT LAYOUT & CSS) ---
 st.markdown("""
