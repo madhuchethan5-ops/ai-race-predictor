@@ -30,26 +30,24 @@ def load_and_migrate_data():
         df = pd.read_csv(CSV_FILE)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
-        # Aggressive Mapper for all possible variations found in your export
+        # Maps every historical column name to the new "Lap" system
         rename_map = {
             'V1': 'Vehicle_1', 'V2': 'Vehicle_2', 'V3': 'Vehicle_3',
             'Visible_Track': 'Lap_1_Track', 'Visible_Segment_%': 'Lap_1_Len',
             'Hidden_1_Track': 'Lap_2_Track', 'Hidden_1_Len': 'Lap_2_Len',
             'Hidden_2_Track': 'Lap_3_Track', 'Hidden_2_Len': 'Lap_3_Len',
-            'Stage_1_Track': 'Lap_1_Track', 'Stage_2_Track': 'Lap_2_Track', 'Stage_3_Track': 'Lap_3_Track',
-            'Stage_1_Len': 'Lap_1_Len', 'Stage_2_Len': 'Lap_2_Len', 'Stage_3_Len': 'Lap_3_Len'
+            'Stage_1_Track': 'Lap_1_Track', 'Stage_2_Track': 'Lap_2_Track', 'Stage_3_Track': 'Lap_3_Track'
         }
         df = df.rename(columns=rename_map)
         
-        # Critical Fix: Ensure Lap_X_Len exists for the simulation engine
+        # CRITICAL: Ensures the math columns are numbers and exist
         for i in range(1, 4):
-            if f'Lap_{i}_Len' not in df.columns:
-                df[f'Lap_{i}_Len'] = 33.3 # Default if column is missing
-            df[f'Lap_{i}_Len'] = pd.to_numeric(df[f'Lap_{i}_Len'], errors='coerce').fillna(33.3)
+            l_col = f'Lap_{i}_Len'
+            if l_col not in df.columns: df[l_col] = 33.3
+            df[l_col] = pd.to_numeric(df[l_col], errors='coerce').fillna(33.3)
             
         return df
     except Exception: return pd.DataFrame()
-
 history = load_and_migrate_data()
 
 # --- 3. THE BIDIRECTIONAL AI ENGINE ---
@@ -140,7 +138,22 @@ with st.sidebar:
 
 # --- 5. MAIN DASHBOARD ---
 st.title("🏁 AI RACE PREDICTOR: MASTER EDITION")
-
+# --- GLOBAL ACCURACY TRACKER ---
+if not history.empty and 'Predicted' in history.columns and 'Actual' in history.columns:
+    # Filter rows that have both a prediction and an actual result
+    valid = history.dropna(subset=['Predicted', 'Actual'])
+    valid = valid[~valid['Predicted'].astype(str).isin(['N/A', 'nan'])]
+    
+    if not valid.empty:
+        # Comparison logic for Accuracy
+        correct = (valid['Predicted'].astype(str) == valid['Actual'].astype(str)).sum()
+        total = len(valid)
+        acc = (correct / total) * 100
+        
+        # Display as a metric
+        col_acc1, col_acc2 = st.columns([3, 1])
+        with col_acc2:
+            st.metric("🎯 AI Accuracy", f"{acc:.1f}%")
 if not history.empty and 'Predicted' in history.columns and 'Actual' in history.columns:
     valid = history.dropna(subset=['Predicted', 'Actual'])
     valid = valid[~valid['Predicted'].astype(str).isin(['N/A', 'nan'])]
