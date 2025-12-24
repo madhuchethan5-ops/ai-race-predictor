@@ -727,7 +727,6 @@ if save_clicked:
         st.error("Please select the actual winner.")
         st.stop()
 
-    # Force numeric
     s1l = float(s1l)
     s2l = float(s2l)
     s3l = float(s3l)
@@ -763,15 +762,7 @@ if save_clicked:
         st.error(f"Failed to save race: {e}")
         st.stop()
 
-    st.success("✅ Saved & AI trained!")
-
-    st.download_button(
-        "⬇️ Download Race History",
-        new_history.to_csv(index=False),
-        "race_history.csv",
-        mime="text/csv"
-    )
-
+    # ✅ Rerun IMMEDIATELY — before any UI output
     st.experimental_rerun()
     
 # --- PREDICTION ANALYTICS PANEL ---
@@ -1139,6 +1130,13 @@ if not history.empty:
     with tabs[8]:
         st.write("### 📂 Race History")
         st.dataframe(history.sort_index(ascending=False), use_container_width=True)
+        st.download_button(
+    "⬇️ Download Race History",
+    history.to_csv(index=False),
+    "race_history.csv",
+    mime="text/csv"
+)
+
 
     # 10) WHAT-IF ANALYSIS PANEL
     with tabs[9]:
