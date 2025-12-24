@@ -17,8 +17,8 @@ SPEED_DATA = {
     "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134,"Potholes": 77, "Bumpy": 99, "Highway": 320},
 }
 
-# --- MASTER SORTED LISTS (DEFINED GLOBALLY) ---
-# This forces the order to be A-Z for the entire app.
+# --- 🔥 FORCE SORTING HERE (GLOBAL MASTER LISTS) ---
+# This runs once at startup and guarantees A-Z order everywhere.
 VEHICLE_OPTIONS = sorted(list(SPEED_DATA.keys()))
 TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
 
@@ -59,7 +59,7 @@ history = load_clean_history()
 # --- 3. ADAPTIVE BAYESIAN SIMULATION ENGINE ---
 def run_simulation(v1, v2, v3, visible_t, visible_l, history_df, iterations=5000):
     vehicles = [v1, v2, v3]
-    all_terrains = TRACK_OPTIONS # Use the sorted list
+    all_terrains = TRACK_OPTIONS # Use the sorted list for consistency
     
     # --- LEARNING PHASE ---
     avg_vis = 0.33
@@ -121,7 +121,7 @@ with st.sidebar:
                 st.rerun()
 
 # --- 5. MAIN DASHBOARD ---
-st.title("🏎️ AI RACE PREDICTOR PRO")
+st.title("🏎️ AI RACE PREDICTOR PRO (Sorted)")
 
 if predict_btn:
     probs = run_simulation(c1, c2, c3, v_track, v_lane, history)
