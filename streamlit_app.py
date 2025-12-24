@@ -524,10 +524,17 @@ if 'res' in st.session_state:
 st.divider()
 st.subheader("📝 Save Race Report (Revealed slot is locked)")
 
-predicted = st.session_state['res']['p']
+# ✅ SAFETY CHECK — ensure prediction exists
+if 'res' not in st.session_state:
+    st.info("Run a prediction first before saving a race report.")
+    st.stop()
+
+res = st.session_state['res']
+ctx = res['ctx']
+predicted = res['p']
 predicted_winner = max(predicted, key=predicted.get)
 
-# --- Race Summary Card ---
+# ✅ Race Summary Card
 with st.container():
     st.markdown("### 🧾 Race Summary")
     v1, v2, v3 = ctx['v']
@@ -545,7 +552,8 @@ with st.container():
 st.caption("Tip: Press **Ctrl + Enter** to save instantly.")
 
 with st.form("tele_form"):
-    # Winner selection with auto-highlight
+
+    # ✅ Winner selection with auto-highlight + Quick Fill
     winner = st.selectbox(
         "🏆 Actual Winner",
         ctx['v'],
@@ -554,26 +562,33 @@ with st.form("tele_form"):
         placeholder=f"Predicted: {predicted_winner}"
     )
 
-    # Quick Fill button
     if st.button("⚡ Quick Fill Predicted Winner"):
         st.session_state['winner_autofill'] = predicted_winner
         st.experimental_rerun()
 
-    # Lap inputs
+    # ✅ Lap inputs
     c_a, c_b, c_c = st.columns(3)
     with c_a:
-        s1t = st.selectbox("L1 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==0 else 0, disabled=(ctx['idx']==0))
+        s1t = st.selectbox("L1 Track", TRACK_OPTIONS,
+                           index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==0 else 0,
+                           disabled=(ctx['idx']==0))
         s1l = st.number_input("L1 %", 1, 100, 33)
     with c_b:
-        s2t = st.selectbox("L2 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==1 else 0, disabled=(ctx['idx']==1))
+        s2t = st.selectbox("L2 Track", TRACK_OPTIONS,
+                           index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==1 else 0,
+                           disabled=(ctx['idx']==1))
         s2l = st.number_input("L2 %", 1, 100, 33)
     with c_c:
-        s3t = st.selectbox("L3 Track", TRACK_OPTIONS, index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==2 else 0, disabled=(ctx['idx']==2))
+        s3t = st.selectbox("L3 Track", TRACK_OPTIONS,
+                           index=TRACK_OPTIONS.index(ctx['t']) if ctx['idx']==2 else 0,
+                           disabled=(ctx['idx']==2))
         s3l = st.number_input("L3 %", 1, 100, 34)
 
     save_clicked = st.form_submit_button("💾 SAVE & TRAIN")
 
+    # ✅ Validation
     if save_clicked:
+
         if winner is None:
             st.error("❌ Please select the actual winner before saving.")
             st.stop()
@@ -593,7 +608,7 @@ with st.form("tele_form"):
             'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
             'Predicted_Winner': p_val,
             'Actual_Winner': winner,
-            'Lane': current_slot,
+            'Lane': ctx['slot'],
             'Top_Prob': top_prob,
             'Was_Correct': was_correct
         }
