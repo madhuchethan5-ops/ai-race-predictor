@@ -1,0 +1,21 @@
+Race_No,V1,V2,V3,Winner,Visible_Track_Lane,Visible_Track,Visible_Length,Hidden_1,Hidden_1_Len,Hidden_2,Hidden_2_Len
+1,ORV,Monster Truck,SUV,SUV,1,Dirt,10,Dirt,80,Highway,10
+2,ATV,ORV,Car,ORV,3,Bumpy,20,Dirt,60,Desert,20
+3,Motorcycle,Monster Truck,SUV,SUV,1,Bumpy,10,Dirt,45,Dirt,45
+4,Stock Car,Supercar,ATV,Supercar,3,Highway,20,Dirt,30,Highway,50
+5,Motorcycle,Car,ORV,ORV,1,Bumpy,10,Desert,40,Dirt,50
+6,Stock Car,ORV,Sports Car,ORV,2,Expressway,30,Potholes,35,Expressway,35
+7,ORV,Motorcycle,ATV,Motorcycle,1,Potholes,25,Highway,50,Potholes,25
+8,SUV,Motorcycle,Sports Car,SUV,1,Bumpy,20,Highway,20,Dirt,60
+9,ATV,Motorcycle,ORV,ORV,2,Desert,20,Bumpy,70,Desert,10
+10,Sports Car,Stock Car,ORV,Stock Car,1,Dirt,20,Highway,50,Potholes,30
+11,Monster Truck,Stock Car,ORV,Monster Truck,3,Expressway,10,Highway,80,Potholes,10
+12,ATV,Motorcycle,Sports Car,ATV,3,Potholes,60,Desert,30,Bumpy,10
+13,Stock Car,Car,SUV,Stock Car,2,Potholes,40,Desert,20,Highway,40
+14,Sports Car,ORV,Car,ORV,1,Desert,20,Bumpy,60,Potholes,20
+15,Sports Car,Motorcycle,Supercar,Motorcycle,1,Potholes,35,Potholes,35,Bumpy,30
+16,ORV,Car,Monster Truck,Car,3,Highway,70,Highway,10,Potholes,20
+17,ORV,Sports Car,Monster Truck,ORV,1,Bumpy,25,Bumpy,25,Dirt,50
+18,Sports Car,ORV,SUV,ORV,1,Desert,30,Desert,30,Bumpy,40
+19,ORV,Supercar,Car,ORV,2,Desert,30,Potholes,10,Potholes,60
+20,Supercar,Monster Truck,ATV,ATV,1,Highway,25,Expressway,15,Desert,60
