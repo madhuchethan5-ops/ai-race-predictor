@@ -1023,7 +1023,7 @@ Q1, Q2 = st.columns([0.40, 0.60])
 Q3, Q4 = st.columns([0.40, 0.60])
 
 # ---------------------------------------------------------
-# Q1 — GRAPHICAL INPUT PANEL (LAP, TERRAIN, VEHICLES)
+# Q1 — CLEAN, STABLE, FAST VERSION
 # ---------------------------------------------------------
 with Q1:
 
@@ -1034,82 +1034,55 @@ with Q1:
     # -------------------------
     st.markdown("### 🔢 Select Lap")
 
-    lap_options = ["Lap 1", "Lap 2", "Lap 3"]
-    for lap in lap_options:
-        if st.button(lap, key=f"lap_{lap}", use_container_width=True):
-            st.session_state.selected_lap = lap
-
-    if st.session_state.selected_lap:
-        st.success(f"Selected Lap: {st.session_state.selected_lap}")
+    st.session_state.selected_lap = st.radio(
+        "Choose Lap",
+        ["Lap 1", "Lap 2", "Lap 3"],
+        index=["Lap 1", "Lap 2", "Lap 3"].index(st.session_state.selected_lap)
+        if st.session_state.selected_lap else 0,
+        horizontal=True
+    )
 
     st.markdown("---")
 
     # -------------------------
-    # 2. TERRAIN SELECTOR (Clickable Tiles)
+    # 2. TERRAIN SELECTOR (Native Streamlit)
     # -------------------------
     st.markdown("### 🌍 Select Terrain")
 
-    terrain_list = list(TERRAIN_ICONS.keys())
-    t_cols = st.columns(3)
+    terrain = st.radio(
+        "Choose Terrain",
+        list(TERRAIN_ICONS.keys()),
+        index=list(TERRAIN_ICONS.keys()).index(st.session_state.selected_terrain)
+        if st.session_state.selected_terrain else 0,
+        horizontal=True
+    )
 
-    for i, terrain in enumerate(terrain_list):
-        col = t_cols[i % 3]
-        with col:
-            selected = (st.session_state.selected_terrain == terrain)
-            img_path = TERRAIN_ICONS[terrain]  # CASE-SENSITIVE
+    st.session_state.selected_terrain = terrain
 
-            tile_html = clickable_tile(
-                label=terrain,
-                img_path=img_path,
-                selected=selected,
-                disabled=False,
-                key=f"terrain_{terrain}"
-            )
-            st.markdown(tile_html, unsafe_allow_html=True)
-
-            # CLICKABLE TILE BUTTON
-            if st.button(f"select_{terrain}", key=f"terrain_btn_{terrain}", use_container_width=True):
-                st.session_state.selected_terrain = terrain
-
-    if st.session_state.selected_terrain:
-        st.success(f"Selected Terrain: {st.session_state.selected_terrain}")
+    st.image(TERRAIN_ICONS[terrain], width=200)
 
     st.markdown("---")
 
     # -------------------------
-    # 3. VEHICLE SELECTOR (Clickable Tiles)
+    # 3. VEHICLE SELECTOR (Max 3)
     # -------------------------
     st.markdown("### 🚗 Select 3 Vehicles")
 
-    v_cols = st.columns(3)
-    vehicle_list = list(VEHICLE_ICONS.keys())
+    selected = st.multiselect(
+        "Choose Vehicles",
+        list(VEHICLE_ICONS.keys()),
+        default=st.session_state.selected_vehicles,
+        max_selections=3
+    )
 
-    for i, veh in enumerate(vehicle_list):
-        col = v_cols[i % 3]
-        with col:
-            selected = veh in st.session_state.selected_vehicles
-            disabled = (not selected) and (len(st.session_state.selected_vehicles) >= 3)
+    st.session_state.selected_vehicles = selected
 
-            img_path = VEHICLE_ICONS[veh]  # CASE-SENSITIVE
-
-            tile_html = clickable_tile(
-                label=veh,
-                img_path=img_path,
-                selected=selected,
-                disabled=disabled,
-                key=f"veh_{veh}"
-            )
-            st.markdown(tile_html, unsafe_allow_html=True)
-
-            # CLICKABLE TILE BUTTON
-            if st.button(f"select_{veh}", key=f"veh_btn_{veh}", use_container_width=True):
-                if selected:
-                    st.session_state.selected_vehicles.remove(veh)
-                else:
-                    if len(st.session_state.selected_vehicles) < 3:
-                        st.session_state.selected_vehicles.append(veh)
-
-    st.info(f"Selected Vehicles: {st.session_state.selected_vehicles}")
+    # Show selected vehicle images
+    cols = st.columns(3)
+    for i, veh in enumerate(selected):
+        with cols[i]:
+            st.image(VEHICLE_ICONS[veh], width=150)
+            st.caption(veh)
 
     st.markdown("---")
 
@@ -1122,7 +1095,7 @@ with Q1:
         len(st.session_state.selected_vehicles) == 3
     )
 
-    if st.button("🚀 RUN PREDICTION", key="run_prediction_btn", disabled=not ready, use_container_width=True):
+    if st.button("🚀 RUN PREDICTION", disabled=not ready, use_container_width=True):
         st.session_state.trigger_prediction = True
         st.success("Prediction triggered!")
 
