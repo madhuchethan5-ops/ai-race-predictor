@@ -49,39 +49,6 @@ def confidence_bar(vehicle: str, prob: float):
         unsafe_allow_html=True
     )
 
-def race_confidence_summary(probs: dict):
-    if len(probs) < 2:
-        return
-    sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-    (v1, p1), (v2, p2) = sorted_probs[0], sorted_probs[1]
-    margin = p1 - p2
-    tightness = max(0, 100 - margin)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Race tightness score", f"{tightness:.1f}")
-    with col2:
-        st.metric("Top‑2 margin", f"{margin:.1f} pts")
-
-def confidence_delta_panel(current_probs: dict):
-    if 'last_train_probs' not in st.session_state:
-        return
-    prev = st.session_state['last_train_probs']
-    if not isinstance(prev, dict):
-        return
-    st.markdown("### 📈 Confidence change since last training")
-    rows = []
-    for v, p_now in current_probs.items():
-        p_prev = prev.get(v, None)
-        delta = p_now - p_prev if p_prev is not None else None
-        rows.append({
-            "Vehicle": v,
-            "Now %": p_now,
-            "Prev %": p_prev if p_prev is not None else "-",
-            "Δ (Now - Prev)": f"{delta:+.1f}" if delta is not None else "-"
-        })
-    df_delta = pd.DataFrame(rows)
-    st.dataframe(df_delta, use_container_width=True)
-
 # ---------------------------------------------------------
 # 1. PHYSICS CONFIG
 # ---------------------------------------------------------
@@ -181,7 +148,11 @@ def load_history():
         'Lap_2_Track','Lap_2_Len',
         'Lap_3_Track','Lap_3_Len',
         'Actual_Winner','Predicted_Winner',
-        'Lane','Top_Prob','Was_Correct','Timestamp'
+        'Lane','Top_Prob','Was_Correct',
+        'Sim_Predicted_Winner','ML_Predicted_Winner',
+        'Sim_Top_Prob','ML_Top_Prob',
+        'Sim_Was_Correct','ML_Was_Correct',
+        'Timestamp'
     ]
     for c in required_cols:
         if c not in df.columns:
@@ -191,7 +162,9 @@ def load_history():
     df, issues = auto_clean_history(df)
     st.session_state["data_quality_issues"] = issues
 
-    numeric_cols = ["Top_Prob", "Was_Correct"]
+    numeric_cols = ["Top_Prob", "Was_Correct",
+                    "Sim_Top_Prob","ML_Top_Prob",
+                    "Sim_Was_Correct","ML_Was_Correct"]
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -208,13 +181,46 @@ def add_race_result(history_df, row_dict):
 history = load_history()
 
 # ---------------------------------------------------------
-# 4. MACHINE LEARNING UTILITIES (UPGRADED)
+# 4. ML UTILITIES: LEAK-SAFE FEATURES + TRAINING
 # ---------------------------------------------------------
+
+def add_leakage_safe_win_rates(df: pd.DataFrame):
+    """
+    Compute per-vehicle win rates using only past races (expanding window),
+    to avoid target leakage.
+    """
+    df = df.sort_values("Timestamp").reset_index(drop=True)
+    win_counts = {}
+    race_counts = {}
+
+    v1_rates, v2_rates, v3_rates = [], [], []
+
+    for _, row in df.iterrows():
+        def rate(v):
+            if race_counts.get(v, 0) > 0:
+                return win_counts.get(v, 0) / race_counts.get(v, 1)
+            else:
+                return 0.33
+
+        v1_rates.append(rate(row["Vehicle_1"]))
+        v2_rates.append(rate(row["Vehicle_2"]))
+        v3_rates.append(rate(row["Vehicle_3"]))
+
+        for v in [row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"]]:
+            race_counts[v] = race_counts.get(v, 0) + 1
+        w = row["Actual_Winner"]
+        if pd.notna(w):
+            win_counts[w] = win_counts.get(w, 0) + 1
+
+    df["V1_win_rate"] = v1_rates
+    df["V2_win_rate"] = v2_rates
+    df["V3_win_rate"] = v3_rates
+    return df
 
 def build_training_data(history_df: pd.DataFrame):
     """
     Build supervised data: each row = race, target = Actual_Winner among 3 vehicles.
-    Includes derived features: high_speed_share, rough_share, per-vehicle win rates.
+    Includes leak-safe per-vehicle win rates and terrain mix features.
     """
     df = history_df.copy()
 
@@ -223,7 +229,8 @@ def build_training_data(history_df: pd.DataFrame):
         "Vehicle_1", "Vehicle_2", "Vehicle_3",
         "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
         "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
-        "Lane"
+        "Lane",
+        "Timestamp"
     ])
     if df.empty:
         return None, None, None
@@ -259,14 +266,7 @@ def build_training_data(history_df: pd.DataFrame):
         df["Lap_3_Track"].apply(is_rough).astype(int)
     ) / 3.0
 
-    veh_win_rate = df.groupby("Actual_Winner").size() / len(df)
-
-    def win_rate_for(row, pos):
-        v = row[f"Vehicle_{pos}"]
-        return float(veh_win_rate.get(v, 0.33))
-
-    for i in [1, 2, 3]:
-        df[f"V{i}_win_rate"] = df.apply(lambda r: win_rate_for(r, i), axis=1)
+    df = add_leakage_safe_win_rates(df)
 
     feature_cols = [
         "Vehicle_1", "Vehicle_2", "Vehicle_3",
@@ -329,6 +329,13 @@ def train_ml_model(history_df: pd.DataFrame):
     model.fit(X, y)
     return model, n_samples
 
+@st.cache_resource
+def get_trained_model(history_df: pd.DataFrame):
+    """
+    Cached ML model; invalidates automatically when history_df changes.
+    """
+    return train_ml_model(history_df)
+
 def build_single_feature_row(v1, v2, v3, k_idx, k_type):
     """
     Build a single-row DataFrame to feed the ML model for current race context.
@@ -368,7 +375,7 @@ def build_single_feature_row(v1, v2, v3, k_idx, k_type):
     return pd.DataFrame([data])
 
 # ---------------------------------------------------------
-# 4. METRICS & ANALYTICS HELPERS
+# 5. METRICS & MODEL SKILL
 # ---------------------------------------------------------
 
 def compute_basic_metrics(history: pd.DataFrame):
@@ -419,6 +426,29 @@ def compute_basic_metrics(history: pd.DataFrame):
         'calib_error': calib_error,
         'brier': brier,
         'log_loss': log_loss
+    }
+
+def compute_model_skill(history: pd.DataFrame, window: int = 100):
+    """
+    Compare recent Brier scores for Simulation vs ML using separately logged
+    top probabilities and correctness.
+    """
+    cols = ['Sim_Top_Prob', 'Sim_Was_Correct',
+            'ML_Top_Prob', 'ML_Was_Correct']
+    if not all(c in history.columns for c in cols):
+        return None
+
+    df = history.dropna(subset=cols).tail(window)
+    if df.empty:
+        return None
+
+    sim_brier = ((df['Sim_Top_Prob'] - df['Sim_Was_Correct'])**2).mean()
+    ml_brier = ((df['ML_Top_Prob'] - df['ML_Was_Correct'])**2).mean()
+
+    return {
+        "sim_brier": float(sim_brier),
+        "ml_brier": float(ml_brier),
+        "n": len(df)
     }
 
 def compute_learning_curve(history: pd.DataFrame, window: int = 30):
@@ -517,7 +547,7 @@ def compute_volatility_from_probs(probs: dict):
     return {'volatility': top - second, 'ranking': items}
 
 # ---------------------------------------------------------
-# 5. CORE SIMULATION
+# 6. CORE SIMULATION (LIGHTLY VECTORIZED)
 # ---------------------------------------------------------
 
 def run_simulation(
@@ -652,9 +682,13 @@ def run_simulation(
 
     terrain_matrix = np.column_stack(sim_terrains)
 
-    # 5. NOISE MODELING
+    # 5. NOISE MODELING (vectorized speed lookup per track)
     def sample_vehicle_times(vehicle):
-        base_speed = np.vectorize(SPEED_DATA[vehicle].get)(terrain_matrix)
+        speed_map = SPEED_DATA[vehicle]
+        base_speed = np.empty_like(terrain_matrix, dtype=float)
+        for t, spd in speed_map.items():
+            mask = (terrain_matrix == t)
+            base_speed[mask] = spd
         base_speed = np.clip(base_speed, 0.1, None)
 
         veh_factor = np.random.normal(1.0, 0.03, size=(iterations, 1))
@@ -701,7 +735,7 @@ def run_simulation(
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
 
 # ---------------------------------------------------------
-# 6. SIDEBAR (SETUP & PREDICTION)
+# 7. SIDEBAR (SETUP & PREDICTION) WITH PERFORMANCE-DRIVEN BLENDING
 # ---------------------------------------------------------
 
 with st.sidebar:
@@ -716,16 +750,19 @@ with st.sidebar:
     v2_sel = st.selectbox("Vehicle 2", [v for v in ALL_VEHICLES if v != v1_sel], index=0)
     v3_sel = st.selectbox("Vehicle 3", [v for v in ALL_VEHICLES if v not in [v1_sel, v2_sel]], index=0)
 
+    # Precompute model skill based on history
+    model_skill = compute_model_skill(history)
+
     if st.button("🚀 PREDICT", type="primary", use_container_width=True):
         # Simulation-based probabilities
         sim_probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
 
         # ML-based probabilities (if model exists)
         ml_probs = None
-        if "ml_model" in st.session_state and st.session_state["ml_model"] is not None:
+        ml_model, n_samples = get_trained_model(history)
+        if ml_model is not None:
             X_curr = build_single_feature_row(v1_sel, v2_sel, v3_sel, k_idx, k_type)
-            model = st.session_state["ml_model"]
-            proba = model.predict_proba(X_curr)[0]
+            proba = ml_model.predict_proba(X_curr)[0]
             ml_probs = {
                 v1_sel: float(proba[0] * 100.0),
                 v2_sel: float(proba[1] * 100.0),
@@ -734,25 +771,38 @@ with st.sidebar:
 
         final_probs = sim_probs
         p_ml_store = ml_probs
-        if ml_probs is not None:
-            n_samples = st.session_state.get("ml_samples", 0)
-            if n_samples > 200:
-                blend_weight = 0.8
-            elif n_samples > 80:
-                blend_weight = 0.6
-            elif n_samples >= 30:
-                blend_weight = 0.4
-            else:
-                blend_weight = 0.0
 
-            if blend_weight > 0.0:
-                blended = {}
-                for v in [v1_sel, v2_sel, v3_sel]:
-                    blended[v] = (
-                        blend_weight * ml_probs[v] +
-                        (1.0 - blend_weight) * sim_probs[v]
-                    )
-                final_probs = blended
+        # Performance-aware blending
+        if ml_probs is not None and model_skill is not None:
+            sim_brier = model_skill["sim_brier"]
+            ml_brier = model_skill["ml_brier"]
+            n_skill = model_skill["n"]
+
+            if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
+                if ml_brier < sim_brier:
+                    # ML sharper than sim: weight increases with relative improvement
+                    improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
+                    blend_weight = np.clip(0.3 + 0.5 * improvement, 0.3, 0.8)
+                else:
+                    # ML worse: throttle down
+                    degradation = (ml_brier - sim_brier) / max(sim_brier, 1e-8)
+                    blend_weight = np.clip(0.3 - 0.3 * degradation, 0.0, 0.3)
+            else:
+                blend_weight = 0.4  # not enough skill data yet
+        elif ml_probs is not None:
+            # Model exists but no skill history yet
+            blend_weight = 0.4
+        else:
+            blend_weight = 0.0  # no ML
+
+        if ml_probs is not None and blend_weight > 0.0:
+            blended = {}
+            for v in [v1_sel, v2_sel, v3_sel]:
+                blended[v] = (
+                    blend_weight * ml_probs[v] +
+                    (1.0 - blend_weight) * sim_probs[v]
+                )
+            final_probs = blended
 
         st.session_state['res'] = {
             'p': final_probs,
@@ -763,7 +813,7 @@ with st.sidebar:
         }
 
 # ---------------------------------------------------------
-# 7. MAIN DASHBOARD
+# 8. MAIN DASHBOARD
 # ---------------------------------------------------------
 
 st.title("🏁 AI RACE MASTER PRO")
@@ -782,7 +832,7 @@ if 'res' in st.session_state:
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
 # ---------------------------------------------------------
-# 8. SAVE RACE REPORT
+# 9. SAVE RACE REPORT (LOG SIM & ML SEPARATELY)
 # ---------------------------------------------------------
 
 st.divider()
@@ -796,6 +846,9 @@ res = st.session_state['res']
 ctx = res['ctx']
 predicted = res['p']
 predicted_winner = max(predicted, key=predicted.get)
+
+p_sim = res.get('p_sim', None)
+p_ml = res.get('p_ml', None)
 
 revealed_lap = ctx['idx']
 revealed_track = ctx['t']
@@ -871,6 +924,24 @@ if save_clicked:
 
     st.session_state['last_train_probs'] = dict(predicted)
 
+    # Sim / ML logging for skill computation
+    sim_pred_winner = None
+    ml_pred_winner = None
+    sim_top_prob = np.nan
+    ml_top_prob = np.nan
+    sim_correct = np.nan
+    ml_correct = np.nan
+
+    if isinstance(p_sim, dict):
+        sim_pred_winner = max(p_sim, key=p_sim.get)
+        sim_top_prob = p_sim[sim_pred_winner] / 100.0
+        sim_correct = float(sim_pred_winner == winner)
+
+    if isinstance(p_ml, dict):
+        ml_pred_winner = max(p_ml, key=p_ml.get)
+        ml_top_prob = p_ml[ml_pred_winner] / 100.0
+        ml_correct = float(ml_pred_winner == winner)
+
     row = {
         'Vehicle_1': ctx['v'][0],
         'Vehicle_2': ctx['v'][1],
@@ -883,6 +954,12 @@ if save_clicked:
         'Lane': revealed_slot,
         'Top_Prob': predicted[predicted_winner] / 100.0,
         'Was_Correct': float(predicted_winner == winner),
+        'Sim_Predicted_Winner': sim_pred_winner,
+        'ML_Predicted_Winner': ml_pred_winner,
+        'Sim_Top_Prob': sim_top_prob,
+        'ML_Top_Prob': ml_top_prob,
+        'Sim_Was_Correct': sim_correct,
+        'ML_Was_Correct': ml_correct,
         'Timestamp': pd.Timestamp.now()
     }
 
@@ -893,16 +970,11 @@ if save_clicked:
     history = add_race_result(history, row)
     save_history(history)
 
-    ml_model, n_samples = train_ml_model(history)
-    if ml_model is not None:
-        st.session_state["ml_model"] = ml_model
-        st.session_state["ml_samples"] = n_samples
-
-    st.success("✅ Race saved and model updated. Download the CSV to sync with GitHub if needed.")
+    st.success("✅ Race saved. The model cache will update on next run.")
     st.rerun()
 
 # ---------------------------------------------------------
-# 9. PREDICTION ANALYTICS PANEL
+# 10. PREDICTION ANALYTICS PANEL
 # ---------------------------------------------------------
 
 if 'res' in st.session_state:
@@ -993,7 +1065,7 @@ if 'res' in st.session_state:
     lap_data = []
     for v in ctx['v']:
         for lap_idx in range(3):
-            track = ctx['t'] if lap_idx == ctx['idx'] else "Hidden"
+            track = ctx['t'] if lap_idx == ctx['idx"] else "Hidden"
             lap_data.append({
                 "Vehicle": v,
                 "Lap": lap_idx + 1,
@@ -1012,7 +1084,7 @@ if 'res' in st.session_state:
     })
 
 # ---------------------------------------------------------
-# 10. CSV HEALTH CHECK
+# 11. CSV HEALTH CHECK
 # ---------------------------------------------------------
 
 def csv_health_check(df: pd.DataFrame):
@@ -1050,7 +1122,7 @@ def csv_health_check(df: pd.DataFrame):
     return issues
 
 # ---------------------------------------------------------
-# 11. ANALYTICS TABS
+# 12. ANALYTICS TABS + GHOST LAP IN WHAT-IF
 # ---------------------------------------------------------
 
 if not history.empty:
@@ -1247,7 +1319,7 @@ if not history.empty:
             mime="text/csv"
         )
 
-    # 10) WHAT-IF ANALYSIS PANEL
+    # 10) WHAT-IF ANALYSIS PANEL + GHOST LAP
     with tabs[9]:
         st.write("### 🧪 What-If Analysis Panel")
         st.caption("Experiment with different track reveals and vehicle combos without logging to history.")
@@ -1271,4 +1343,22 @@ if not history.empty:
             vol_sim = compute_volatility_from_probs(probs_sim)
             if vol_sim:
                 st.metric("Volatility (Top - Second)", f"{vol_sim['volatility']:.1f} pp")
-                st.caption("Use this to explore setups before committing to a real predictions + telemetry cycle.")
+
+            st.caption("Use this to explore setups before committing to a real predictions + telemetry cycle.")
+
+            st.write("### 👻 Ghost Lap Scenarios")
+            st.caption("Stress-test the hidden laps by assuming extreme terrain profiles.")
+
+            # Ghost High-Speed: treat revealed track as Expressway
+            probs_high, _ = run_simulation(sim_v1, sim_v2, sim_v3, sim_idx, "Expressway", history)
+            # Ghost Rough: treat revealed track as Dirt
+            probs_rough, _ = run_simulation(sim_v1, sim_v2, sim_v3, sim_idx, "Dirt", history)
+
+            col_gh, col_gr = st.columns(2)
+            with col_gh:
+                st.write("Ghost High-Speed (Expressway as revealed)")
+                st.json(probs_high)
+            with col_gr:
+                st.write("Ghost Rough (Dirt as revealed)")
+                st.json(probs_rough)
+            st.caption("Ghost scenarios approximate how outcomes shift if the underlying laps are biased towards high-speed or rough terrain.")
