@@ -1204,16 +1204,16 @@ with Q2:
             })
 
 # ---------------------------------------------------------
-# Q3 — SAVE RACE REPORT (BOTTOM-LEFT, COMPACT)
+# Q3 — SAVE RACE REPORT (BOTTOM-LEFT, COMPACT, FINAL FIXED VERSION)
 # ---------------------------------------------------------
 with Q3:
     st.markdown("### 📝 Save Race Report")
 
-    # Check if prediction is available
+    # Check if prediction exists
     prediction_available = 'res' in st.session_state
     disabled_form = not prediction_available
 
-    # Extract prediction context if available
+    # Extract prediction context
     if prediction_available:
         res = st.session_state['res']
         ctx = res['ctx']
@@ -1223,15 +1223,15 @@ with Q3:
         p_sim = res.get('p_sim', None)
         p_ml = res.get('p_ml', None)
 
-        revealed_lap = ctx['idx']
-        revealed_track = st.session_state.selected_terrain
+        revealed_lap = ctx['idx']              # 0,1,2
+        revealed_track = ctx['t']              # ALWAYS the track used in prediction
         revealed_slot = ctx['slot']
 
         st.caption(f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})")
     else:
         st.info("Run a prediction first to enable saving.")
 
-    # Safe index fallback
+    # Safe index helper
     def safe_index(value, options):
         try:
             return options.index(value)
@@ -1239,7 +1239,7 @@ with Q3:
             return 0
 
     # -----------------------------
-    # FORM BLOCK
+    # FORM BLOCK (ALWAYS RENDERED)
     # -----------------------------
     with st.expander("💾 Open save & training form", expanded=False):
         with st.form("race_report_form"):
@@ -1259,35 +1259,59 @@ with Q3:
 
             # LAP 1
             with c1:
-                s1t = st.selectbox(
-                    "Lap 1 Track",
-                    TRACK_OPTIONS,
-                    index=safe_index(revealed_track, TRACK_OPTIONS) if prediction_available and revealed_lap == 0 else 0,
-                    disabled=disabled_form or (prediction_available and revealed_lap == 0),
-                    key="lap1_track"
-                )
+                if prediction_available and revealed_lap == 0:
+                    s1t = st.selectbox(
+                        "Lap 1 Track",
+                        TRACK_OPTIONS,
+                        index=safe_index(revealed_track, TRACK_OPTIONS),
+                        disabled=True,
+                        key="lap1_track"
+                    )
+                else:
+                    s1t = st.selectbox(
+                        "Lap 1 Track",
+                        TRACK_OPTIONS,
+                        disabled=disabled_form,
+                        key="lap1_track"
+                    )
                 s1l = st.number_input("Lap 1 %", 1, 100, 33, disabled=disabled_form, key="lap1_len")
 
             # LAP 2
             with c2:
-                s2t = st.selectbox(
-                    "Lap 2 Track",
-                    TRACK_OPTIONS,
-                    index=safe_index(revealed_track, TRACK_OPTIONS) if prediction_available and revealed_lap == 1 else 0,
-                    disabled=disabled_form or (prediction_available and revealed_lap == 1),
-                    key="lap2_track"
-                )
+                if prediction_available and revealed_lap == 1:
+                    s2t = st.selectbox(
+                        "Lap 2 Track",
+                        TRACK_OPTIONS,
+                        index=safe_index(revealed_track, TRACK_OPTIONS),
+                        disabled=True,
+                        key="lap2_track"
+                    )
+                else:
+                    s2t = st.selectbox(
+                        "Lap 2 Track",
+                        TRACK_OPTIONS,
+                        disabled=disabled_form,
+                        key="lap2_track"
+                    )
                 s2l = st.number_input("Lap 2 %", 1, 100, 33, disabled=disabled_form, key="lap2_len")
 
             # LAP 3
             with c3:
-                s3t = st.selectbox(
-                    "Lap 3 Track",
-                    TRACK_OPTIONS,
-                    index=safe_index(revealed_track, TRACK_OPTIONS) if prediction_available and revealed_lap == 2 else 0,
-                    disabled=disabled_form or (prediction_available and revealed_lap == 2),
-                    key="lap3_track"
-                )
+                if prediction_available and revealed_lap == 2:
+                    s3t = st.selectbox(
+                        "Lap 3 Track",
+                        TRACK_OPTIONS,
+                        index=safe_index(revealed_track, TRACK_OPTIONS),
+                        disabled=True,
+                        key="lap3_track"
+                    )
+                else:
+                    s3t = st.selectbox(
+                        "Lap 3 Track",
+                        TRACK_OPTIONS,
+                        disabled=disabled_form,
+                        key="lap3_track"
+                    )
                 s3l = st.number_input("Lap 3 %", 1, 100, 34, disabled=disabled_form, key="lap3_len")
 
             # Submit button (always rendered)
@@ -1297,6 +1321,7 @@ with Q3:
         # SAVE LOGIC
         # -----------------------------
         if save_clicked:
+
             if not prediction_available:
                 st.error("Run a prediction first.")
                 st.stop()
