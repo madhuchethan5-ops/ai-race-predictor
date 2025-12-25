@@ -1056,8 +1056,7 @@ with Q1:
         col = t_cols[i % 3]
         with col:
             selected = (st.session_state.selected_terrain == terrain)
-
-            img_path = TERRAIN_ICONS[terrain]  # CASE-SENSITIVE FIX
+            img_path = TERRAIN_ICONS[terrain]  # CASE-SENSITIVE
 
             tile_html = clickable_tile(
                 label=terrain,
@@ -1066,10 +1065,9 @@ with Q1:
                 disabled=False,
                 key=f"terrain_{terrain}"
             )
-
             st.markdown(tile_html, unsafe_allow_html=True)
 
-            # SINGLE SELECT — NO CHECKBOXES
+            # CLICKABLE TILE BUTTON
             if st.button(f"select_{terrain}", key=f"terrain_btn_{terrain}", use_container_width=True):
                 st.session_state.selected_terrain = terrain
 
@@ -1086,15 +1084,13 @@ with Q1:
     v_cols = st.columns(3)
     vehicle_list = list(VEHICLE_ICONS.keys())
 
-    max_selected = 3
-
     for i, veh in enumerate(vehicle_list):
         col = v_cols[i % 3]
         with col:
             selected = veh in st.session_state.selected_vehicles
-            disabled = (not selected) and (len(st.session_state.selected_vehicles) >= max_selected)
+            disabled = (not selected) and (len(st.session_state.selected_vehicles) >= 3)
 
-            img_path = VEHICLE_ICONS[veh]  # CASE-SENSITIVE FIX
+            img_path = VEHICLE_ICONS[veh]  # CASE-SENSITIVE
 
             tile_html = clickable_tile(
                 label=veh,
@@ -1103,10 +1099,9 @@ with Q1:
                 disabled=disabled,
                 key=f"veh_{veh}"
             )
-
             st.markdown(tile_html, unsafe_allow_html=True)
 
-            # MULTI SELECT — NO CHECKBOXES
+            # CLICKABLE TILE BUTTON
             if st.button(f"select_{veh}", key=f"veh_btn_{veh}", use_container_width=True):
                 if selected:
                     st.session_state.selected_vehicles.remove(veh)
