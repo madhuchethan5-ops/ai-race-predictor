@@ -1023,7 +1023,7 @@ with Q1:
     st.markdown("---")
 
     # -------------------------
-    # 2. VEHICLE SELECTOR — IMAGE GRID (Max 3)
+    # 2. VEHICLE SELECTOR — COMPACT IMAGE GRID (Max 3)
     # -------------------------
     st.markdown("#### 🚗 Select up to 3 Vehicles")
     
@@ -1039,29 +1039,32 @@ with Q1:
         elif len(selected) < 3:
             st.session_state.vehicle_selections[v] = True
     
-    # Render grid
+    # Render grid — 3 columns per row
     veh_keys = list(VEHICLE_ICONS.keys())
-    cols = st.columns(3)
+    rows = [veh_keys[i:i+3] for i in range(0, len(veh_keys), 3)]
     
-    for i, v in enumerate(veh_keys):
-        with cols[i % 3]:
+    for row in rows:
+        cols = st.columns(len(row))
+        for i, v in enumerate(row):
             selected = st.session_state.vehicle_selections[v]
-            border = "3px solid #E53935" if selected else "1px solid #ccc"
-            opacity = "1.0" if selected else "0.5"
+            border_color = "#E53935" if selected else "#ccc"
+            opacity = 1.0 if selected else 0.4
     
-            st.markdown(
-                f"""
-                <div style="text-align:center; border:{border}; border-radius:10px; padding:6px; background:#f9f9f9;">
-                    <img src="file://{os.path.abspath(VEHICLE_ICONS[v])}" 
-                         style="width:80px; height:80px; object-fit:contain; opacity:{opacity};" />
-                    <div style="margin-top:4px; font-weight:{'600' if selected else '400'};">{v}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            with cols[i]:
+                if st.button("", key=f"veh_{v}"):
+                    toggle_vehicle(v)
     
-            if st.button(f"Select {v}", key=f"veh_{v}"):
-                toggle_vehicle(v)
+                st.image(
+                    VEHICLE_ICONS[v],
+                    width=80,
+                    caption=v,
+                    use_column_width=False
+                )
+    
+                st.markdown(
+                    f"<div style='height:0px; border-bottom:3px solid {border_color}; opacity:{opacity};'></div>",
+                    unsafe_allow_html=True
+                )
     
     # Update selected vehicles
     st.session_state.selected_vehicles = [
