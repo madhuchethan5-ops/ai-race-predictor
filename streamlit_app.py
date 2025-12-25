@@ -1209,9 +1209,14 @@ with Q2:
 with Q3:
     st.markdown("### 📝 Save Race Report")
 
-    if 'res' not in st.session_state:
+    # If no prediction yet, show info but still render a disabled form
+    prediction_available = ('res' in st.session_state)
+
+    if not prediction_available:
         st.info("Run a prediction first to enable saving.")
-    else:
+
+    # Extract prediction context if available
+    if prediction_available:
         res = st.session_state['res']
         ctx = res['ctx']
         predicted = res['p']
@@ -1224,151 +1229,206 @@ with Q3:
         revealed_track = ctx['t']
         revealed_slot = ctx['slot']
 
-        # Small summary strip
+        # Summary strip
         st.caption(
             f"Last prediction: **{predicted_winner}** on {revealed_slot} "
             f"({revealed_track})"
         )
 
-        # Form hidden in expander to keep height low
-        with st.expander("💾 Open save & training form", expanded=False):
-            with st.form("race_report_form"):
-                # Actual Winner
+    # -----------------------------
+    # ALWAYS RENDER THE FORM
+    # -----------------------------
+    with st.expander("💾 Open save & training form", expanded=False):
+        with st.form("race_report_form"):
+
+            # Disable all inputs if no prediction yet
+            disabled_form = not prediction_available
+
+            # -----------------------------
+            # Actual Winner
+            # -----------------------------
+            if prediction_available:
                 winner = st.selectbox(
                     "🏆 Actual Winner",
                     ctx['v'],
                     index=None,
                     placeholder="Select the actual winner..."
                 )
+            else:
+                winner = st.selectbox(
+                    "🏆 Actual Winner",
+                    [],
+                    index=None,
+                    placeholder="Run a prediction first...",
+                    disabled=True
+                )
 
-                # Lap inputs compact in one row
-                c1, c2, c3 = st.columns(3)
+            # -----------------------------
+            # LAP INPUTS
+            # -----------------------------
+            c1, c2, c3 = st.columns(3)
 
-                # LAP 1
-                with c1:
-                    if revealed_lap == 0:
-                        s1t = st.selectbox(
-                            "Lap 1 Track",
-                            TRACK_OPTIONS,
-                            index=TRACK_OPTIONS.index(revealed_track),
-                            disabled=True
-                        )
-                        s1l = st.number_input("Lap 1 %", 1, 100, 33)
-                    else:
-                        s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS)
-                        s1l = st.number_input("Lap 1 %", 1, 100, 33)
+            # Helper: safe index for revealed track
+            def safe_track_index(track):
+                try:
+                    return TRACK_OPTIONS.index(track)
+                except Exception:
+                    return 0
 
-                # LAP 2
-                with c2:
-                    if revealed_lap == 1:
-                        s2t = st.selectbox(
-                            "Lap 2 Track",
-                            TRACK_OPTIONS,
-                            index=TRACK_OPTIONS.index(revealed_track),
-                            disabled=True
-                        )
-                        s2l = st.number_input("Lap 2 %", 1, 100, 33)
-                    else:
-                        s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS)
-                        s2l = st.number_input("Lap 2 %", 1, 100, 33)
-
-                # LAP 3
-                with c3:
-                    if revealed_lap == 2:
-                        s3t = st.selectbox(
-                            "Lap 3 Track",
-                            TRACK_OPTIONS,
-                            index=TRACK_OPTIONS.index(revealed_track),
-                            disabled=True
-                        )
-                        s3l = st.number_input("Lap 3 %", 1, 100, 34)
-                    else:
-                        s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS)
-                        s3l = st.number_input("Lap 3 %", 1, 100, 34)
-
-                save_clicked = st.form_submit_button("💾 Save & Train")
-
-            # SAVE LOGIC (unchanged)
-            if save_clicked:
-
-                if winner is None:
-                    st.error("Please select the actual winner.")
-                    st.stop()
-
-                s1l = float(s1l)
-                s2l = float(s2l)
-                s3l = float(s3l)
-
-                if s1l + s2l + s3l != 100:
-                    st.error("Lap lengths must total 100%.")
-                    st.stop()
-
-                if not s1t or not s2t or not s3t:
-                    st.error("All laps must have a track selected.")
-                    st.stop()
-
-                st.session_state['last_train_probs'] = dict(predicted)
-
-                sim_pred_winner = None
-                ml_pred_winner = None
-                sim_top_prob = np.nan
-                ml_top_prob = np.nan
-                sim_correct = np.nan
-                ml_correct = np.nan
-
-                if isinstance(p_sim, dict):
-                    sim_pred_winner = max(p_sim, key=p_sim.get)
-                    sim_top_prob = p_sim[sim_pred_winner] / 100.0
-                    sim_correct = float(sim_pred_winner == winner)
-
-                if isinstance(p_ml, dict):
-                    ml_pred_winner = max(p_ml, key=p_ml.get)
-                    ml_top_prob = p_ml[ml_pred_winner] / 100.0
-                    ml_correct = float(ml_pred_winner == winner)
-
-                was_correct = float(predicted_winner == winner)
-                p1 = predicted[predicted_winner] / 100.0
-
-                if was_correct == 1:
-                    surprise = round(1 - p1, 4)
+            # LAP 1
+            with c1:
+                if prediction_available and revealed_lap == 0:
+                    s1t = st.selectbox(
+                        "Lap 1 Track",
+                        TRACK_OPTIONS,
+                        index=safe_track_index(revealed_track),
+                        disabled=True
+                    )
                 else:
-                    surprise = 1.0
+                    s1t = st.selectbox(
+                        "Lap 1 Track",
+                        TRACK_OPTIONS,
+                        disabled=disabled_form
+                    )
+                s1l = st.number_input(
+                    "Lap 1 %",
+                    1, 100, 33,
+                    disabled=disabled_form
+                )
 
-                row = {
-                    'Vehicle_1': ctx['v'][0],
-                    'Vehicle_2': ctx['v'][1],
-                    'Vehicle_3': ctx['v'][2],
-
-                    'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
-                    'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
-                    'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
-
-                    'Predicted_Winner': predicted_winner,
-                    'Actual_Winner': winner,
-                    'Lane': revealed_slot,
-
-                    'Top_Prob': p1,
-                    'Was_Correct': was_correct,
-                    'Surprise_Index': surprise,
-
-                    'Sim_Predicted_Winner': sim_pred_winner,
-                    'ML_Predicted_Winner': ml_pred_winner,
-                    'Sim_Top_Prob': sim_top_prob,
-                    'ML_Top_Prob': ml_top_prob,
-                    'Sim_Was_Correct': sim_correct,
-                    'ML_Was_Correct': ml_correct,
-
-                    'Timestamp': pd.Timestamp.now()
-                }
-
-                if history is None or history.empty:
-                    st.error("History failed to load — not saving to avoid data loss.")
+            # LAP 2
+            with c2:
+                if prediction_available and revealed_lap == 1:
+                    s2t = st.selectbox(
+                        "Lap 2 Track",
+                        TRACK_OPTIONS,
+                        index=safe_track_index(revealed_track),
+                        disabled=True
+                    )
                 else:
-                    history = add_race_result(history, row)
-                    save_history(history)
-                    st.success("✅ Race saved! Model will update on next prediction.")
-                    st.rerun()
+                    s2t = st.selectbox(
+                        "Lap 2 Track",
+                        TRACK_OPTIONS,
+                        disabled=disabled_form
+                    )
+                s2l = st.number_input(
+                    "Lap 2 %",
+                    1, 100, 33,
+                    disabled=disabled_form
+                )
 
+            # LAP 3
+            with c3:
+                if prediction_available and revealed_lap == 2:
+                    s3t = st.selectbox(
+                        "Lap 3 Track",
+                        TRACK_OPTIONS,
+                        index=safe_track_index(revealed_track),
+                        disabled=True
+                    )
+                else:
+                    s3t = st.selectbox(
+                        "Lap 3 Track",
+                        TRACK_OPTIONS,
+                        disabled=disabled_form
+                    )
+                s3l = st.number_input(
+                    "Lap 3 %",
+                    1, 100, 34,
+                    disabled=disabled_form
+                )
+
+            # -----------------------------
+            # SUBMIT BUTTON (ALWAYS RENDERED)
+            # -----------------------------
+            save_clicked = st.form_submit_button("💾 Save & Train")
+
+        # -----------------------------
+        # SAVE LOGIC (unchanged)
+        # -----------------------------
+        if save_clicked:
+
+            if not prediction_available:
+                st.error("Run a prediction first.")
+                st.stop()
+
+            if winner is None:
+                st.error("Please select the actual winner.")
+                st.stop()
+
+            s1l = float(s1l)
+            s2l = float(s2l)
+            s3l = float(s3l)
+
+            if s1l + s2l + s3l != 100:
+                st.error("Lap lengths must total 100%.")
+                st.stop()
+
+            if not s1t or not s2t or not s3t:
+                st.error("All laps must have a track selected.")
+                st.stop()
+
+            st.session_state['last_train_probs'] = dict(predicted)
+
+            sim_pred_winner = None
+            ml_pred_winner = None
+            sim_top_prob = np.nan
+            ml_top_prob = np.nan
+            sim_correct = np.nan
+            ml_correct = np.nan
+
+            if isinstance(p_sim, dict):
+                sim_pred_winner = max(p_sim, key=p_sim.get)
+                sim_top_prob = p_sim[sim_pred_winner] / 100.0
+                sim_correct = float(sim_pred_winner == winner)
+
+            if isinstance(p_ml, dict):
+                ml_pred_winner = max(p_ml, key=p_ml.get)
+                ml_top_prob = p_ml[ml_pred_winner] / 100.0
+                ml_correct = float(ml_pred_winner == winner)
+
+            was_correct = float(predicted_winner == winner)
+            p1 = predicted[predicted_winner] / 100.0
+
+            if was_correct == 1:
+                surprise = round(1 - p1, 4)
+            else:
+                surprise = 1.0
+
+            row = {
+                'Vehicle_1': ctx['v'][0],
+                'Vehicle_2': ctx['v'][1],
+                'Vehicle_3': ctx['v'][2],
+
+                'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
+                'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
+                'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
+
+                'Predicted_Winner': predicted_winner,
+                'Actual_Winner': winner,
+                'Lane': revealed_slot,
+
+                'Top_Prob': p1,
+                'Was_Correct': was_correct,
+                'Surprise_Index': surprise,
+
+                'Sim_Predicted_Winner': sim_pred_winner,
+                'ML_Predicted_Winner': ml_pred_winner,
+                'Sim_Top_Prob': sim_top_prob,
+                'ML_Top_Prob': ml_top_prob,
+                'Sim_Was_Correct': sim_correct,
+                'ML_Was_Correct': ml_correct,
+
+                'Timestamp': pd.Timestamp.now()
+            }
+
+            if history is None or history.empty:
+                st.error("History failed to load — not saving to avoid data loss.")
+            else:
+                history = add_race_result(history, row)
+                save_history(history)
+                st.success("✅ Race saved! Model will update on next prediction.")
+                st.rerun()
 # ---------------------------------------------------------
 # Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
 # ---------------------------------------------------------
