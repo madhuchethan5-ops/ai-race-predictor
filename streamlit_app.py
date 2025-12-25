@@ -605,6 +605,16 @@ def run_simulation(
 ):
     vehicles = [v1, v2, v3]
 
+        # --- PHYSICS BIAS ADJUSTMENT (must come BEFORE sample_vehicle_times) ---
+    bias_table = get_physics_bias(history_df)
+
+    adjusted_speed_data = {}
+    for veh in vehicles:
+        mult = bias_table.get(veh, 1.0)
+        adjusted_speed_data[veh] = {
+            t: spd * mult for t, spd in SPEED_DATA[veh].items()
+        }
+
     # 1. BAYESIAN REINFORCEMENT
     vpi_raw = {v: 1.0 for v in vehicles}
     if not history_df.empty and 'Actual_Winner' in history_df.columns:
@@ -875,6 +885,22 @@ if 'res' in st.session_state:
     for v, val in res['p'].items():
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
+
+    # --- MODEL DIVERGENCE ALERT ---
+    sim_probs = res.get('p_sim')
+    ml_probs = res.get('p_ml')
+
+    if sim_probs and ml_probs:
+        sim_winner = max(sim_probs, key=sim_probs.get)
+        ml_winner = max(ml_probs, key=ml_probs.get)
+
+        if sim_winner != ml_winner:
+            st.warning(
+                f"⚠️ **Model Divergence:** Physics favors **{sim_winner}**, "
+                f"but ML favors **{ml_winner}**. This race has higher uncertainty."
+            )
+        else:
+            st.success("✅ **Model Consensus:** Physics and ML agree on the likely winner.")
 
 # ---------------------------------------------------------
 # 10. SAVE RACE REPORT (LOG SIM & ML SEPARATELY)
