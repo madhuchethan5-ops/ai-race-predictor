@@ -1230,7 +1230,7 @@ with Q2:
             })
             
 # ---------------------------------------------------------
-# Q3 — SAVE RACE REPORT (BOTTOM-LEFT, COMPACT, FINAL FIXED VERSION)
+# Q3 — SAVE RACE REPORT (BOTTOM-LEFT, COMPACT, WIDGET-STATE FIX)
 # ---------------------------------------------------------
 with Q3:
     st.markdown("### 📝 Save Race Report")
@@ -1249,8 +1249,8 @@ with Q3:
         p_sim = res.get('p_sim', None)
         p_ml = res.get('p_ml', None)
 
-        revealed_lap = ctx['idx']              # 0,1,2
-        revealed_track = ctx['t']              # ALWAYS the track used in prediction
+        revealed_lap = ctx['idx']      # 0,1,2
+        revealed_track = ctx['t']      # terrain used in prediction
         revealed_slot = ctx['slot']
 
         st.caption(f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})")
@@ -1277,7 +1277,6 @@ with Q3:
                 index=None,
                 placeholder="Select the actual winner...",
                 disabled=disabled_form,
-                key="actual_winner"
             )
 
             # Lap inputs
@@ -1291,16 +1290,14 @@ with Q3:
                         TRACK_OPTIONS,
                         index=safe_index(revealed_track, TRACK_OPTIONS),
                         disabled=True,
-                        key="lap1_track"
                     )
                 else:
                     s1t = st.selectbox(
                         "Lap 1 Track",
                         TRACK_OPTIONS,
                         disabled=disabled_form,
-                        key="lap1_track"
                     )
-                s1l = st.number_input("Lap 1 %", 1, 100, 33, disabled=disabled_form, key="lap1_len")
+                s1l = st.number_input("Lap 1 %", 1, 100, 33, disabled=disabled_form)
 
             # LAP 2
             with c2:
@@ -1310,16 +1307,14 @@ with Q3:
                         TRACK_OPTIONS,
                         index=safe_index(revealed_track, TRACK_OPTIONS),
                         disabled=True,
-                        key="lap2_track"
                     )
                 else:
                     s2t = st.selectbox(
                         "Lap 2 Track",
                         TRACK_OPTIONS,
                         disabled=disabled_form,
-                        key="lap2_track"
                     )
-                s2l = st.number_input("Lap 2 %", 1, 100, 33, disabled=disabled_form, key="lap2_len")
+                s2l = st.number_input("Lap 2 %", 1, 100, 33, disabled=disabled_form)
 
             # LAP 3
             with c3:
@@ -1329,16 +1324,14 @@ with Q3:
                         TRACK_OPTIONS,
                         index=safe_index(revealed_track, TRACK_OPTIONS),
                         disabled=True,
-                        key="lap3_track"
                     )
                 else:
                     s3t = st.selectbox(
                         "Lap 3 Track",
                         TRACK_OPTIONS,
                         disabled=disabled_form,
-                        key="lap3_track"
                     )
-                s3l = st.number_input("Lap 3 %", 1, 100, 34, disabled=disabled_form, key="lap3_len")
+                s3l = st.number_input("Lap 3 %", 1, 100, 34, disabled=disabled_form)
 
             # Submit button (always rendered)
             save_clicked = st.form_submit_button("💾 Save & Train")
