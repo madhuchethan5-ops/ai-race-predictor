@@ -769,121 +769,220 @@ def run_simulation(
 
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
-    # ---------------------------------------------------------
-# 8. SIDEBAR (SETUP & PREDICTION) WITH PERFORMANCE-DRIVEN BLENDING
 # ---------------------------------------------------------
-with st.sidebar:
-    st.header("🚦 Race Setup")
+# FULL PREDICTION ENGINE (NO UI) — ALL LOGIC PRESERVED
+# ---------------------------------------------------------
 
-    lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
-    slot_name = st.selectbox("Revealed Slot", list(lap_map.keys()))
-    k_idx = lap_map[slot_name]
-    k_type = st.selectbox("Revealed Track", TRACK_OPTIONS)
-
-    st.divider()
-    v1_sel = st.selectbox("Vehicle 1", ALL_VEHICLES, index=ALL_VEHICLES.index("Supercar"))
-    v2_sel = st.selectbox("Vehicle 2", [v for v in ALL_VEHICLES if v != v1_sel], index=0)
-    v3_sel = st.selectbox("Vehicle 3", [v for v in ALL_VEHICLES if v not in [v1_sel, v2_sel]], index=0)
+def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
 
     model_skill = compute_model_skill(history)
 
-    if st.button("🚀 PREDICT", type="primary", use_container_width=True):
+    # --- Simulation-based probabilities ---
+    sim_probs, vpi_res = run_simulation(
+        v1_sel, v2_sel, v3_sel, k_idx, k_type, history
+    )
 
-        # Simulation-based probabilities
-        sim_probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
+    # --- ML-based probabilities ---
+    ml_probs = None
+    ml_model, n_samples = get_trained_model(history)
 
-        # ML-based probabilities
-        ml_probs = None
-        ml_model, n_samples = get_trained_model(history)
-        if ml_model is not None:
-            X_curr = build_single_feature_row(v1_sel, v2_sel, v3_sel, k_idx, k_type)
-            proba = ml_model.predict_proba(X_curr)[0]
-            ml_probs = {
-                v1_sel: float(proba[0] * 100.0),
-                v2_sel: float(proba[1] * 100.0),
-                v3_sel: float(proba[2] * 100.0),
-            }
-
-        final_probs = sim_probs
-        p_ml_store = ml_probs
-
-        blend_weight = 0.0
-
-        if ml_probs is not None:
-            blend_weight = 0.45
-
-            if model_skill is not None:
-                sim_brier = model_skill["sim_brier"]
-                ml_brier = model_skill["ml_brier"]
-                n_skill = model_skill["n"]
-
-                if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
-                    improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-
-                    if improvement > 0:
-                        blend_weight = float(np.clip(0.45 + improvement * 0.8, 0.45, 0.95))
-                    else:
-                        degradation = abs(improvement)
-                        blend_weight = float(np.clip(0.45 - degradation * 0.4, 0.20, 0.45))
-
-        blend_weight = float(np.clip(blend_weight, 0.20, 0.95))
-
-        if ml_probs is not None:
-            final_probs = {
-                v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
-                for v in [v1_sel, v2_sel, v3_sel]
-            }
-        else:
-            final_probs = sim_probs
-
-        predicted_winner = max(final_probs, key=final_probs.get)
-        p1 = final_probs[predicted_winner]
-
-        expected_regret = p1 / 100.0
-
-        sorted_probs = sorted(final_probs.items(), key=lambda kv: kv[1], reverse=True)
-        (top_vehicle, p1_sorted), (_, p2) = sorted_probs[0], sorted_probs[1]
-        vol_gap = round(p1_sorted - p2, 2)
-
-        if vol_gap < 5:
-            vol_label = "Chaos"
-        elif vol_gap < 12:
-            vol_label = "Shaky"
-        else:
-            vol_label = "Calm"
-
-        if p1 < 40:
-            bet_safety = "AVOID"
-        elif vol_gap < 5:
-            bet_safety = "AVOID"
-        elif vol_gap < 12:
-            bet_safety = "CAUTION"
-        elif p1 >= 60 and vol_gap >= 15:
-            bet_safety = "FAVORABLE"
-        else:
-            bet_safety = "CAUTION"
-
-        st.session_state['res'] = {
-            'p': final_probs,
-            'vpi': vpi_res,
-            'ctx': {
-                'v': [v1_sel, v2_sel, v3_sel],
-                'idx': k_idx,
-                't': k_type,
-                'slot': slot_name
-            },
-            'p_sim': sim_probs,
-            'p_ml': p_ml_store,
-            'meta': {
-                'top_vehicle': top_vehicle,
-                'top_prob': p1,
-                'second_prob': p2,
-                'volatility_gap_pp': vol_gap,
-                'volatility_label': vol_label,
-                'bet_safety': bet_safety,
-                'expected_regret': expected_regret,
-            },
+    if ml_model is not None:
+        X_curr = build_single_feature_row(v1_sel, v2_sel, v3_sel, k_idx, k_type)
+        proba = ml_model.predict_proba(X_curr)[0]
+        ml_probs = {
+            v1_sel: float(proba[0] * 100.0),
+            v2_sel: float(proba[1] * 100.0),
+            v3_sel: float(proba[2] * 100.0),
         }
+
+    final_probs = sim_probs
+    p_ml_store = ml_probs
+
+    # --- Blending weight ---
+    blend_weight = 0.0
+
+    if ml_probs is not None:
+        blend_weight = 0.45
+
+        if model_skill is not None:
+            sim_brier = model_skill["sim_brier"]
+            ml_brier = model_skill["ml_brier"]
+            n_skill = model_skill["n"]
+
+            if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
+                improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
+
+                if improvement > 0:
+                    blend_weight = float(np.clip(
+                        0.45 + improvement * 0.8, 0.45, 0.95
+                    ))
+                else:
+                    degradation = abs(improvement)
+                    blend_weight = float(np.clip(
+                        0.45 - degradation * 0.4, 0.20, 0.45
+                    ))
+
+    blend_weight = float(np.clip(blend_weight, 0.20, 0.95))
+
+    # --- Final blended probabilities ---
+    if ml_probs is not None:
+        final_probs = {
+            v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
+            for v in [v1_sel, v2_sel, v3_sel]
+        }
+    else:
+        final_probs = sim_probs
+
+    # --- Winner & meta calculations ---
+    predicted_winner = max(final_probs, key=final_probs.get)
+    p1 = final_probs[predicted_winner]
+
+    expected_regret = p1 / 100.0
+
+    sorted_probs = sorted(final_probs.items(), key=lambda kv: kv[1], reverse=True)
+    (top_vehicle, p1_sorted), (_, p2) = sorted_probs[0], sorted_probs[1]
+    vol_gap = round(p1_sorted - p2, 2)
+
+    if vol_gap < 5:
+        vol_label = "Chaos"
+    elif vol_gap < 12:
+        vol_label = "Shaky"
+    else:
+        vol_label = "Calm"
+
+    if p1 < 40:
+        bet_safety = "AVOID"
+    elif vol_gap < 5:
+        bet_safety = "AVOID"
+    elif vol_gap < 12:
+        bet_safety = "CAUTION"
+    elif p1 >= 60 and vol_gap >= 15:
+        bet_safety = "FAVORABLE"
+    else:
+        bet_safety = "CAUTION"
+
+    # --- Store in session_state (same structure as before) ---
+    st.session_state['res'] = {
+        'p': final_probs,
+        'vpi': vpi_res,
+        'ctx': {
+            'v': [v1_sel, v2_sel, v3_sel],
+            'idx': k_idx,
+            't': k_type,
+            'slot': f"Lap {k_idx + 1}",
+        },
+        'p_sim': sim_probs,
+        'p_ml': p_ml_store,
+        'meta': {
+            'top_vehicle': top_vehicle,
+            'top_prob': p1,
+            'second_prob': p2,
+            'volatility_gap_pp': vol_gap,
+            'volatility_label': vol_label,
+            'bet_safety': bet_safety,
+            'expected_regret': expected_regret,
+        },
+    }
+
+# ---------------------------------------------------------
+# PHASE 1 — NEW FULL-SCREEN UI BLOCK (FAST SELECTION UI)
+# ---------------------------------------------------------
+
+import streamlit as st
+
+# Initialize session state
+if "selected_lap" not in st.session_state:
+    st.session_state.selected_lap = None
+
+if "selected_terrain" not in st.session_state:
+    st.session_state.selected_terrain = None
+
+if "selected_vehicles" not in st.session_state:
+    st.session_state.selected_vehicles = []
+
+# ---------------------------------------------------------
+# 1. LAP SELECTION (CLICKABLE BUTTONS)
+# ---------------------------------------------------------
+
+st.markdown("## 🏁 Select Lap")
+
+lap_cols = st.columns(3)
+laps = ["Lap 1", "Lap 2", "Lap 3"]
+
+for i, lap in enumerate(laps):
+    if lap_cols[i].button(lap, use_container_width=True):
+        st.session_state.selected_lap = lap
+
+# Highlight selection
+if st.session_state.selected_lap:
+    st.success(f"Selected Lap: {st.session_state.selected_lap}")
+
+# ---------------------------------------------------------
+# 2. TERRAIN SELECTION (CLICKABLE BUTTON GRID)
+# ---------------------------------------------------------
+
+st.markdown("## 🌍 Select Terrain")
+
+terrain_options = ["Expressway", "Highway", "Dirt", "Bumpy", "Potholes", "Desert"]
+terrain_cols = st.columns(3)
+
+for i, terrain in enumerate(terrain_options):
+    if terrain_cols[i % 3].button(terrain, use_container_width=True):
+        st.session_state.selected_terrain = terrain
+
+# Highlight selection
+if st.session_state.selected_terrain:
+    st.success(f"Selected Terrain: {st.session_state.selected_terrain}")
+
+# ---------------------------------------------------------
+# 3. VEHICLE SELECTION (CLICK ANY 3 VEHICLES)
+# ---------------------------------------------------------
+
+st.markdown("## 🚗 Select 3 Vehicles")
+
+vehicle_list = [
+    "Supercar", "Sports Car", "Car",
+    "SUV", "ORV", "Monster Truck",
+    "ATV", "Motorcycle", "Stock Car"
+]
+
+veh_cols = st.columns(3)
+
+for i, veh in enumerate(vehicle_list):
+    disabled = len(st.session_state.selected_vehicles) >= 3 and veh not in st.session_state.selected_vehicles
+
+    if veh_cols[i % 3].button(
+        veh,
+        disabled=disabled,
+        use_container_width=True
+    ):
+        if veh not in st.session_state.selected_vehicles:
+            if len(st.session_state.selected_vehicles) < 3:
+                st.session_state.selected_vehicles.append(veh)
+        else:
+            st.session_state.selected_vehicles.remove(veh)
+
+# Show selected vehicles
+st.info(f"Selected Vehicles: {st.session_state.selected_vehicles}")
+
+# Clear selection button
+if st.button("Clear Vehicle Selection"):
+    st.session_state.selected_vehicles = []
+
+# ---------------------------------------------------------
+# 4. PREDICT BUTTON (ENABLED ONLY WHEN READY)
+# ---------------------------------------------------------
+
+ready = (
+    st.session_state.selected_lap is not None and
+    st.session_state.selected_terrain is not None and
+    len(st.session_state.selected_vehicles) == 3
+)
+
+st.markdown("## 🚀 Run Prediction")
+
+if st.button("PREDICT", disabled=not ready, use_container_width=True):
+    st.success("Prediction triggered! (Phase 2 will connect this to your engine)")
 
 # ---------------------------------------------------------
 # 8.5 PREDICTION RESULTS PANEL
