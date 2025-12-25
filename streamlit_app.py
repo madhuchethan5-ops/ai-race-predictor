@@ -1144,6 +1144,14 @@ with Q2:
         run_full_prediction(v1, v2, v3, k_idx, k_type, history)
 
         st.session_state.trigger_prediction = False
+        # Clear stale Save form widget state
+        for k in [
+            "lap1_track", "lap2_track", "lap3_track",
+            "lap1_len", "lap2_len", "lap3_len",
+            "actual_winner", "race_report_form"
+        ]:
+            if k in st.session_state:
+                del st.session_state[k]
 
     if 'res' not in st.session_state:
         st.info("Set up the race on the left and run a prediction.")
