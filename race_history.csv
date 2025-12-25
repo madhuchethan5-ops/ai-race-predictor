@@ -1,102 +1,153 @@
-Vehicle_1,Vehicle_2,Vehicle_3,Actual_Winner,Lane,Lap_1_Track,Lap_1_Len,Lap_2_Track,Lap_2_Len,Lap_3_Track,Lap_3_Len,Predicted_Winner,Top_Prob,Was_Correct,Timestamp,Sim_Predicted_Winner,ML_Predicted_Winner,Sim_Top_Prob,ML_Top_Prob,Sim_Was_Correct,ML_Was_Correct
-Supercar,Stock Car,Car,Car,Lap 3,Bumpy,30.0,Dirt,40.0,Expressway,30.0,Supercar,0.6326,0.0,,,,,,,
-Monster Truck,ORV,SUV,Monster Truck,Lap 1,Highway,10.0,Dirt,10.0,Potholes,80.0,ORV,0.7363992636007365,0.0,,,,,,,
-Supercar,Monster Truck,Car,Car,Lap 3,Bumpy,30.0,Highway,50.0,Desert,20.0,Monster Truck,0.7787992212007786,0.0,,,,,,,
-Stock Car,Monster Truck,SUV,Stock Car,Lap 1,Dirt,30.0,Desert,40.0,Potholes,30.0,SUV,0.999998000004,0.0,,,,,,,
-Car,Supercar,ORV,ORV,Lap 1,Desert,10.0,Potholes,10.0,Bumpy,80.0,ORV,0.927999072000928,1.0,,,,,,,
-Monster Truck,Stock Car,ORV,ORV,Lap 1,Dirt,30.0,Desert,10.0,Bumpy,60.0,ORV,0.9993990006009994,1.0,,,,,,,
-Sports Car,ATV,Motorcycle,Motorcycle,Lap 2,Potholes,30.0,Potholes,30.0,Expressway,40.0,Sports Car,0.8455991544008455,0.0,,,,,,,
-Motorcycle,Car,SUV,Motorcycle,Lap 3,Potholes,35.0,Dirt,35.0,Desert,30.0,SUV,0.999998000004,0.0,,,,,,,
-Monster Truck,ATV,Sports Car,Sports Car,Lap 1,Desert,20.0,Expressway,50.0,Desert,30.0,Monster Truck,0.9443990556009444,0.0,,,,,,,
-ORV,Supercar,SUV,SUV,Lap 2,Dirt,70.0,Desert,10.0,Dirt,20.0,ORV,0.6396,0.0,,,,,,,
-Stock Car,Supercar,Monster Truck,Stock Car,Lap 1,Highway,10.0,Desert,45.0,Desert,45.0,Supercar,0.668999331000669,0.0,,,,,,,
-ORV,Car,Stock Car,ORV,Lap 3,Desert,10.0,Bumpy,60.0,Expressway,30.0,ORV,0.9985990014009986,1.0,,,,,,,
-ORV,Stock Car,Sports Car,Stock Car,Lap 2,Bumpy,20.0,Desert,10.0,Potholes,70.0,ORV,0.9945990054009946,0.0,,,,,,,
-ORV,Car,Stock Car,Stock Car,Lap 1,Desert,40.0,Potholes,20.0,Desert,40.0,ORV,0.999998000004,0.0,,,,,,,
-Stock Car,Sports Car,ATV,Sports Car,Lap 1,Desert,20.0,Dirt,50.0,Highway,30.0,Stock Car,0.8368,0.0,,,,,,,
-Sports Car,ATV,Stock Car,ATV,Lap 3,Desert,25.0,Potholes,50.0,Dirt,25.0,Stock Car,0.848999151000849,0.0,,,,,,,
-SUV,Motorcycle,Sports Car,Motorcycle,Lap 3,Potholes,30.0,Bumpy,40.0,Desert,30.0,SUV,0.999998000004,0.0,,,,,,,
-ORV,Stock Car,Motorcycle,ORV,Lap 3,Highway,30.0,Bumpy,50.0,Expressway,20.0,ORV,0.999998000004,1.0,,,,,,,
-Supercar,Sports Car,Stock Car,Sports Car,Lap 1,Highway,30.0,Bumpy,50.0,Highway,20.0,Supercar,0.9951990048009952,0.0,,,,,,,
-Monster Truck,Supercar,Car,Monster Truck,Lap 1,Dirt,20.0,Potholes,50.0,Highway,30.0,Supercar,0.999998000004,0.0,,,,,,,
-Monster Truck,Sports Car,ATV,ATV,Lap 1,Desert,10.0,Dirt,10.0,Desert,80.0,Monster Truck,0.9553990446009554,0.0,,,,,,,
-Supercar,Sports Car,ORV,Sports Car,Lap 3,Desert,10.0,Expressway,70.0,Dirt,20.0,Supercar,0.9823990176009824,0.0,,,,,,,
-Supercar,Sports Car,ORV,Supercar,Lap 3,Desert,10.0,Expressway,70.0,Dirt,20.0,Supercar,0.9823990176009824,1.0,,,,,,,
-Sports Car,Motorcycle,SUV,Motorcycle,Lap 2,Potholes,30.0,Potholes,30.0,Bumpy,40.0,SUV,0.999998000004,0.0,,,,,,,
-Car,ORV,Motorcycle,Motorcycle,Lap 2,Potholes,33.0,Potholes,33.0,Potholes,34.0,ORV,0.999998000004,0.0,,,,,,,
-Stock Car,Motorcycle,Monster Truck,Monster Truck,Lap 2,Potholes,40.0,Dirt,20.0,Bumpy,40.0,Stock Car,0.999998000004,0.0,,,,,,,
-Motorcycle,SUV,Monster Truck,Motorcycle,Lap 1,Desert,35.0,Potholes,10.0,Highway,55.0,SUV,0.999998000004,0.0,,,,,,,
-Monster Truck,ORV,SUV,Monster Truck,Lap 1,Potholes,30.0,Desert,10.0,Potholes,60.0,SUV,0.9201990798009204,0.0,,,,,,,
-Monster Truck,ORV,ATV,ORV,Lap 2,Dirt,45.0,Dirt,45.0,Potholes,10.0,ORV,0.999998000004,1.0,,,,,,,
-Monster Truck,Motorcycle,ATV,Monster Truck,Lap 3,Expressway,40.0,Expressway,30.0,Desert,30.0,Motorcycle,0.5202,0.0,,,,,,,
-Supercar,Monster Truck,ATV,ATV,Lap 1,Highway,25.0,Expressway,15.0,Desert,60.0,,,,,,,,,,
-ORV,Supercar,Car,ORV,Lap 2,Desert,30.0,Potholes,10.0,Potholes,60.0,,,,,,,,,,
-Sports Car,ORV,SUV,ORV,Lap 1,Desert,30.0,Desert,30.0,Bumpy,40.0,,,,,,,,,,
-ORV,Sports Car,Monster Truck,ORV,Lap 1,Bumpy,25.0,Bumpy,25.0,Dirt,50.0,,,,,,,,,,
-ORV,Car,Monster Truck,Car,Lap 3,Highway,70.0,Highway,10.0,Potholes,20.0,,,,,,,,,,
-Sports Car,Motorcycle,Supercar,Motorcycle,Lap 1,Potholes,35.0,Potholes,35.0,Bumpy,30.0,,,,,,,,,,
-Sports Car,ORV,Car,ORV,Lap 1,Desert,20.0,Bumpy,60.0,Potholes,20.0,,,,,,,,,,
-Stock Car,Car,SUV,Stock Car,Lap 2,Potholes,40.0,Desert,20.0,Highway,40.0,,,,,,,,,,
-ATV,Motorcycle,Sports Car,ATV,Lap 3,Potholes,60.0,Desert,30.0,Bumpy,10.0,,,,,,,,,,
-Monster Truck,Stock Car,ORV,Monster Truck,Lap 3,Expressway,10.0,Highway,80.0,Potholes,10.0,,,,,,,,,,
-Sports Car,Stock Car,ORV,Stock Car,Lap 1,Dirt,20.0,Highway,50.0,Potholes,30.0,,,,,,,,,,
-ATV,Motorcycle,ORV,ORV,Lap 2,Desert,20.0,Bumpy,70.0,Desert,10.0,,,,,,,,,,
-SUV,Motorcycle,Sports Car,SUV,Lap 1,Bumpy,20.0,Highway,20.0,Dirt,60.0,,,,,,,,,,
-ORV,Motorcycle,ATV,Motorcycle,Lap 1,Potholes,25.0,Highway,50.0,Potholes,25.0,,,,,,,,,,
-Stock Car,ORV,Sports Car,ORV,Lap 2,Expressway,30.0,Potholes,35.0,Expressway,35.0,,,,,,,,,,
-Motorcycle,Car,ORV,ORV,Lap 1,Bumpy,10.0,Desert,40.0,Dirt,50.0,,,,,,,,,,
-Stock Car,Supercar,ATV,Supercar,Lap 3,Highway,20.0,Dirt,30.0,Highway,50.0,,,,,,,,,,
-Motorcycle,Monster Truck,SUV,SUV,Lap 1,Bumpy,10.0,Dirt,45.0,Dirt,45.0,,,,,,,,,,
-ATV,ORV,Car,ORV,Lap 3,Bumpy,20.0,Dirt,60.0,Desert,20.0,,,,,,,,,,
-ORV,Monster Truck,SUV,SUV,Lap 1,Dirt,10.0,Dirt,80.0,Highway,10.0,,,,,,,,,,
-Supercar,Car,SUV,SUV,Lap 3,Bumpy,10.0,Potholes,70.0,Expressway,20.0,Supercar,0.9937990062009938,0.0,,,,,,,
-Monster Truck,Motorcycle,ORV,Monster Truck,Lap 2,Potholes,30.0,Potholes,40.0,Expressway,30.0,ORV,0.999998000004,0.0,,,,,,,
-Motorcycle,ATV,Stock Car,Stock Car,Lap 2,Desert,80.0,Expressway,10.0,Desert,10.0,Stock Car,0.6721993278006723,1.0,,,,,,,
-Supercar,SUV,ORV,SUV,Lap 1,Desert,20.0,Expressway,70.0,Bumpy,10.0,SUV,0.8286,1.0,,,,,,,
-Motorcycle,Sports Car,Car,Car,Lap 2,Expressway,60.0,Potholes,20.0,Potholes,20.0,Car,0.564,1.0,,,,,,,
-SUV,Stock Car,Monster Truck,Monster Truck,Lap 3,Potholes,35.0,Potholes,35.0,Expressway,30.0,SUV,0.999998000004,0.0,,,,,,,
-ATV,SUV,Car,ATV,Lap 2,Highway,30.0,Potholes,30.0,Potholes,40.0,SUV,0.999998000004,0.0,,,,,,,
-Stock Car,ATV,SUV,Stock Car,Lap 2,Desert,30.0,Potholes,40.0,Highway,30.0,SUV,0.999998000004,0.0,,,,,,,
-Supercar,Sports Car,SUV,SUV,Lap 3,Potholes,10.0,Bumpy,80.0,Dirt,10.0,Supercar,0.7483992516007484,0.0,,,,,,,
-Sports Car,Supercar,ORV,ORV,Lap 2,Potholes,45.0,Potholes,45.0,Desert,10.0,Supercar,0.9195990804009196,0.0,,,,,,,
-Monster Truck,Stock Car,Supercar,Monster Truck,Lap 1,Potholes,15.0,Desert,15.0,Expressway,70.0,Monster Truck,0.5224,1.0,2025-12-24 22:12:22.312930,,,,,,
-Stock Car,Motorcycle,Supercar,Motorcycle,Lap 1,Expressway,15.0,Potholes,60.0,Expressway,25.0,Supercar,0.9306,0.0,2025-12-24 22:13:26.101714,,,,,,
-ATV,Motorcycle,Stock Car,Stock Car,Lap 2,Highway,60.0,Desert,20.0,Bumpy,20.0,Motorcycle,0.8627991372008627,0.0,2025-12-24 22:14:28.937663,,,,,,
-Motorcycle,Car,Stock Car,Car,Lap 2,Potholes,40.0,Bumpy,20.0,Dirt,40.0,Stock Car,0.5952,0.0,2025-12-24 22:17:41.167421,,,,,,
-ORV,Motorcycle,ATV,ATV,Lap 1,Potholes,30.0,Desert,50.0,Dirt,20.0,ORV,0.999998000004,0.0,2025-12-24 22:18:41.618177,,,,,,
-ORV,Monster Truck,ATV,Monster Truck,Lap 2,Potholes,45.0,Potholes,45.0,Expressway,10.0,ORV,0.9993990006009994,0.0,2025-12-24 22:19:52.355905,,,,,,
-Stock Car,Sports Car,SUV,Stock Car,Lap 2,Bumpy,30.0,Bumpy,35.0,Potholes,35.0,SUV,0.9988,0.0,2025-12-24 22:22:01.274337,,,,,,
-ATV,Sports Car,Supercar,Sports Car,Lap 3,Dirt,40.0,Expressway,50.0,Bumpy,10.0,Sports Car,0.9906,1.0,2025-12-24 22:26:15.721976,,,,,,
-Car,Motorcycle,Stock Car,Motorcycle,Lap 3,Potholes,40.0,Potholes,50.0,Bumpy,10.0,Car,0.5432,0.0,2025-12-24 22:27:11.100074,,,,,,
-Monster Truck,SUV,Car,SUV,Lap 1,Expressway,20.0,Desert,40.0,Desert,40.0,SUV,0.7542,1.0,2025-12-24 22:28:38.661436,,,,,,
-Stock Car,SUV,ORV,Stock Car,Lap 3,Expressway,10.0,Desert,80.0,Expressway,10.0,SUV,0.6434186091643082,0.0,2025-12-24 22:29:19.227945,,,,,,
-Car,SUV,Supercar,Car,Lap 3,Potholes,15.0,Expressway,70.0,Bumpy,15.0,SUV,0.9142109832193128,0.0,2025-12-24 22:30:30.850826,,,,,,
-ORV,Car,Supercar,ORV,Lap 3,Desert,45.0,Highway,35.0,Expressway,20.0,Car,0.6762453311478065,0.0,2025-12-24 22:31:33.955947,,,,,,
-Monster Truck,SUV,ATV,Monster Truck,Lap 1,Expressway,30.0,Potholes,60.0,Bumpy,10.0,SUV,0.8569384554467077,0.0,2025-12-24 22:32:49.634003,,,,,,
-ATV,SUV,Monster Truck,SUV,Lap 3,Highway,30.0,Dirt,40.0,Highway,30.0,Monster Truck,0.517835070081061,0.0,2025-12-24 22:33:41.421982,,,,,,
-SUV,Monster Truck,Car,Car,Lap 2,Expressway,40.0,Highway,30.0,Highway,30.0,SUV,0.6912529949658196,0.0,2025-12-24 22:34:45.934234,,,,,,
-Stock Car,SUV,Car,Stock Car,Lap 2,Potholes,40.0,Potholes,30.0,Desert,30.0,Car,0.4272076083310665,0.0,2025-12-25 08:49:01.324943,Car,SUV,0.5870126805517776,0.4375,0.0,0.0
-ATV,SUV,Car,Car,Lap 3,Highway,40.0,Highway,30.0,Dirt,30.0,SUV,0.4207760076444045,0.0,2025-12-25 08:50:17.517661,Car,ATV,0.5731366690782949,0.4117647058823529,1.0,0.0
-SUV,Supercar,ORV,ORV,Lap 3,Potholes,40.0,Desert,30.0,Expressway,30.0,SUV,0.3767600923534291,0.0,2025-12-25 08:51:08.856727,ORV,SUV,0.3709736607445268,0.3888888888888889,1.0,0.0
-ATV,Supercar,Motorcycle,Supercar,Lap 1,Dirt,20.0,Highway,40.0,Highway,40.0,Supercar,0.5047670884362773,1.0,2025-12-25 08:52:23.005913,Supercar,ATV,0.5956644456394095,0.3684210526315789,1.0,0.0
-Supercar,Stock Car,ORV,Stock Car,Lap 2,Potholes,20.0,Dirt,25.0,Desert,55.0,ORV,0.5542093824783194,0.0,2025-12-25 08:54:32.995318,ORV,Stock Car,0.7570156374638657,0.4,0.0,1.0
-Monster Truck,Sports Car,ATV,Sports Car,Lap 2,Highway,70.0,Dirt,20.0,Highway,10.0,Monster Truck,0.53385562329162,0.0,2025-12-25 08:55:45.759422,Monster Truck,Sports Car,0.6675371499304776,0.4285714285714286,0.0,1.0
-Supercar,Sports Car,Car,Car,Lap 1,Highway,50.0,Bumpy,20.0,Potholes,30.0,Car,0.6703720400921087,1.0,2025-12-25 08:56:40.022695,Car,Sports Car,0.9657715819716964,0.4545454545454545,1.0,0.0
-Supercar,Sports Car,Car,Car,Lap 1,Highway,50.0,Bumpy,20.0,Potholes,30.0,Car,0.6703720400921087,1.0,2025-12-25 08:56:46.019593,Car,Sports Car,0.9657715819716964,0.4545454545454545,1.0,0.0
-Car,Sports Car,Monster Truck,Sports Car,Lap 3,Expressway,70.0,Desert,10.0,Dirt,20.0,Car,0.713366730289552,0.0,2025-12-25 08:57:53.889797,Car,Sports Car,0.9945001060381424,0.4166666666666666,0.0,1.0
-Supercar,Sports Car,Stock Car,Supercar,Lap 3,Highway,33.0,Highway,33.0,Highway,34.0,Sports Car,0.6158459798699575,0.0,2025-12-25 08:58:49.521984,Sports Car,Sports Car,0.7330766331165958,0.44,0.0,0.0
-ORV,Supercar,Sports Car,Supercar,Lap 1,Highway,33.0,Highway,33.0,Highway,34.0,ORV,0.3582880851215485,0.0,2025-12-25 08:59:47.215869,ORV,Supercar,0.392018603407709,0.4230769230769231,0.0,1.0
-Supercar,Monster Truck,Stock Car,Supercar,Lap 3,Dirt,45.0,Dirt,40.0,Highway,15.0,Supercar,0.552683304559687,1.0,2025-12-25 09:01:04.334267,Supercar,Monster Truck,0.7236079767352809,0.4444444444444444,1.0,0.0
-SUV,Sports Car,Car,Sports Car,Lap 3,Highway,50.0,Highway,25.0,Expressway,25.0,Car,0.6998800239952009,0.0,2025-12-25 09:01:59.426993,Car,Sports Car,0.9998000399920016,0.4285714285714285,0.0,1.0
-Stock Car,Sports Car,Motorcycle,Motorcycle,Lap 3,Potholes,50.0,Potholes,25.0,Potholes,25.0,Sports Car,0.5530333061824525,0.0,2025-12-25 09:03:05.919003,Sports Car,Sports Car,0.6228716022581106,0.4482758620689655,0.0,0.0
-ORV,Stock Car,Car,Car,Lap 3,Expressway,60.0,Bumpy,10.0,Highway,30.0,Car,0.6214879076600026,1.0,2025-12-25 09:04:22.487400,Car,Stock Car,0.8580354016555599,0.4333333333333333,1.0,0.0
-SUV,ATV,Supercar,ATV,Lap 1,Potholes,30.0,Desert,50.0,Expressway,20.0,SUV,0.5838942663446723,0.0,2025-12-25 09:05:22.576658,SUV,ATV,0.7796087234776797,0.4193548387096772,0.0,1.0
-SUV,Motorcycle,ORV,Motorcycle,Lap 1,Potholes,30.0,Potholes,30.0,Desert,40.0,ORV,0.7123800239952008,0.0,2025-12-25 09:06:24.056838,ORV,Motorcycle,0.9998000399920016,0.4375,0.0,1.0
-Stock Car,ORV,Monster Truck,ORV,Lap 1,Bumpy,15.0,Expressway,40.0,Highway,45.0,ORV,0.7816982058133827,1.0,2025-12-25 09:07:32.317940,ORV,ORV,0.9998000399920016,0.4545454545454546,1.0,1.0
-Supercar,SUV,Stock Car,SUV,Lap 3,Potholes,25.0,Expressway,50.0,Desert,25.0,SUV,0.4107119198233773,1.0,2025-12-25 09:08:37.377393,SUV,SUV,0.3707943761762172,0.4705882352941176,1.0,1.0
-Motorcycle,Sports Car,ATV,ATV,Lap 1,Highway,25.0,Desert,50.0,Desert,25.0,Sports Car,0.730461623312556,0.0,2025-12-25 09:09:35.719630,Sports Car,Sports Car,0.8936265150447362,0.4857142857142857,0.0,0.0
-Monster Truck,Motorcycle,Car,Monster Truck,Lap 2,Potholes,10.0,Highway,15.0,Potholes,75.0,Car,0.710991135106312,0.0,2025-12-25 09:10:43.578061,Car,Motorcycle,0.9998000399920016,0.4722222222222222,0.0,0.0
-ATV,Sports Car,Stock Car,Stock Car,Lap 2,Highway,25.0,Highway,25.0,Desert,50.0,Sports Car,0.737443376598182,0.0,2025-12-25 09:11:52.990459,Sports Car,Sports Car,0.9227659880239972,0.4594594594594594,0.0,0.0
-Motorcycle,Car,ATV,ATV,Lap 1,Potholes,30.0,Bumpy,10.0,Potholes,60.0,Car,0.7788273924162534,0.0,2025-12-25 09:12:54.583943,Car,Car,0.9998000399920016,0.4473684210526316,0.0,0.0
-SUV,ATV,Supercar,SUV,Lap 1,Potholes,10.0,Expressway,80.0,Potholes,10.0,SUV,0.6496006649265127,1.0,2025-12-25 09:14:01.370281,SUV,ATV,0.91172760393735,0.4358974358974359,1.0,0.0
-Car,ATV,Stock Car,ATV,Lap 3,Potholes,60.0,Dirt,30.0,Potholes,10.0,Car,0.6906908292904452,0.0,2025-12-25 09:15:04.319872,Car,ATV,0.996491928590798,0.5506918305629237,0.0,1.0
+,Vehicle_1,Vehicle_2,Vehicle_3,Actual_Winner,Lane,Lap_1_Track,Lap_1_Len,Lap_2_Track,Lap_2_Len,Lap_3_Track,Lap_3_Len,Predicted_Winner,Top_Prob,Was_Correct,Timestamp,Sim_Predicted_Winner,ML_Predicted_Winner,Sim_Top_Prob,ML_Top_Prob,Sim_Was_Correct,ML_Was_Correct
+151,Monster Truck,ORV,Motorcycle,ORV,Lap 1,Bumpy,10,Desert,45,Desert,45,Monster Truck,0.4469017357515596,0,2025-12-25 11:48:42.892509,ORV,Monster Truck,0.5453662318133169,0.443824290446865,1,0
+150,SUV,ORV,Monster Truck,Monster Truck,Lap 2,Bumpy,50,Potholes,25,Bumpy,25,ORV,0.5742796216951639,0,2025-12-25 11:47:44.590966,ORV,ORV,0.9051061227619754,0.4259436424220057,0,0
+149,ORV,Car,Supercar,ORV,Lap 2,Desert,25,Bumpy,25,Expressway,50,Car,0.4558875798087278,0,2025-12-25 11:46:43.190314,Car,Car,0.4751318401871557,0.4473034442902482,0,0
+148,SUV,Stock Car,ORV,ORV,Lap 2,Bumpy,50,Expressway,10,Dirt,40,Stock Car,0.3642423330115953,0,2025-12-25 11:45:43.543910,ORV,Stock Car,0.68593467463633,0.5224093407988257,1,0
+147,Car,SUV,Supercar,SUV,Lap 1,Expressway,25,Potholes,50,Desert,25,Car,0.5005570852843165,0,2025-12-25 11:43:32.173632,Car,SUV,0.8091100403540048,0.5007589982055316,0,1
+146,Stock Car,SUV,Sports Car,Sports Car,Lap 3,Bumpy,10,Highway,75,Desert,15,SUV,0.5130154482487613,0,2025-12-25 11:42:28.064106,SUV,SUV,0.6507156887806841,0.4508348831289573,0,0
+145,Car,ORV,Supercar,ORV,Lap 3,Potholes,80,Bumpy,10,Expressway,10,ORV,0.5231207798469946,1,2025-12-25 11:41:17.043723,Car,ORV,0.6814464953150886,0.7106526147889752,0,1
+144,ORV,Car,ATV,ORV,Lap 3,Expressway,40,Desert,40,Desert,20,Car,0.5564991847662923,0,2025-12-25 11:40:09.274837,Car,Car,0.7513613050287034,0.4635059599630547,0,0
+143,Motorcycle,ATV,SUV,Motorcycle,Lap 1,Potholes,30,Bumpy,60,Desert,10,SUV,0.5050543514662776,0,2025-12-25 11:39:11.539636,SUV,ATV,0.9872440982610518,0.4590857735006898,0,0
+142,Stock Car,Motorcycle,SUV,Stock Car,Lap 1,Desert,33,Desert,33,Desert,34,SUV,0.5046088443427799,0,2025-12-25 11:37:58.353978,SUV,Motorcycle,0.8835215833390522,0.5162858712124373,0,0
+141,Motorcycle,Monster Truck,Car,Car,Lap 2,Expressway,80,Highway,10,Desert,10,Monster Truck,0.4877093863622099,0,2025-12-25 11:36:57.708451,Car,Monster Truck,0.7114647847451819,0.589681058176169,1,0
+140,Stock Car,Car,ATV,Car,Lap 2,Bumpy,20,Expressway,40,Bumpy,40,Car,0.5639696093930201,1,2025-12-25 11:35:55.325797,Car,Stock Car,0.9308270007344568,0.5334845278157326,1,0
+139,Supercar,SUV,Monster Truck,Monster Truck,Lap 3,Desert,20,Potholes,40,Bumpy,40,SUV,0.4331010593249176,0,2025-12-25 11:34:54.033425,SUV,Supercar,0.5172542337929615,0.4659507128153998,0,0
+138,ORV,Monster Truck,Sports Car,ORV,Lap 1,Highway,20,Desert,30,Bumpy,50,ORV,0.4241823714345764,1,2025-12-25 11:32:45.187440,Monster Truck,ORV,0.513398908040635,0.5862536788062377,0,1
+137,Car,Motorcycle,Monster Truck,Car,Lap 1,Highway,20,Expressway,60,Bumpy,20,Car,0.5457183718427722,1,2025-12-25 11:31:32.446683,Monster Truck,Car,0.5358030421101773,0.5862820851033048,0,1
+136,Stock Car,Sports Car,SUV,SUV,Lap 3,Expressway,45,Bumpy,25,Bumpy,30,Stock Car,0.4130750470280868,0,2025-12-25 11:30:44.752950,SUV,Stock Car,0.6389035190628934,0.5340001458754651,1,0
+135,ATV,SUV,ORV,ORV,Lap 3,Bumpy,30,Desert,20,Desert,50,SUV,0.5312301208613706,0,2025-12-25 11:29:21.486777,SUV,SUV,0.6673533275152795,0.4648489344960604,0,0
+134,Monster Truck,SUV,ATV,Monster Truck,Lap 2,Bumpy,30,Expressway,20,Potholes,50,SUV,0.6796348809418763,0,2025-12-25 11:28:23.168486,SUV,SUV,0.9459852061095796,0.534564062826702,0,0
+133,Monster Truck,SUV,ATV,Monster Truck,Lap 2,Bumpy,30,Expressway,20,Potholes,50,SUV,0.6796348809418763,0,2025-12-25 11:28:21.691484,SUV,SUV,0.9459852061095796,0.534564062826702,0,0
+132,SUV,Monster Truck,Sports Car,SUV,Lap 1,Bumpy,20,Expressway,20,Desert,60,SUV,0.4936894708351912,1,2025-12-25 11:27:13.951956,SUV,SUV,0.4439962842708483,0.5207686785347403,1,1
+131,SUV,Monster Truck,Motorcycle,Motorcycle,Lap 1,Bumpy,20,Desert,40,Desert,40,Monster Truck,0.4862730917894778,0,2025-12-25 11:25:29.842421,Monster Truck,SUV,0.6274684241306853,0.4578853395654964,0,0
+130,Stock Car,Monster Truck,Motorcycle,Monster Truck,Lap 3,Expressway,33,Expressway,33,Expressway,34,Stock Car,0.4543705942270231,0,2025-12-25 11:23:55.037685,Monster Truck,Stock Car,0.9853511299646608,0.6807528534283446,1,0
+129,Car,Stock Car,Supercar,Car,Lap 1,Desert,10,Dirt,45,Dirt,45,Car,0.7582099588396602,1,2025-12-25 11:22:46.141143,Car,Car,0.542427417657573,0.8715168292751663,1,1
+128,Supercar,Sports Car,Motorcycle,Supercar,Lap 1,Expressway,45,Expressway,45,Potholes,10,Supercar,0.5814779160520183,1,2025-12-25 11:21:47.022381,Sports Car,Supercar,0.9850822589852172,0.9239713466750727,0,1
+127,Stock Car,Motorcycle,SUV,SUV,Lap 3,Expressway,45,Desert,40,Potholes,15,Stock Car,0.5941430887119099,0,2025-12-25 11:20:50.730310,SUV,Stock Car,0.7462022591281915,0.8007493172993237,1,0
+126,Car,SUV,ATV,Car,Lap 1,Desert,40,Expressway,40,Highway,20,SUV,0.4826844205039609,0,2025-12-25 11:19:41.686766,SUV,Car,0.998003992015968,0.6124951970665593,0,1
+125,ATV,SUV,Sports Car,SUV,Lap 2,Expressway,65,Desert,20,Bumpy,15,ATV,0.5555967761301609,0,2025-12-25 11:18:36.968602,SUV,ATV,0.6289684558077535,0.8515194531674904,1,0
+124,ATV,Motorcycle,SUV,Motorcycle,Lap 2,Desert,20,Potholes,20,Bumpy,60,ATV,0.5131485890732234,0,2025-12-25 11:17:35.870900,SUV,ATV,0.9980039920159682,0.7921963628146131,0,0
+123,ORV,Monster Truck,Supercar,Monster Truck,Lap 2,Desert,30,Desert,30,Potholes,40,ORV,0.7078523112439088,0,2025-12-25 11:16:30.354799,ORV,ORV,0.5160462382082988,0.8039718967266559,0,0
+122,ORV,Car,Sports Car,Sports Car,Lap 3,Expressway,10,Expressway,70,Desert,20,ORV,0.6980116471859705,0,2025-12-25 11:15:18.012563,ORV,ORV,0.5764511140488273,0.755143937488576,0,0
+121,Supercar,ATV,SUV,SUV,Lap 2,Bumpy,50,Expressway,25,Expressway,25,Supercar,0.5159614459735965,0,2025-12-25 11:14:08.879429,SUV,Supercar,0.9227242954602964,0.7031246357209885,1,0
+120,Monster Truck,Motorcycle,Car,Car,Lap 2,Expressway,50,Desert,25,Desert,25,Monster Truck,0.7956332067297709,0,2025-12-25 11:13:12.152549,Monster Truck,Monster Truck,0.8364521924380685,0.7787210742052522,0,0
+119,Car,Sports Car,SUV,SUV,Lap 3,Desert,40,Desert,50,Bumpy,10,Car,0.5758124453070989,0,2025-12-25 11:12:01.466512,SUV,Car,0.8793827421620476,0.7840101110048721,1,0
+118,Sports Car,ORV,Stock Car,Stock Car,Lap 3,Desert,40,Desert,40,Bumpy,20,Sports Car,0.7347914201491968,0,2025-12-25 11:11:01.683735,Sports Car,Sports Car,0.5427722246892068,0.7972898391071876,0,0
+117,Stock Car,Supercar,Sports Car,Sports Car,Lap 3,Expressway,50,Expressway,40,Potholes,10,Stock Car,0.5330575832203316,0,2025-12-25 11:10:03.654744,Sports Car,Stock Car,0.8532609471040957,0.6468147173231261,1,0
+116,Car,Stock Car,ATV,Stock Car,Lap 2,Desert,40,Desert,40,Highway,20,Car,0.6336633045533067,0,2025-12-25 11:05:41.248908,Car,Car,0.577433887363347,0.649222604145702,0,0
+115,Supercar,Monster Truck,ATV,Monster Truck,Lap 2,Potholes,55,Expressway,35,Desert,10,Supercar,0.6004451099829425,0,2025-12-25 11:02:15.055474,Monster Truck,Supercar,0.6675375274328554,0.6671752343406,1,0
+114,ATV,Motorcycle,Monster Truck,Monster Truck,Lap 1,Highway,10,Bumpy,55,Desert,35,Monster Truck,0.4565598693492484,1,2025-12-25 11:01:26.904103,Motorcycle,Monster Truck,0.6336344994511931,0.4788259173722086,0,1
+113,Supercar,Sports Car,ATV,Sports Car,Lap 1,Bumpy,40,Bumpy,50,Highway,10,ATV,0.3775224543806537,0,2025-12-25 10:49:17.347634,Sports Car,ATV,0.998003992015968,0.4637891944435071,1,0
+112,Monster Truck,Motorcycle,Car,Motorcycle,Lap 3,Bumpy,40,Desert,50,Highway,10,Car,0.488651827203183,0,2025-12-25 10:48:20.128227,Car,Monster Truck,0.7005267018488266,0.4874793874034108,0,0
+111,Supercar,Stock Car,SUV,SUV,Lap 2,Potholes,45,Highway,25,Highway,30,Supercar,0.4762220495970963,0,2025-12-25 10:47:20.438363,SUV,Supercar,0.6586489919478005,0.5056581486117742,1,0
+110,Motorcycle,Supercar,SUV,SUV,Lap 2,Desert,30,Highway,40,Highway,30,Motorcycle,0.407224604975305,0,2025-12-25 10:46:09.838510,Supercar,Motorcycle,0.6439449765140595,0.4468531850793282,0,0
+109,Motorcycle,Supercar,SUV,SUV,Lap 2,Desert,30,Highway,40,Highway,30,Motorcycle,0.407224604975305,0,2025-12-25 10:46:01.557828,Supercar,Motorcycle,0.6439449765140595,0.4468531850793282,0,0
+108,ATV,ORV,Supercar,ATV,Lap 3,Potholes,30,Desert,40,Desert,30,Supercar,0.4004968533853852,0,2025-12-25 10:44:58.626806,ORV,ATV,0.6454865677472535,0.4378155493885055,0,1
+107,ORV,Supercar,Car,ORV,Lap 3,Desert,60,Potholes,10,Highway,30,ORV,0.383166725877463,1,2025-12-25 10:44:01.052146,Supercar,ORV,0.6464138124550596,0.4325607355783042,0,1
+106,ORV,ATV,Monster Truck,ORV,Lap 1,Bumpy,25,Highway,25,Highway,50,Monster Truck,0.4969583655373098,0,2025-12-25 10:42:49.093632,Monster Truck,Monster Truck,0.5734685553238412,0.481634724342679,0,0
+105,Monster Truck,ATV,Sports Car,Sports Car,Lap 1,Potholes,25,Highway,25,Highway,50,Monster Truck,0.6741469958168068,0,2025-12-25 10:41:58.567071,Monster Truck,Sports Car,0.8805691462763157,0.4467393977021185,0,1
+104,Monster Truck,SUV,Car,Monster Truck,Lap 2,Potholes,60,Highway,10,Desert,30,Car,0.6263907358717065,0,2025-12-25 10:40:41.378083,Car,Car,0.7491995981740674,0.4762910152799316,0,0
+103,Monster Truck,ORV,Stock Car,Monster Truck,Lap 2,Highway,40,Potholes,30,Potholes,30,ORV,0.5105305770937317,0,2025-12-25 10:38:33.706859,ORV,Stock Car,0.7309818401592766,0.5066348571716672,0,0
+102,Monster Truck,Supercar,Motorcycle,Motorcycle,Lap 1,Desert,33,Desert,33,Desert,34,Supercar,0.4525937193388779,0,2025-12-25 10:37:30.043654,Supercar,Monster Truck,0.5053158678943779,0.4305355007389943,0,0
+101,ORV,SUV,ATV,ORV,Lap 1,Highway,25,Desert,60,Bumpy,15,ORV,0.6137334199068275,1,2025-12-25 10:36:28.859551,ORV,ORV,0.7822717877328172,0.4077420814528399,1,1
+100,Car,ATV,Stock Car,ATV,Lap 3,Potholes,60,Dirt,30,Potholes,10,Car,0.6906908292904452,0,2025-12-25 09:15:04.319872,Car,ATV,0.996491928590798,0.5506918305629237,0,1
+99,SUV,ATV,Supercar,SUV,Lap 1,Potholes,10,Expressway,80,Potholes,10,SUV,0.6496006649265127,1,2025-12-25 09:14:01.370281,SUV,ATV,0.91172760393735,0.4358974358974359,1,0
+98,Motorcycle,Car,ATV,ATV,Lap 1,Potholes,30,Bumpy,10,Potholes,60,Car,0.7788273924162534,0,2025-12-25 09:12:54.583943,Car,Car,0.9998000399920016,0.4473684210526316,0,0
+97,ATV,Sports Car,Stock Car,Stock Car,Lap 2,Highway,25,Highway,25,Desert,50,Sports Car,0.737443376598182,0,2025-12-25 09:11:52.990459,Sports Car,Sports Car,0.9227659880239972,0.4594594594594594,0,0
+96,Monster Truck,Motorcycle,Car,Monster Truck,Lap 2,Potholes,10,Highway,15,Potholes,75,Car,0.710991135106312,0,2025-12-25 09:10:43.578061,Car,Motorcycle,0.9998000399920016,0.4722222222222222,0,0
+95,Motorcycle,Sports Car,ATV,ATV,Lap 1,Highway,25,Desert,50,Desert,25,Sports Car,0.730461623312556,0,2025-12-25 09:09:35.719630,Sports Car,Sports Car,0.8936265150447362,0.4857142857142857,0,0
+94,Supercar,SUV,Stock Car,SUV,Lap 3,Potholes,25,Expressway,50,Desert,25,SUV,0.4107119198233773,1,2025-12-25 09:08:37.377393,SUV,SUV,0.3707943761762172,0.4705882352941176,1,1
+93,Stock Car,ORV,Monster Truck,ORV,Lap 1,Bumpy,15,Expressway,40,Highway,45,ORV,0.7816982058133827,1,2025-12-25 09:07:32.317940,ORV,ORV,0.9998000399920016,0.4545454545454546,1,1
+92,SUV,Motorcycle,ORV,Motorcycle,Lap 1,Potholes,30,Potholes,30,Desert,40,ORV,0.7123800239952008,0,2025-12-25 09:06:24.056838,ORV,Motorcycle,0.9998000399920016,0.4375,0,1
+91,SUV,ATV,Supercar,ATV,Lap 1,Potholes,30,Desert,50,Expressway,20,SUV,0.5838942663446723,0,2025-12-25 09:05:22.576658,SUV,ATV,0.7796087234776797,0.4193548387096772,0,1
+90,ORV,Stock Car,Car,Car,Lap 3,Expressway,60,Bumpy,10,Highway,30,Car,0.6214879076600026,1,2025-12-25 09:04:22.487400,Car,Stock Car,0.8580354016555599,0.4333333333333333,1,0
+89,Stock Car,Sports Car,Motorcycle,Motorcycle,Lap 3,Potholes,50,Potholes,25,Potholes,25,Sports Car,0.5530333061824525,0,2025-12-25 09:03:05.919003,Sports Car,Sports Car,0.6228716022581106,0.4482758620689655,0,0
+88,SUV,Sports Car,Car,Sports Car,Lap 3,Highway,50,Highway,25,Expressway,25,Car,0.6998800239952009,0,2025-12-25 09:01:59.426993,Car,Sports Car,0.9998000399920016,0.4285714285714285,0,1
+87,Supercar,Monster Truck,Stock Car,Supercar,Lap 3,Dirt,45,Dirt,40,Highway,15,Supercar,0.552683304559687,1,2025-12-25 09:01:04.334267,Supercar,Monster Truck,0.7236079767352809,0.4444444444444444,1,0
+86,ORV,Supercar,Sports Car,Supercar,Lap 1,Highway,33,Highway,33,Highway,34,ORV,0.3582880851215485,0,2025-12-25 08:59:47.215869,ORV,Supercar,0.392018603407709,0.4230769230769231,0,1
+85,Supercar,Sports Car,Stock Car,Supercar,Lap 3,Highway,33,Highway,33,Highway,34,Sports Car,0.6158459798699575,0,2025-12-25 08:58:49.521984,Sports Car,Sports Car,0.7330766331165958,0.44,0,0
+84,Car,Sports Car,Monster Truck,Sports Car,Lap 3,Expressway,70,Desert,10,Dirt,20,Car,0.713366730289552,0,2025-12-25 08:57:53.889797,Car,Sports Car,0.9945001060381424,0.4166666666666666,0,1
+83,Supercar,Sports Car,Car,Car,Lap 1,Highway,50,Bumpy,20,Potholes,30,Car,0.6703720400921087,1,2025-12-25 08:56:46.019593,Car,Sports Car,0.9657715819716964,0.4545454545454545,1,0
+82,Supercar,Sports Car,Car,Car,Lap 1,Highway,50,Bumpy,20,Potholes,30,Car,0.6703720400921087,1,2025-12-25 08:56:40.022695,Car,Sports Car,0.9657715819716964,0.4545454545454545,1,0
+81,Monster Truck,Sports Car,ATV,Sports Car,Lap 2,Highway,70,Dirt,20,Highway,10,Monster Truck,0.53385562329162,0,2025-12-25 08:55:45.759422,Monster Truck,Sports Car,0.6675371499304776,0.4285714285714286,0,1
+80,Supercar,Stock Car,ORV,Stock Car,Lap 2,Potholes,20,Dirt,25,Desert,55,ORV,0.5542093824783194,0,2025-12-25 08:54:32.995318,ORV,Stock Car,0.7570156374638657,0.4,0,1
+79,ATV,Supercar,Motorcycle,Supercar,Lap 1,Dirt,20,Highway,40,Highway,40,Supercar,0.5047670884362773,1,2025-12-25 08:52:23.005913,Supercar,ATV,0.5956644456394095,0.3684210526315789,1,0
+78,SUV,Supercar,ORV,ORV,Lap 3,Potholes,40,Desert,30,Expressway,30,SUV,0.3767600923534291,0,2025-12-25 08:51:08.856727,ORV,SUV,0.3709736607445268,0.3888888888888889,1,0
+77,ATV,SUV,Car,Car,Lap 3,Highway,40,Highway,30,Dirt,30,SUV,0.4207760076444045,0,2025-12-25 08:50:17.517661,Car,ATV,0.5731366690782949,0.4117647058823529,1,0
+76,Stock Car,SUV,Car,Stock Car,Lap 2,Potholes,40,Potholes,30,Desert,30,Car,0.4272076083310665,0,2025-12-25 08:49:01.324943,Car,SUV,0.5870126805517776,0.4375,0,0
+75,SUV,Monster Truck,Car,Car,Lap 2,Expressway,40,Highway,30,Highway,30,SUV,0.6912529949658196,0,2025-12-24 22:34:45.934234,,,,,,
+74,ATV,SUV,Monster Truck,SUV,Lap 3,Highway,30,Dirt,40,Highway,30,Monster Truck,0.517835070081061,0,2025-12-24 22:33:41.421982,,,,,,
+73,Monster Truck,SUV,ATV,Monster Truck,Lap 1,Expressway,30,Potholes,60,Bumpy,10,SUV,0.8569384554467077,0,2025-12-24 22:32:49.634003,,,,,,
+72,ORV,Car,Supercar,ORV,Lap 3,Desert,45,Highway,35,Expressway,20,Car,0.6762453311478065,0,2025-12-24 22:31:33.955947,,,,,,
+71,Car,SUV,Supercar,Car,Lap 3,Potholes,15,Expressway,70,Bumpy,15,SUV,0.9142109832193128,0,2025-12-24 22:30:30.850826,,,,,,
+70,Stock Car,SUV,ORV,Stock Car,Lap 3,Expressway,10,Desert,80,Expressway,10,SUV,0.6434186091643082,0,2025-12-24 22:29:19.227945,,,,,,
+69,Monster Truck,SUV,Car,SUV,Lap 1,Expressway,20,Desert,40,Desert,40,SUV,0.7542,1,2025-12-24 22:28:38.661436,,,,,,
+68,Car,Motorcycle,Stock Car,Motorcycle,Lap 3,Potholes,40,Potholes,50,Bumpy,10,Car,0.5432,0,2025-12-24 22:27:11.100074,,,,,,
+67,ATV,Sports Car,Supercar,Sports Car,Lap 3,Dirt,40,Expressway,50,Bumpy,10,Sports Car,0.9906,1,2025-12-24 22:26:15.721976,,,,,,
+66,Stock Car,Sports Car,SUV,Stock Car,Lap 2,Bumpy,30,Bumpy,35,Potholes,35,SUV,0.9988,0,2025-12-24 22:22:01.274337,,,,,,
+65,ORV,Monster Truck,ATV,Monster Truck,Lap 2,Potholes,45,Potholes,45,Expressway,10,ORV,0.9993990006009994,0,2025-12-24 22:19:52.355905,,,,,,
+64,ORV,Motorcycle,ATV,ATV,Lap 1,Potholes,30,Desert,50,Dirt,20,ORV,0.999998000004,0,2025-12-24 22:18:41.618177,,,,,,
+63,Motorcycle,Car,Stock Car,Car,Lap 2,Potholes,40,Bumpy,20,Dirt,40,Stock Car,0.5952,0,2025-12-24 22:17:41.167421,,,,,,
+62,ATV,Motorcycle,Stock Car,Stock Car,Lap 2,Highway,60,Desert,20,Bumpy,20,Motorcycle,0.8627991372008627,0,2025-12-24 22:14:28.937663,,,,,,
+61,Stock Car,Motorcycle,Supercar,Motorcycle,Lap 1,Expressway,15,Potholes,60,Expressway,25,Supercar,0.9306,0,2025-12-24 22:13:26.101714,,,,,,
+60,Monster Truck,Stock Car,Supercar,Monster Truck,Lap 1,Potholes,15,Desert,15,Expressway,70,Monster Truck,0.5224,1,2025-12-24 22:12:22.312930,,,,,,
+59,Sports Car,Supercar,ORV,ORV,Lap 2,Potholes,45,Potholes,45,Desert,10,Supercar,0.9195990804009196,0,,,,,,,
+58,Supercar,Sports Car,SUV,SUV,Lap 3,Potholes,10,Bumpy,80,Dirt,10,Supercar,0.7483992516007484,0,,,,,,,
+57,Stock Car,ATV,SUV,Stock Car,Lap 2,Desert,30,Potholes,40,Highway,30,SUV,0.999998000004,0,,,,,,,
+56,ATV,SUV,Car,ATV,Lap 2,Highway,30,Potholes,30,Potholes,40,SUV,0.999998000004,0,,,,,,,
+55,SUV,Stock Car,Monster Truck,Monster Truck,Lap 3,Potholes,35,Potholes,35,Expressway,30,SUV,0.999998000004,0,,,,,,,
+54,Motorcycle,Sports Car,Car,Car,Lap 2,Expressway,60,Potholes,20,Potholes,20,Car,0.564,1,,,,,,,
+53,Supercar,SUV,ORV,SUV,Lap 1,Desert,20,Expressway,70,Bumpy,10,SUV,0.8286,1,,,,,,,
+52,Motorcycle,ATV,Stock Car,Stock Car,Lap 2,Desert,80,Expressway,10,Desert,10,Stock Car,0.6721993278006723,1,,,,,,,
+51,Monster Truck,Motorcycle,ORV,Monster Truck,Lap 2,Potholes,30,Potholes,40,Expressway,30,ORV,0.999998000004,0,,,,,,,
+50,Supercar,Car,SUV,SUV,Lap 3,Bumpy,10,Potholes,70,Expressway,20,Supercar,0.9937990062009938,0,,,,,,,
+49,ORV,Monster Truck,SUV,SUV,Lap 1,Dirt,10,Dirt,80,Highway,10,,,,,,,,,,
+48,ATV,ORV,Car,ORV,Lap 3,Bumpy,20,Dirt,60,Desert,20,,,,,,,,,,
+47,Motorcycle,Monster Truck,SUV,SUV,Lap 1,Bumpy,10,Dirt,45,Dirt,45,,,,,,,,,,
+46,Stock Car,Supercar,ATV,Supercar,Lap 3,Highway,20,Dirt,30,Highway,50,,,,,,,,,,
+45,Motorcycle,Car,ORV,ORV,Lap 1,Bumpy,10,Desert,40,Dirt,50,,,,,,,,,,
+44,Stock Car,ORV,Sports Car,ORV,Lap 2,Expressway,30,Potholes,35,Expressway,35,,,,,,,,,,
+43,ORV,Motorcycle,ATV,Motorcycle,Lap 1,Potholes,25,Highway,50,Potholes,25,,,,,,,,,,
+42,SUV,Motorcycle,Sports Car,SUV,Lap 1,Bumpy,20,Highway,20,Dirt,60,,,,,,,,,,
+41,ATV,Motorcycle,ORV,ORV,Lap 2,Desert,20,Bumpy,70,Desert,10,,,,,,,,,,
+40,Sports Car,Stock Car,ORV,Stock Car,Lap 1,Dirt,20,Highway,50,Potholes,30,,,,,,,,,,
+39,Monster Truck,Stock Car,ORV,Monster Truck,Lap 3,Expressway,10,Highway,80,Potholes,10,,,,,,,,,,
+38,ATV,Motorcycle,Sports Car,ATV,Lap 3,Potholes,60,Desert,30,Bumpy,10,,,,,,,,,,
+37,Stock Car,Car,SUV,Stock Car,Lap 2,Potholes,40,Desert,20,Highway,40,,,,,,,,,,
+36,Sports Car,ORV,Car,ORV,Lap 1,Desert,20,Bumpy,60,Potholes,20,,,,,,,,,,
+35,Sports Car,Motorcycle,Supercar,Motorcycle,Lap 1,Potholes,35,Potholes,35,Bumpy,30,,,,,,,,,,
+34,ORV,Car,Monster Truck,Car,Lap 3,Highway,70,Highway,10,Potholes,20,,,,,,,,,,
+33,ORV,Sports Car,Monster Truck,ORV,Lap 1,Bumpy,25,Bumpy,25,Dirt,50,,,,,,,,,,
+32,Sports Car,ORV,SUV,ORV,Lap 1,Desert,30,Desert,30,Bumpy,40,,,,,,,,,,
+31,ORV,Supercar,Car,ORV,Lap 2,Desert,30,Potholes,10,Potholes,60,,,,,,,,,,
+30,Supercar,Monster Truck,ATV,ATV,Lap 1,Highway,25,Expressway,15,Desert,60,,,,,,,,,,
+29,Monster Truck,Motorcycle,ATV,Monster Truck,Lap 3,Expressway,40,Expressway,30,Desert,30,Motorcycle,0.5202,0,,,,,,,
+28,Monster Truck,ORV,ATV,ORV,Lap 2,Dirt,45,Dirt,45,Potholes,10,ORV,0.999998000004,1,,,,,,,
+27,Monster Truck,ORV,SUV,Monster Truck,Lap 1,Potholes,30,Desert,10,Potholes,60,SUV,0.9201990798009204,0,,,,,,,
+26,Motorcycle,SUV,Monster Truck,Motorcycle,Lap 1,Desert,35,Potholes,10,Highway,55,SUV,0.999998000004,0,,,,,,,
+25,Stock Car,Motorcycle,Monster Truck,Monster Truck,Lap 2,Potholes,40,Dirt,20,Bumpy,40,Stock Car,0.999998000004,0,,,,,,,
+24,Car,ORV,Motorcycle,Motorcycle,Lap 2,Potholes,33,Potholes,33,Potholes,34,ORV,0.999998000004,0,,,,,,,
+23,Sports Car,Motorcycle,SUV,Motorcycle,Lap 2,Potholes,30,Potholes,30,Bumpy,40,SUV,0.999998000004,0,,,,,,,
+22,Supercar,Sports Car,ORV,Supercar,Lap 3,Desert,10,Expressway,70,Dirt,20,Supercar,0.9823990176009824,1,,,,,,,
+21,Supercar,Sports Car,ORV,Sports Car,Lap 3,Desert,10,Expressway,70,Dirt,20,Supercar,0.9823990176009824,0,,,,,,,
+20,Monster Truck,Sports Car,ATV,ATV,Lap 1,Desert,10,Dirt,10,Desert,80,Monster Truck,0.9553990446009554,0,,,,,,,
+19,Monster Truck,Supercar,Car,Monster Truck,Lap 1,Dirt,20,Potholes,50,Highway,30,Supercar,0.999998000004,0,,,,,,,
+18,Supercar,Sports Car,Stock Car,Sports Car,Lap 1,Highway,30,Bumpy,50,Highway,20,Supercar,0.9951990048009952,0,,,,,,,
+17,ORV,Stock Car,Motorcycle,ORV,Lap 3,Highway,30,Bumpy,50,Expressway,20,ORV,0.999998000004,1,,,,,,,
+16,SUV,Motorcycle,Sports Car,Motorcycle,Lap 3,Potholes,30,Bumpy,40,Desert,30,SUV,0.999998000004,0,,,,,,,
+15,Sports Car,ATV,Stock Car,ATV,Lap 3,Desert,25,Potholes,50,Dirt,25,Stock Car,0.848999151000849,0,,,,,,,
+14,Stock Car,Sports Car,ATV,Sports Car,Lap 1,Desert,20,Dirt,50,Highway,30,Stock Car,0.8368,0,,,,,,,
+13,ORV,Car,Stock Car,Stock Car,Lap 1,Desert,40,Potholes,20,Desert,40,ORV,0.999998000004,0,,,,,,,
+12,ORV,Stock Car,Sports Car,Stock Car,Lap 2,Bumpy,20,Desert,10,Potholes,70,ORV,0.9945990054009946,0,,,,,,,
+11,ORV,Car,Stock Car,ORV,Lap 3,Desert,10,Bumpy,60,Expressway,30,ORV,0.9985990014009986,1,,,,,,,
+10,Stock Car,Supercar,Monster Truck,Stock Car,Lap 1,Highway,10,Desert,45,Desert,45,Supercar,0.668999331000669,0,,,,,,,
+9,ORV,Supercar,SUV,SUV,Lap 2,Dirt,70,Desert,10,Dirt,20,ORV,0.6396,0,,,,,,,
+8,Monster Truck,ATV,Sports Car,Sports Car,Lap 1,Desert,20,Expressway,50,Desert,30,Monster Truck,0.9443990556009444,0,,,,,,,
+7,Motorcycle,Car,SUV,Motorcycle,Lap 3,Potholes,35,Dirt,35,Desert,30,SUV,0.999998000004,0,,,,,,,
+6,Sports Car,ATV,Motorcycle,Motorcycle,Lap 2,Potholes,30,Potholes,30,Expressway,40,Sports Car,0.8455991544008455,0,,,,,,,
+5,Monster Truck,Stock Car,ORV,ORV,Lap 1,Dirt,30,Desert,10,Bumpy,60,ORV,0.9993990006009994,1,,,,,,,
+4,Car,Supercar,ORV,ORV,Lap 1,Desert,10,Potholes,10,Bumpy,80,ORV,0.927999072000928,1,,,,,,,
+3,Stock Car,Monster Truck,SUV,Stock Car,Lap 1,Dirt,30,Desert,40,Potholes,30,SUV,0.999998000004,0,,,,,,,
+2,Supercar,Monster Truck,Car,Car,Lap 3,Bumpy,30,Highway,50,Desert,20,Monster Truck,0.7787992212007786,0,,,,,,,
+1,Monster Truck,ORV,SUV,Monster Truck,Lap 1,Highway,10,Dirt,10,Potholes,80,ORV,0.7363992636007365,0,,,,,,,
+0,Supercar,Stock Car,Car,Car,Lap 3,Bumpy,30,Dirt,40,Expressway,30,Supercar,0.6326,0,,,,,,,
