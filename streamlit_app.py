@@ -1762,10 +1762,10 @@ if history is not None and not history.empty:
         else:
             st.info("Record more races to see Lane win rates.")
 
-    # -----------------------------------------------------
-    # 8) DATA QUALITY CHECKER
-    # -----------------------------------------------------
-    def csv_health_check(df: pd.DataFrame):
+    # ---------------------------------------------------------
+# CSV HEALTH CHECK FUNCTION
+# ---------------------------------------------------------
+def csv_health_check(df: pd.DataFrame):
     issues = []
     if df is None or df.empty:
         issues.append("CSV is empty or failed to load.")
@@ -1786,42 +1786,44 @@ if history is not None and not history.empty:
         issues.append("CSV contains missing values.")
 
     return issues
-    
-    with tabs[7]:
-        st.write("### 🧹 Data Quality Checker")
 
-        issues = st.session_state.get("data_quality_issues", [])
+# ---------------------------------------------------------
+# TAB 7 — DATA QUALITY CHECKER
+# ---------------------------------------------------------
+with tabs[7]:
+    st.write("### 🧹 Data Quality Checker")
 
-        if not issues:
-            st.success("✅ No data quality issues detected by auto-cleaner.")
+    issues = st.session_state.get("data_quality_issues", [])
+
+    if not issues:
+        st.success("✅ No data quality issues detected by auto-cleaner.")
+    else:
+        st.warning("⚠️ Issues detected and auto-corrected at load time:")
+        for i in issues:
+            st.write(f"- {i}")
+
+    geom = compute_learned_geometry(history)
+
+    if geom is not None and not geom.empty:
+        unstable = geom[geom["std"] > geom["mean"] * 0.6]
+
+        if not unstable.empty:
+            st.error("⚠️ Geometry instability detected:")
+            st.dataframe(unstable, use_container_width=True)
         else:
-            st.warning("⚠️ Issues detected and auto-corrected at load time:")
-            for i in issues:
-                st.write(f"- {i}")
+            st.success("✅ Geometry looks stable.")
+    else:
+        st.info("Not enough data yet to evaluate geometry stability.")
 
-        geom = compute_learned_geometry(history)
+    st.write("### 🧹 CSV Health Check")
+    csv_issues = csv_health_check(history)
 
-        if geom is not None and not geom.empty:
-            unstable = geom[geom["std"] > geom["mean"] * 0.6]
-
-            if not unstable.empty:
-                st.error("⚠️ Geometry instability detected:")
-                st.dataframe(unstable, use_container_width=True)
-            else:
-                st.success("✅ Geometry looks stable.")
-        else:
-            st.info("Not enough data yet to evaluate geometry stability.")
-
-        st.write("### 🧹 CSV Health Check")
-        csv_issues = csv_health_check(history)
-
-        if not csv_issues:
-            st.success("✅ CSV is healthy and fully compatible.")
-        else:
-            st.error("⚠️ Issues detected:")
-            for i in csv_issues:
-                st.write(f"- {i}")
-
+    if not csv_issues:
+        st.success("✅ CSV is healthy and fully compatible.")
+    else:
+        st.error("⚠️ Issues detected:")
+        for i in csv_issues:
+            st.write(f"- {i}")
     # -----------------------------------------------------
     # 9) RAW HISTORY
     # -----------------------------------------------------
