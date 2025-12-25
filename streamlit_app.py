@@ -818,78 +818,70 @@ with st.sidebar:
     k_idx = lap_map[slot_name]
     k_type = st.selectbox("Revealed Track", TRACK_OPTIONS)
 
-    st.divider()
-    v1_sel = st.selectbox("Vehicle 1", ALL_VEHICLES, index=ALL_VEHICLES.index("Supercar"))
-    v2_sel = st.selectbox("Vehicle 2", [v for v in ALL_VEHICLES if v != v1_sel], index=0)
-    v3_sel = st.selectbox("Vehicle 3", [v for v in ALL_VEHICLES if v not in [v1_sel, v2_sel]], index=0)
+st.divider()
+v1_sel = st.selectbox("Vehicle 1", ALL_VEHICLES, index=ALL_VEHICLES.index("Supercar"))
+v2_sel = st.selectbox("Vehicle 2", [v for v in ALL_VEHICLES if v != v1_sel], index=0)
+v3_sel = st.selectbox("Vehicle 3", [v for v in ALL_VEHICLES if v not in [v1_sel, v2_sel]], index=0)
 
-    # Precompute model skill based on history
-    model_skill = compute_model_skill(history)
+# Precompute model skill based on history
+model_skill = compute_model_skill(history)
 
-    if st.button("🚀 PREDICT", type="primary", use_container_width=True):
-        # Simulation-based probabilities
-        sim_probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
+if st.button("🚀 PREDICT", type="primary", use_container_width=True):
 
-        # ML-based probabilities (if model exists)
-        ml_probs = None
-        ml_model, n_samples = get_trained_model(history)
-        if ml_model is not None:
-            X_curr = build_single_feature_row(v1_sel, v2_sel, v3_sel, k_idx, k_type)
-            proba = ml_model.predict_proba(X_curr)[0]
-            ml_probs = {
-                v1_sel: float(proba[0] * 100.0),
-                v2_sel: float(proba[1] * 100.0),
-                v3_sel: float(proba[2] * 100.0),
-            }
+    # Simulation-based probabilities
+    sim_probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
 
-        final_probs = sim_probs
-        p_ml_store = ml_probs
+    # ML-based probabilities (if model exists)
+    ml_probs = None
+    ml_model, n_samples = get_trained_model(history)
+    if ml_model is not None:
+        X_curr = build_single_feature_row(v1_sel, v2_sel, v3_sel, k_idx, k_type)
+        proba = ml_model.predict_proba(X_curr)[0]
+        ml_probs = {
+            v1_sel: float(proba[0] * 100.0),
+            v2_sel: float(proba[1] * 100.0),
+            v3_sel: float(proba[2] * 100.0),
+        }
 
-# --- PERFORMANCE-DRIVEN BLENDING (UPGRADED) ---
-blend_weight = 0.0
+    final_probs = sim_probs
+    p_ml_store = ml_probs
 
-if ml_probs is not None:
-    # Default ML trust when no skill data
-    blend_weight = 0.45
+    # --- PERFORMANCE-DRIVEN BLENDING (UPGRADED) ---
+    blend_weight = 0.0
 
-    if model_skill is not None:
-        sim_brier = model_skill["sim_brier"]
-        ml_brier = model_skill["ml_brier"]
-        n_skill = model_skill["n"]
+    if ml_probs is not None:
+        blend_weight = 0.45
 
-        # Require at least 30 samples for stable comparison
-        if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
+        if model_skill is not None:
+            sim_brier = model_skill["sim_brier"]
+            ml_brier = model_skill["ml_brier"]
+            n_skill = model_skill["n"]
 
-            # Relative improvement (positive = ML better)
-            improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
+            if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
+                improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
 
-            # Convert improvement into weight
-            # ML can dominate up to 95% if consistently better
-            if improvement > 0:
-                blend_weight = float(np.clip(0.45 + improvement * 0.8, 0.45, 0.95))
-            else:
-                # ML worse → reduce weight but never below 0.2
-                degradation = abs(improvement)
-                blend_weight = float(np.clip(0.45 - degradation * 0.4, 0.20, 0.45))
+                if improvement > 0:
+                    blend_weight = float(np.clip(0.45 + improvement * 0.8, 0.45, 0.95))
+                else:
+                    degradation = abs(improvement)
+                    blend_weight = float(np.clip(0.45 - degradation * 0.4, 0.20, 0.45))
 
-# Final clamp for safety
-blend_weight = float(np.clip(blend_weight, 0.20, 0.95))
+    blend_weight = float(np.clip(blend_weight, 0.20, 0.95))
 
-# Apply blending
-if ml_probs is not None:
-    final_probs = {
-        v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
-        for v in [v1_sel, v2_sel, v3_sel]
+    if ml_probs is not None:
+        final_probs = {
+            v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
+            for v in [v1_sel, v2_sel, v3_sel]
+        }
+
+    # Store results
+    st.session_state['res'] = {
+        'p': final_probs,
+        'vpi': vpi_res,
+        'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
+        'p_sim': sim_probs,
+        'p_ml': p_ml_store,
     }
-
-# Store results
-st.session_state['res'] = {
-    'p': final_probs,
-    'vpi': vpi_res,
-    'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
-    'p_sim': sim_probs,
-    'p_ml': p_ml_store,
-}
 # ---------------------------------------------------------
 # 9. MAIN DASHBOARD
 # ---------------------------------------------------------
