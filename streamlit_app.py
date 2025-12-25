@@ -1119,7 +1119,7 @@ with Q1:
         st.session_state.trigger_prediction = True
         
 # ---------------------------------------------------------
-# Q2 — COMPACT PREDICTION PANEL (TOP-RIGHT)
+# Q2 — COMPACT PREDICTION PANEL (TOP-RIGHT) — FINAL
 # ---------------------------------------------------------
 with Q2:
     st.markdown("### 📡 Prediction & Bet Guidance")
@@ -1131,27 +1131,20 @@ with Q2:
         k_type = st.session_state.selected_terrain
         v1, v2, v3 = st.session_state.selected_vehicles
 
-        # -----------------------------
-        # RUN PREDICTION
-        # -----------------------------
-        res = run_full_prediction(v1, v2, v3, k_idx, k_type, history)
+        # IMPORTANT: clear stale form widget state before new prediction
+        for k in [
+            "lap1_track", "lap2_track", "lap3_track",
+            "lap1_len", "lap2_len", "lap3_len",
+            "actual_winner"
+        ]:
+            if k in st.session_state:
+                del st.session_state[k]
 
-        # -----------------------------
-        # STORE CORRECT CONTEXT (CRITICAL FIX)
-        # -----------------------------
-        res['ctx'] = {
-            "idx": k_idx,                          # lap index
-            "t": k_type,                           # terrain label (Highway, Expressway, etc.)
-            "slot": st.session_state.selected_lap, # Lap 1 / Lap 2 / Lap 3
-            "v": [v1, v2, v3]                      # vehicles
-        }
+        # This function writes st.session_state['res']
+        run_full_prediction(v1, v2, v3, k_idx, k_type, history)
 
-        st.session_state['res'] = res
         st.session_state.trigger_prediction = False
 
-    # -----------------------------------------------------
-    # DISPLAY PANEL
-    # -----------------------------------------------------
     if 'res' not in st.session_state:
         st.info("Set up the race on the left and run a prediction.")
     else:
@@ -1160,7 +1153,6 @@ with Q2:
         probs = res['p']
         vpi = res['vpi']
 
-        # Top row: global accuracy + winner
         top_col1, top_col2 = st.columns(2)
 
         with top_col1:
@@ -1174,7 +1166,6 @@ with Q2:
             predicted_winner = max(probs, key=probs.get)
             st.metric("🏆 Predicted Winner", predicted_winner)
 
-        # Probabilities
         st.markdown("#### 📊 Win Probabilities")
         for v in res['ctx']['v']:
             p_val = probs[v]
@@ -1183,7 +1174,6 @@ with Q2:
             st.markdown(f"- **{v}**: {p_val:.1f}%{boost_str}")
             confidence_bar(v, p_val)
 
-        # Volatility + bet safety
         st.markdown("#### ⚡ Volatility & Safety")
         st.write(f"Volatility Gap: **{meta['volatility_gap_pp']} pp**")
         st.write(f"Market: **{meta['volatility_label']}**")
@@ -1196,7 +1186,6 @@ with Q2:
         else:
             st.success("**FAVORABLE** — Strong, stable edge detected.")
 
-        # Tightness + regret
         sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
         (_, p1), (_, p2) = sorted_probs[0], sorted_probs[1]
         margin = p1 - p2
@@ -1207,7 +1196,6 @@ with Q2:
         c2.metric("Top‑2 Margin", f"{margin:.1f} pts")
         c3.metric("Expected Regret", f"{meta['expected_regret']:.2f}")
 
-        # Diagnostics
         with st.expander("🔍 Detailed diagnostics"):
             if res.get('p_sim') and res.get('p_ml'):
                 sim_winner = max(res['p_sim'], key=res['p_sim'].get)
@@ -1227,8 +1215,7 @@ with Q2:
                 "Revealed Track": res['ctx']['t'],
                 "Winner": predicted_winner,
                 "Probabilities": probs
-            })
-            
+            })            
 # ---------------------------------------------------------
 # Q3 — SAVE RACE REPORT (BOTTOM-LEFT, COMPACT, WIDGET-STATE FIX)
 # ---------------------------------------------------------
