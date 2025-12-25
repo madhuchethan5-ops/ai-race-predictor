@@ -846,7 +846,6 @@ def run_simulation(
 # ---------------------------------------------------------
 # 8. SIDEBAR (SETUP & PREDICTION) WITH PERFORMANCE-DRIVEN BLENDING
 # ---------------------------------------------------------
-
 with st.sidebar:
     st.header("🚦 Race Setup")
     lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
@@ -859,7 +858,6 @@ with st.sidebar:
     v2_sel = st.selectbox("Vehicle 2", [v for v in ALL_VEHICLES if v != v1_sel], index=0)
     v3_sel = st.selectbox("Vehicle 3", [v for v in ALL_VEHICLES if v not in [v1_sel, v2_sel]], index=0)
 
-    # Precompute model skill based on history
     model_skill = compute_model_skill(history)
 
     if st.button("🚀 PREDICT", type="primary", use_container_width=True):
@@ -867,7 +865,7 @@ with st.sidebar:
         # Simulation-based probabilities
         sim_probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
 
-        # ML-based probabilities (if model exists)
+        # ML-based probabilities
         ml_probs = None
         ml_model, n_samples = get_trained_model(history)
         if ml_model is not None:
@@ -882,7 +880,7 @@ with st.sidebar:
         final_probs = sim_probs
         p_ml_store = ml_probs
 
-        # --- PERFORMANCE-DRIVEN BLENDING (UPGRADED) ---
+        # --- PERFORMANCE-DRIVEN BLENDING ---
         blend_weight = 0.0
 
         if ml_probs is not None:
@@ -909,11 +907,20 @@ with st.sidebar:
                 v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
                 for v in [v1_sel, v2_sel, v3_sel]
             }
+        else:
+            final_probs = sim_probs
 
-        # --- VOLATILITY (Top - Second) ---
+        # --- Identify predicted winner ---
+        predicted_winner = max(final_probs, key=final_probs.get)
+        p1 = final_probs[predicted_winner]
+
+        # --- EXPECTED REGRET ---
+        expected_regret = p1 / 100.0
+
+        # --- VOLATILITY ---
         sorted_probs = sorted(final_probs.items(), key=lambda kv: kv[1], reverse=True)
-        (top_vehicle, p1), (_, p2) = sorted_probs[0], sorted_probs[1]
-        vol_gap = round(p1 - p2, 2)  # percentage points
+        (top_vehicle, p1_sorted), (_, p2) = sorted_probs[0], sorted_probs[1]
+        vol_gap = round(p1_sorted - p2, 2)
 
         # Volatility label
         if vol_gap < 5:
@@ -923,7 +930,7 @@ with st.sidebar:
         else:
             vol_label = "Calm"
 
-        # --- BET SAFETY CLASSIFICATION ---
+        # --- BET SAFETY ---
         if p1 < 40:
             bet_safety = "AVOID"
         elif vol_gap < 5:
