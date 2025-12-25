@@ -318,7 +318,7 @@ def train_ml_model(history_df: pd.DataFrame):
 
     preprocessor = ColumnTransformer(
         transformers=[
-            ("cat", OneHotEncoder(handle_unknown="ignore"), cat_features),
+            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_features),
             ("num", "passthrough", num_features),
         ]
     )
