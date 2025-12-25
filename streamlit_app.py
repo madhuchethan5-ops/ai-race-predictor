@@ -1029,19 +1029,26 @@ with Q1:
     
     veh_keys = list(VEHICLE_ICONS.keys())
     
-    # Initialise per‑vehicle selection state once
+    # Initialise per-vehicle selection state once
     if "vehicle_selections" not in st.session_state:
         st.session_state.vehicle_selections = {v: False for v in veh_keys}
     
-    # Count how many are currently selected
+    # ---- CLEAR SELECTION BUTTON (runs BEFORE rendering) ----
+    clear_clicked = st.button("🧹 Clear Selection")
+    
+    if clear_clicked:
+        for v in st.session_state.vehicle_selections:
+            st.session_state.vehicle_selections[v] = False
+        # No rerun needed; the rest of this block will now see 0 selected
+    
+    # ---- Compute selection count after possible clear ----
     current_selected = [
         v for v, val in st.session_state.vehicle_selections.items() if val
     ]
     n_selected = len(current_selected)
-    
-    # We allow selecting up to 3
     MAX_VEHICLES = 3
     
+    # ---- Render checkboxes + icons ----
     rows = [veh_keys[i:i+3] for i in range(0, len(veh_keys), 3)]
     
     for row in rows:
@@ -1058,33 +1065,22 @@ with Q1:
                     disabled=disabled
                 )
     
-                # Update internal selection state
                 st.session_state.vehicle_selections[v] = checked
     
-                # Small, fast‑loading icon
                 st.image(
                     VEHICLE_ICONS[v],
                     width=60,
                 )
     
-    # Recompute selected vehicles after all checkboxes
+    # ---- Recompute final selection list after all checkboxes ----
     st.session_state.selected_vehicles = [
         v for v, val in st.session_state.vehicle_selections.items() if val
     ]
     
-    # Show selected as a compact list
     if st.session_state.selected_vehicles:
         st.markdown("**Selected Vehicles:** " + ", ".join(st.session_state.selected_vehicles))
     else:
         st.caption("Select up to 3 vehicles to enable prediction.")
-    # -------------------------
-    # CLEAR SELECTION BUTTON
-    # -------------------------
-    if st.button("🧹 Clear Selection"):
-        for v in st.session_state.vehicle_selections:
-            st.session_state.vehicle_selections[v] = False
-        st.session_state.selected_vehicles = []
-        st.rerun()
 
     # 3. PREDICT BUTTON
     ready = (
