@@ -605,6 +605,36 @@ def run_simulation(
 ):
     vehicles = [v1, v2, v3]
 
+    # 1. BAYESIAN REINFORCEMENT (VPI)
+    vpi_raw = {v: 1.0 for v in vehicles}
+
+    if not history_df.empty and 'Actual_Winner' in history_df.columns:
+        winners = history_df['Actual_Winner'].dropna()
+        wins = winners.value_counts()
+
+        if any(c.startswith('Vehicle_') for c in history_df.columns):
+            all_veh = pd.concat(
+                [history_df[c] for c in history_df.columns if c.startswith('Vehicle_')],
+                axis=0
+            ).dropna()
+            races = all_veh.value_counts()
+        else:
+            races = wins
+
+        posterior_means = {}
+        for v in vehicles:
+            w = wins.get(v, 0)
+            r = races.get(v, w)
+            post = (w + alpha_prior) / (r + alpha_prior + beta_prior)
+            posterior_means[v] = post
+
+        mean_post = np.mean(list(posterior_means.values())) if posterior_means else 1.0
+        if mean_post > 0:
+            for v in vehicles:
+                vpi_raw[v] = posterior_means[v] / mean_post
+
+    vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
+
     # --- PHYSICS BIAS ADJUSTMENT ---
     def get_physics_bias(history_df):
         """
@@ -676,7 +706,7 @@ def run_simulation(
         mu = float(df[col_len].mean())
         sigma = float(max(df[col_len].std(), 1.0))
         return mu, sigma
-        
+
     # 3. MARKOV TRANSITIONS
     lap_probs = {0: None, 1: None, 2: None}
     if not history_df.empty:
@@ -699,6 +729,7 @@ def run_simulation(
                         arr = row.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
                         arr = arr + smoothing
                         global_transitions[j] = arr / arr.sum()
+
             for j in range(3):
                 if j == k_idx:
                     continue
@@ -757,7 +788,7 @@ def run_simulation(
         }
 
     # 5. NOISE MODELING (vectorized speed lookup per track)
-    def sample_vehicle_times(vehicle, vpi):
+    def sample_vehicle_times(vehicle, vpi_local):
         speed_map = adjusted_speed_data[vehicle]
 
         base_speed = np.empty_like(terrain_matrix, dtype=float)
@@ -772,7 +803,7 @@ def run_simulation(
         effective_speed = base_speed * veh_factor * lap_factor
         effective_speed = np.clip(effective_speed, 0.1, None)
 
-        return np.sum(len_matrix / (effective_speed * vpi[vehicle]), axis=1)
+        return np.sum(len_matrix / (effective_speed * vpi_local[vehicle]), axis=1)
 
     # Sample times for each vehicle
     results = {v: sample_vehicle_times(v, vpi) for v in vehicles}
@@ -785,7 +816,7 @@ def run_simulation(
     raw_probs = np.array([freq.get(i, 0.0) for i in range(3)], dtype=float)
     raw_probs = np.clip(raw_probs, 1e-6, 1.0)
     raw_probs /= raw_probs.sum()
-    
+
     # 7. TEMPERATURE CALIBRATION
     def estimate_temperature_from_history(df):
         if df.empty or 'Top_Prob' not in df.columns or 'Was_Correct' not in df.columns:
@@ -797,11 +828,8 @@ def run_simulation(
         avg_acc = recent['Was_Correct'].mean()
         if avg_conf <= 0 or avg_acc <= 0:
             return 1.0
-        # Stronger calibration: use absolute calibration error
-        calib_error = abs(avg_conf - avg_acc)
 
-        # Base temperature = 1.0 (no change)
-        # Add up to +1.0 depending on how bad calibration is
+        calib_error = abs(avg_conf - avg_acc)
         temp = float(np.clip(1.0 + calib_error * 2.0, 0.8, 2.0))
 
         return float(temp)
