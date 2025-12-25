@@ -587,20 +587,6 @@ if 'res' in st.session_state:
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
-# Export latest history for GitHub sync
-st.divider()
-tabs = st.tabs([
-    "📊 Performance Dashboard",
-    "📈 Learning Curves",
-    "🎯 Calibration Analyzer",
-    "🌊 Drift Detector",
-    "⚡ Volatility & Importance",
-    "🧠 ML Pattern Brain",
-    "🚦 Lane Tracker",
-    "🧹 Data Quality Checker",
-    "📂 History",
-    "🧪 What-If Simulator"
-])
 
 # ---------------------------------------------------------
 # 8. SAVE RACE REPORT
