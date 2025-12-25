@@ -1047,46 +1047,45 @@ with Q1:
 
     st.markdown("---")
 
-    # -------------------------
-    # 3. VEHICLE SELECTOR (3×3 Image Grid)
-    # -------------------------
-    st.markdown("### 🚗 Select 3 Vehicles")
+# -------------------------
+# 3. VEHICLE SELECTOR (Optimized Grid)
+# -------------------------
+st.markdown("### 🚗 Select 3 Vehicles")
 
-    v_cols = st.columns(3)
-    vehicle_list = list(VEHICLE_ICONS.keys())
+v_cols = st.columns(3)
+vehicle_list = list(VEHICLE_ICONS.keys())
 
-    for i, veh in enumerate(vehicle_list):
-        col = v_cols[i % 3]
+for i, veh in enumerate(vehicle_list):
+    col = v_cols[i % 3]
+    with col:
+        selected = veh in st.session_state.selected_vehicles
+        img_path = f"assets/vehicles/{veh}.png"
 
-        with col:
-            selected = veh in st.session_state.selected_vehicles
+        # Fallback if image missing
+        if not os.path.exists(img_path):
+            img_path = "assets/vehicles/placeholder.png"
 
-            # FIXED IMAGE PATH
-            img_path = f"assets/vehicles/{veh}.png"
+        # Render image tile
+        tile_html = f"""
+        <div style="border:3px solid {'#E53935' if selected else '#CCCCCC'};
+                    border-radius:8px;
+                    padding:4px;
+                    text-align:center;
+                    cursor:pointer;"
+             onclick="fetch('{veh}')">
+            <img src="{img_path}" style="width:100%; height:auto; border-radius:4px;" />
+            <div style="font-size:0.85rem; margin-top:4px;">{veh}</div>
+        </div>
+        """
+        st.markdown(tile_html, unsafe_allow_html=True)
 
-            clicked, tile_html = image_tile_button(
-                label=veh,
-                img_path=img_path,
-                key=f"veh_{veh}",
-                selected=selected
-            )
-
-            st.markdown(tile_html, unsafe_allow_html=True)
-
-            if clicked:
-                if selected:
-                    st.session_state.selected_vehicles.remove(veh)
-                else:
-                    if len(st.session_state.selected_vehicles) < 3:
-                        st.session_state.selected_vehicles.append(veh)
-
-    st.info(f"Selected Vehicles: {st.session_state.selected_vehicles}")
-
-    if st.button("Clear Vehicles", use_container_width=True):
-        st.session_state.selected_vehicles = []
-
-    st.markdown("---")
-
+        # Selection logic
+        if st.button(f"Select {veh}", key=f"veh_btn_{veh}", use_container_width=True):
+            if selected:
+                st.session_state.selected_vehicles.remove(veh)
+            else:
+                if len(st.session_state.selected_vehicles) < 3:
+                    st.session_state.selected_vehicles.append(veh)
     # -------------------------
     # 4. PREDICT BUTTON
     # -------------------------
