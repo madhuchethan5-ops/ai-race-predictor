@@ -23,24 +23,24 @@ st.set_page_config(
 # ---------------------------------------------------------
 
 TERRAIN_ICONS = {
-    "Expressway": "assets/terrain/expressway.png",
-    "Highway": "assets/terrain/highway.png",
-    "Bumpy": "assets/terrain/bumpy.png",
-    "Dirt": "assets/terrain/dirt.png",
-    "Potholes": "assets/terrain/potholes.png",
-    "Desert": "assets/terrain/desert.png",
+    "Expressway": "assets/terrain/Expressway.png",
+    "Highway": "assets/terrain/Highway.png",
+    "Bumpy": "assets/terrain/Bumpy.png",
+    "Dirt": "assets/terrain/Dirt.png",
+    "Potholes": "assets/terrain/Potholes.png",
+    "Desert": "assets/terrain/Desert.png",
 }
 
 VEHICLE_ICONS = {
-    "Supercar": "assets/vehicles/supercar.png",
-    "Sports Car": "assets/vehicles/sports_car.png",
-    "Car": "assets/vehicles/car.png",
-    "Stock Car": "assets/vehicles/stock_car.png",
-    "SUV": "assets/vehicles/suv.png",
-    "ORV": "assets/vehicles/orv.png",
-    "ATV": "assets/vehicles/atv.png",
-    "Motorcycle": "assets/vehicles/motorcycle.png",
-    "Monster Truck": "assets/vehicles/monster_truck.png",
+    "Supercar": "assets/vehicles/Supercar.png",
+    "Sports Car": "assets/vehicles/SportsCar.png",
+    "Car": "assets/vehicles/Car.png",
+    "Stock Car": "assets/vehicles/StockCar.png",
+    "SUV": "assets/vehicles/SUV.png",
+    "ORV": "assets/vehicles/ORV.png",
+    "ATV": "assets/vehicles/ATV.png",
+    "Motorcycle": "assets/vehicles/Motorcycle.png",
+    "Monster Truck": "assets/vehicles/MonsterTruck.png",
 }
 
 def clickable_tile(label, img_path, selected=False, disabled=False, key="tile"):
