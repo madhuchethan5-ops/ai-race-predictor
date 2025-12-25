@@ -1022,27 +1022,56 @@ with Q1:
 
     st.markdown("---")
 
-    # 2. VEHICLE SELECTOR (MAX 3) — COMPACT
-    st.markdown("#### 🚗 Select 3 Vehicles")
-
-    selected = st.multiselect(
-        "Vehicles",
-        list(VEHICLE_ICONS.keys()),
-        default=st.session_state.selected_vehicles,
-        max_selections=3
-    )
-    st.session_state.selected_vehicles = selected
-
-    # Show small vehicle icons on a single line
-    if selected:
-        cols = st.columns(len(selected))
-        for i, veh in enumerate(selected):
-            with cols[i]:
-                st.image(VEHICLE_ICONS[veh], width=70)
-                st.caption(veh)
-
-    st.markdown("---")
-
+    # -------------------------
+    # 2. VEHICLE SELECTOR — IMAGE GRID (Max 3)
+    # -------------------------
+    st.markdown("#### 🚗 Select up to 3 Vehicles")
+    
+    # Initialize selection state
+    if "vehicle_selections" not in st.session_state:
+        st.session_state.vehicle_selections = {v: False for v in VEHICLE_ICONS}
+    
+    # Selection logic
+    def toggle_vehicle(v):
+        selected = [k for k, val in st.session_state.vehicle_selections.items() if val]
+        if st.session_state.vehicle_selections[v]:
+            st.session_state.vehicle_selections[v] = False
+        elif len(selected) < 3:
+            st.session_state.vehicle_selections[v] = True
+    
+    # Render grid
+    veh_keys = list(VEHICLE_ICONS.keys())
+    cols = st.columns(3)
+    
+    for i, v in enumerate(veh_keys):
+        with cols[i % 3]:
+            selected = st.session_state.vehicle_selections[v]
+            border = "3px solid #E53935" if selected else "1px solid #ccc"
+            opacity = "1.0" if selected else "0.5"
+    
+            st.markdown(
+                f"""
+                <div style="text-align:center; border:{border}; border-radius:10px; padding:6px; background:#f9f9f9;">
+                    <img src="file://{os.path.abspath(VEHICLE_ICONS[v])}" 
+                         style="width:80px; height:80px; object-fit:contain; opacity:{opacity};" />
+                    <div style="margin-top:4px; font-weight:{'600' if selected else '400'};">{v}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+    
+            if st.button(f"Select {v}", key=f"veh_{v}"):
+                toggle_vehicle(v)
+    
+    # Update selected vehicles
+    st.session_state.selected_vehicles = [
+        v for v, val in st.session_state.vehicle_selections.items() if val
+    ]
+    
+    # Show selected vehicle tags
+    if st.session_state.selected_vehicles:
+        st.markdown("**Selected Vehicles:**")
+        st.write(", ".join(st.session_state.selected_vehicles))
     # 3. PREDICT BUTTON
     ready = (
         st.session_state.selected_lap is not None and
