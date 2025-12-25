@@ -1152,13 +1152,6 @@ with Q2:
         ]:
             if k in st.session_state:
                 del st.session_state[k]
-        lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
-        k_idx = lap_map[st.session_state.selected_lap]
-        k_type = st.session_state.selected_terrain
-        v1, v2, v3 = st.session_state.selected_vehicles
-
-run_full_prediction(v1, v2, v3, k_idx, k_type, history)
-st.session_state.trigger_prediction = False
 
     if 'res' not in st.session_state:
         st.info("Set up the race on the left and run a prediction.")
