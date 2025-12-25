@@ -1023,65 +1023,73 @@ with Q1:
     st.markdown("---")
 
     # -------------------------
-    # 2. VEHICLE SELECTOR — STABLE, FAST, GRAPHICAL (Max 3)
+    # 2. VEHICLE SELECTOR — ROBUST, MAX 3, WITH CLEAR
     # -------------------------
     st.markdown("#### 🚗 Select up to 3 Vehicles")
     
     veh_keys = list(VEHICLE_ICONS.keys())
+    MAX_VEHICLES = 3
     
-    # Initialise per-vehicle selection state once
+    # Initialise per-vehicle selection state
     if "vehicle_selections" not in st.session_state:
         st.session_state.vehicle_selections = {v: False for v in veh_keys}
     
-    # ---- CLEAR SELECTION BUTTON (runs BEFORE rendering) ----
+    # Track previous selection set to detect new clicks
+    if "prev_selected_vehicles" not in st.session_state:
+        st.session_state.prev_selected_vehicles = []
+    
+    # ---- CLEAR SELECTION BUTTON (runs before rendering) ----
     clear_clicked = st.button("🧹 Clear Selection")
     
     if clear_clicked:
         for v in st.session_state.vehicle_selections:
             st.session_state.vehicle_selections[v] = False
-        # No rerun needed; the rest of this block will now see 0 selected
+        st.session_state.selected_vehicles = []
+        st.session_state.prev_selected_vehicles = []
+        # No need to st.rerun(); below logic will see an empty state
     
-    # ---- Compute selection count after possible clear ----
-    current_selected = [
-        v for v, val in st.session_state.vehicle_selections.items() if val
-    ]
-    n_selected = len(current_selected)
-    MAX_VEHICLES = 3
-    
-    # ---- Render checkboxes + icons ----
+    # ---- Render checkboxes + icons (no disabling) ----
     rows = [veh_keys[i:i+3] for i in range(0, len(veh_keys), 3)]
     
     for row in rows:
         cols = st.columns(len(row))
         for i, v in enumerate(row):
             with cols[i]:
-                # Disable checkbox if we've already hit max AND this one is currently False
-                disabled = (n_selected >= MAX_VEHICLES) and (not st.session_state.vehicle_selections[v])
-    
                 checked = st.checkbox(
                     v,
                     value=st.session_state.vehicle_selections[v],
                     key=f"veh_chk_{v}",
-                    disabled=disabled
                 )
-    
                 st.session_state.vehicle_selections[v] = checked
+                st.image(VEHICLE_ICONS[v], width=60)
     
-                st.image(
-                    VEHICLE_ICONS[v],
-                    width=60,
-                )
-    
-    # ---- Recompute final selection list after all checkboxes ----
-    st.session_state.selected_vehicles = [
+    # ---- Compute current selection from checkboxes ----
+    current_selected = [
         v for v, val in st.session_state.vehicle_selections.items() if val
     ]
     
+    prev_selected = st.session_state.prev_selected_vehicles
+    
+    # ---- Enforce MAX_VEHICLES by reverting the last added one ----
+    if len(current_selected) > MAX_VEHICLES and len(current_selected) > len(prev_selected):
+        # Find which vehicle was just added
+        newly_added = list(set(current_selected) - set(prev_selected))
+        if newly_added:
+            last_added = newly_added[0]
+            # Revert that selection
+            st.session_state.vehicle_selections[last_added] = False
+            current_selected = prev_selected.copy()
+            st.warning("You can select up to 3 vehicles only.")
+    
+    # ---- Update session_state with final, valid selection ----
+    st.session_state.selected_vehicles = current_selected
+    st.session_state.prev_selected_vehicles = current_selected.copy()
+    
+    # ---- Display selected vehicles ----
     if st.session_state.selected_vehicles:
         st.markdown("**Selected Vehicles:** " + ", ".join(st.session_state.selected_vehicles))
     else:
         st.caption("Select up to 3 vehicles to enable prediction.")
-
     # 3. PREDICT BUTTON
     ready = (
         st.session_state.selected_lap is not None and
