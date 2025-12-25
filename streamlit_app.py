@@ -1268,7 +1268,7 @@ with Q3:
     # FORM BLOCK (ALWAYS RENDERED)
     # -----------------------------
     with st.expander("💾 Open save & training form", expanded=False):
-        with st.form("race_report_form"):
+        with st.form(key=None):
 
             # Actual Winner
             winner = st.selectbox(
