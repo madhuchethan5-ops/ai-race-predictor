@@ -837,7 +837,7 @@ with st.sidebar:
                 if ml_brier < sim_brier:
                     # ML sharper than sim: weight increases with relative improvement
                     improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-                    blend_weight = float(np.clip(0.3 + 0.5 * improvement, 0.3, 0.8))
+                    blend_weight = float(np.clip(0.3 + 0.6 * improvement, 0.3, 0.9))
                 else:
                     # ML worse: throttle down
                     degradation = (ml_brier - sim_brier) / max(sim_brier, 1e-8)
