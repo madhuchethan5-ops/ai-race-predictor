@@ -1160,8 +1160,9 @@ else:
     df = history.copy()
 
     # Ensure Surprise_Index exists
-    if "Surprise_Index" not in df.columns:
-        st.warning("Surprise Index not found in history. Save more races.")
+if "Surprise_Index" not in df.columns:
+    st.warning("Surprise Index not found in history. Save more races.")
+    st.stop()   # <-- THIS FIXES THE ERROR
     else:
         # Chaos Score
         df["Chaos_Score"] = 0.6 * df["Surprise_Index"].astype(float) + \
