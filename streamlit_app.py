@@ -843,11 +843,13 @@ def run_simulation(
 
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
+    
 # ---------------------------------------------------------
 # 8. SIDEBAR (SETUP & PREDICTION) WITH PERFORMANCE-DRIVEN BLENDING
 # ---------------------------------------------------------
 with st.sidebar:
     st.header("🚦 Race Setup")
+
     lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
     slot_name = st.selectbox("Revealed Slot", list(lap_map.keys()))
     k_idx = lap_map[slot_name]
@@ -861,7 +863,7 @@ with st.sidebar:
     model_skill = compute_model_skill(history)
 
     # ---------------------------------------------------------
-    # FIXED BUTTON LINE + CORRECT INDENTATION
+    # PREDICT BUTTON + LOGIC
     # ---------------------------------------------------------
     if st.button("🚀 PREDICT", type="primary", use_container_width=True):
 
@@ -949,7 +951,12 @@ with st.sidebar:
         st.session_state['res'] = {
             'p': final_probs,
             'vpi': vpi_res,
-            'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
+            'ctx': {
+                'v': [v1_sel, v2_sel, v3_sel],
+                'idx': k_idx,
+                't': k_type,
+                'slot': slot_name
+            },
             'p_sim': sim_probs,
             'p_ml': p_ml_store,
             'meta': {
@@ -991,7 +998,7 @@ if 'res' in st.session_state:
     st.markdown(f"**Expected Regret:** {meta['expected_regret']:.2f}")
 
     # --- Divergence Warning ---
-    if 'p_ml' in res and res['p_ml'] is not None:
+    if res.get('p_ml') is not None:
         sim_winner = max(res['p_sim'], key=res['p_sim'].get)
         ml_winner = max(res['p_ml'], key=res['p_ml'].get)
         if sim_winner != ml_winner:
@@ -1027,7 +1034,6 @@ if 'res' in st.session_state:
             chaos_score = 0.6 * avg_surprise + 0.4 * (1 - history["Was_Correct"].mean())
             st.markdown(f"- **Avg Surprise Index:** {avg_surprise:.3f}")
             st.markdown(f"- **Chaos Score:** {chaos_score:.3f}")
-
 # ---------------------------------------------------------
 # 9. MAIN DASHBOARD
 # ---------------------------------------------------------
