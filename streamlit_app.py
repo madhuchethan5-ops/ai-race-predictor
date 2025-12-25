@@ -1,9 +1,18 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
 import os
+import numpy as np
+import pandas as pd
+import streamlit as st
 from streamlit_extras.grid import grid
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import HistGradientBoostingClassifier
 
+# ---------------------------------------------------------
+# PAGE CONFIG
+# ---------------------------------------------------------
+
+st.set_page_config(layout="wide", page_title="AI Race Master Pro", page_icon="🏎️")
 st.write("RUNNING FILE:", __file__)
 
 # ---------------------------------------------------------
@@ -93,9 +102,7 @@ ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
 TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
 VALID_TRACKS = set(TRACK_OPTIONS)
 
-CSV_FILE = "race_history.csv"
-
-st.set_page_config(layout="wide", page_title="AI Race Master Pro", page_icon="🏎️")
+HISTORY_FILE = "race_history.csv"
 
 TRACK_ALIASES = {
     "Road": "Highway",
@@ -157,8 +164,6 @@ def auto_clean_history(df: pd.DataFrame):
 # 3. STREAMLIT + GITHUB SAFE STORAGE
 # ---------------------------------------------------------
 
-HISTORY_FILE = "race_history.csv"
-
 def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
@@ -186,7 +191,6 @@ def load_history():
     df, issues = auto_clean_history(df)
     st.session_state["data_quality_issues"] = issues
 
-    # Force numeric conversion for ML columns
     numeric_cols = ["Top_Prob", "Was_Correct"]
     for col in numeric_cols:
         if col in df.columns:
@@ -201,32 +205,19 @@ def add_race_result(history_df, row_dict):
     history_df.loc[len(history_df)] = row_dict
     return history_df
 
-def download_history(df):
-    st.download_button(
-        label="⬇️ Download Updated Race History",
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name="race_history.csv",
-        mime="text/csv"
-    )
-
 history = load_history()
 
 # ---------------------------------------------------------
-# 4. MACHINE LEARNING UTILITIES (NEW)
+# 4. MACHINE LEARNING UTILITIES (UPGRADED)
 # ---------------------------------------------------------
 
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-
-def build_training_data(history_df):
+def build_training_data(history_df: pd.DataFrame):
     """
     Build supervised data: each row = race, target = Actual_Winner among 3 vehicles.
+    Includes derived features: high_speed_share, rough_share, per-vehicle win rates.
     """
     df = history_df.copy()
 
-    # Only use rows where we know the actual winner and all vehicles
     df = df.dropna(subset=[
         "Actual_Winner",
         "Vehicle_1", "Vehicle_2", "Vehicle_3",
@@ -237,7 +228,6 @@ def build_training_data(history_df):
     if df.empty:
         return None, None, None
 
-    # Target: 0, 1, 2 for which vehicle won
     def winner_index(row):
         vs = [row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"]]
         if row["Actual_Winner"] not in vs:
@@ -251,38 +241,71 @@ def build_training_data(history_df):
 
     y = df["winner_idx"].astype(int)
 
-    # Features: race context
+    def is_high_speed(track):
+        return track in ["Expressway", "Highway"]
+
+    def is_rough(track):
+        return track in ["Dirt", "Bumpy", "Potholes"]
+
+    df["high_speed_share"] = (
+        df["Lap_1_Track"].apply(is_high_speed).astype(int) +
+        df["Lap_2_Track"].apply(is_high_speed).astype(int) +
+        df["Lap_3_Track"].apply(is_high_speed).astype(int)
+    ) / 3.0
+
+    df["rough_share"] = (
+        df["Lap_1_Track"].apply(is_rough).astype(int) +
+        df["Lap_2_Track"].apply(is_rough).astype(int) +
+        df["Lap_3_Track"].apply(is_rough).astype(int)
+    ) / 3.0
+
+    veh_win_rate = df.groupby("Actual_Winner").size() / len(df)
+
+    def win_rate_for(row, pos):
+        v = row[f"Vehicle_{pos}"]
+        return float(veh_win_rate.get(v, 0.33))
+
+    for i in [1, 2, 3]:
+        df[f"V{i}_win_rate"] = df.apply(lambda r: win_rate_for(r, i), axis=1)
+
     feature_cols = [
         "Vehicle_1", "Vehicle_2", "Vehicle_3",
         "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
         "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
-        "Lane"
+        "Lane",
+        "high_speed_share", "rough_share",
+        "V1_win_rate", "V2_win_rate", "V3_win_rate",
     ]
-    X = df[feature_cols].copy()
 
     cat_features = [
         "Vehicle_1", "Vehicle_2", "Vehicle_3",
         "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
         "Lane"
     ]
+
     num_features = [
-        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len"
+        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
+        "high_speed_share", "rough_share",
+        "V1_win_rate", "V2_win_rate", "V3_win_rate",
     ]
 
+    X = df[feature_cols].copy()
     return X, y, (cat_features, num_features)
 
-def train_ml_model(history_df):
+def train_ml_model(history_df: pd.DataFrame):
     """
-    Train a multinomial logistic regression model on historical races.
-    Returns None if not enough data.
+    Train a gradient boosting model on recent historical races.
+    Uses last 200 races, requires at least 15 samples.
+    Returns (model, n_samples) or (None, 0).
     """
-    X, y, feat_info = build_training_data(history_df)
+    df_recent = history_df.copy().tail(200)
+    X, y, feat_info = build_training_data(df_recent)
     if X is None:
-        return None
+        return None, 0
 
-    # Require at least 30 samples before training
-    if len(X) < 30:
-        return None
+    n_samples = len(X)
+    if n_samples < 15:
+        return None, n_samples
 
     cat_features, num_features = feat_info
 
@@ -293,9 +316,9 @@ def train_ml_model(history_df):
         ]
     )
 
-    clf = LogisticRegression(
-        multi_class="multinomial",
-        max_iter=1000
+    clf = HistGradientBoostingClassifier(
+        max_depth=6,
+        learning_rate=0.1
     )
 
     model = Pipeline(steps=[
@@ -304,22 +327,26 @@ def train_ml_model(history_df):
     ])
 
     model.fit(X, y)
-    return model
+    return model, n_samples
 
 def build_single_feature_row(v1, v2, v3, k_idx, k_type):
     """
-    Build a single-row DataFrame to feed the ML model.
-    We don't know the full exact lengths yet, so we approximate with 33/33/34,
-    except for the revealed lap, which we'll treat as 100% weight placeholder.
+    Build a single-row DataFrame to feed the ML model for current race context.
+    Unknown laps approximated as 'Unknown' with 33/33/34 lengths.
     """
-    # Simple approximation – can refine later
     lap_tracks = ["Unknown", "Unknown", "Unknown"]
     lap_tracks[k_idx] = k_type
 
     lap_lens = [33.0, 33.0, 34.0]
-
-    # Using slot name (Lap 1/2/3) as Lane context
     lane = f"Lap {k_idx + 1}"
+
+    high_speed_share = (
+        lap_tracks.count("Expressway") + lap_tracks.count("Highway")
+    ) / 3.0
+
+    rough_share = sum(
+        1 for t in lap_tracks if t in ["Dirt", "Bumpy", "Potholes"]
+    ) / 3.0
 
     data = {
         "Vehicle_1": v1,
@@ -332,6 +359,11 @@ def build_single_feature_row(v1, v2, v3, k_idx, k_type):
         "Lap_2_Len": lap_lens[1],
         "Lap_3_Len": lap_lens[2],
         "Lane": lane,
+        "high_speed_share": float(high_speed_share),
+        "rough_share": float(rough_share),
+        "V1_win_rate": 0.33,
+        "V2_win_rate": 0.33,
+        "V3_win_rate": 0.33,
     }
     return pd.DataFrame([data])
 
@@ -693,33 +725,41 @@ with st.sidebar:
         if "ml_model" in st.session_state and st.session_state["ml_model"] is not None:
             X_curr = build_single_feature_row(v1_sel, v2_sel, v3_sel, k_idx, k_type)
             model = st.session_state["ml_model"]
-            # Predict class probabilities: output order is classes [0,1,2]
-            proba = model.predict_proba(X_curr)[0]  # np.array length 3
+            proba = model.predict_proba(X_curr)[0]
             ml_probs = {
                 v1_sel: float(proba[0] * 100.0),
                 v2_sel: float(proba[1] * 100.0),
                 v3_sel: float(proba[2] * 100.0),
             }
 
-        # Blend sim + ML
+        final_probs = sim_probs
+        p_ml_store = ml_probs
         if ml_probs is not None:
-            blend_weight = 0.5  # 0.0 = pure sim, 1.0 = pure ML
-            blended = {}
-            for v in [v1_sel, v2_sel, v3_sel]:
-                blended[v] = (
-                    blend_weight * ml_probs[v] +
-                    (1.0 - blend_weight) * sim_probs[v]
-                )
-            final_probs = blended
-        else:
-            final_probs = sim_probs
+            n_samples = st.session_state.get("ml_samples", 0)
+            if n_samples > 200:
+                blend_weight = 0.8
+            elif n_samples > 80:
+                blend_weight = 0.6
+            elif n_samples >= 30:
+                blend_weight = 0.4
+            else:
+                blend_weight = 0.0
+
+            if blend_weight > 0.0:
+                blended = {}
+                for v in [v1_sel, v2_sel, v3_sel]:
+                    blended[v] = (
+                        blend_weight * ml_probs[v] +
+                        (1.0 - blend_weight) * sim_probs[v]
+                    )
+                final_probs = blended
 
         st.session_state['res'] = {
             'p': final_probs,
             'vpi': vpi_res,
             'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
             'p_sim': sim_probs,
-            'p_ml': ml_probs,
+            'p_ml': p_ml_store,
         }
 
 # ---------------------------------------------------------
@@ -829,7 +869,6 @@ if save_clicked:
         st.error("All laps must have a track selected.")
         st.stop()
 
-    # Store last train probabilities for delta panel
     st.session_state['last_train_probs'] = dict(predicted)
 
     row = {
@@ -842,24 +881,22 @@ if save_clicked:
         'Predicted_Winner': predicted_winner,
         'Actual_Winner': winner,
         'Lane': revealed_slot,
-        'Top_Prob': predicted[predicted_winner] / 100.0,  # store as 0-1
+        'Top_Prob': predicted[predicted_winner] / 100.0,
         'Was_Correct': float(predicted_winner == winner),
         'Timestamp': pd.Timestamp.now()
     }
 
-    # Safety check before saving
     if history is None or history.empty:
         st.error("History failed to load — not saving to avoid data loss.")
         st.stop()
 
-    # Save race
     history = add_race_result(history, row)
     save_history(history)
 
-    # Train / update ML model from latest history
-    ml_model = train_ml_model(history)
+    ml_model, n_samples = train_ml_model(history)
     if ml_model is not None:
         st.session_state["ml_model"] = ml_model
+        st.session_state["ml_samples"] = n_samples
 
     st.success("✅ Race saved and model updated. Download the CSV to sync with GitHub if needed.")
     st.rerun()
