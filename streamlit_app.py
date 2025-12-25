@@ -885,12 +885,12 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     }
 
 # ---------------------------------------------------------
-# PHASE 1 — NEW FULL-SCREEN UI BLOCK (FAST SELECTION UI)
+# COMPACT 40% GRAPHICAL UI (LEFT SIDE)
 # ---------------------------------------------------------
 
 import streamlit as st
 
-# Initialize session state
+# --- Initialize State ---
 if "selected_lap" not in st.session_state:
     st.session_state.selected_lap = None
 
@@ -900,89 +900,110 @@ if "selected_terrain" not in st.session_state:
 if "selected_vehicles" not in st.session_state:
     st.session_state.selected_vehicles = []
 
-# ---------------------------------------------------------
-# 1. LAP SELECTION (CLICKABLE BUTTONS)
-# ---------------------------------------------------------
+# --- 40% / 60% Layout ---
+ui, dashboard = st.columns([0.40, 0.60])
 
-st.markdown("## 🏁 Select Lap")
-
-lap_cols = st.columns(3)
-laps = ["Lap 1", "Lap 2", "Lap 3"]
-
-for i, lap in enumerate(laps):
-    if lap_cols[i].button(lap, use_container_width=True):
-        st.session_state.selected_lap = lap
-
-# Highlight selection
-if st.session_state.selected_lap:
-    st.success(f"Selected Lap: {st.session_state.selected_lap}")
 
 # ---------------------------------------------------------
-# 2. TERRAIN SELECTION (CLICKABLE BUTTON GRID)
+# LEFT 40% — GRAPHICAL SETUP UI
 # ---------------------------------------------------------
+with ui:
 
-st.markdown("## 🌍 Select Terrain")
+    # -------------------------
+    # 1. LAP SELECTOR (Vertical)
+    # -------------------------
+    st.markdown("### 🏁 Lap")
 
-terrain_options = ["Expressway", "Highway", "Dirt", "Bumpy", "Potholes", "Desert"]
-terrain_cols = st.columns(3)
+    lap_options = ["Lap 1", "Lap 2", "Lap 3"]
+    for lap in lap_options:
+        if st.button(lap, use_container_width=True):
+            st.session_state.selected_lap = lap
 
-for i, terrain in enumerate(terrain_options):
-    if terrain_cols[i % 3].button(terrain, use_container_width=True):
-        st.session_state.selected_terrain = terrain
+    if st.session_state.selected_lap:
+        st.success(f"Selected: {st.session_state.selected_lap}")
 
-# Highlight selection
-if st.session_state.selected_terrain:
-    st.success(f"Selected Terrain: {st.session_state.selected_terrain}")
+    st.markdown("---")
+
+    # -------------------------
+    # 2. TERRAIN SELECTOR (Icon Grid)
+    # -------------------------
+    st.markdown("### 🌍 Terrain")
+
+    terrain_options = [
+        "Expressway", "Highway", "Bumpy",
+        "Dirt", "Potholes", "Desert"
+    ]
+
+    t1, t2, t3 = st.columns(3)
+    terrain_cols = [t1, t2, t3]
+
+    for i, terrain in enumerate(terrain_options):
+        if terrain_cols[i % 3].button(terrain, use_container_width=True):
+            st.session_state.selected_terrain = terrain
+
+    if st.session_state.selected_terrain:
+        st.success(f"Selected: {st.session_state.selected_terrain}")
+
+    st.markdown("---")
+
+    # -------------------------
+    # 3. VEHICLE SELECTOR (3×3 Grid)
+    # -------------------------
+    st.markdown("### 🚗 Vehicles (Pick 3)")
+
+    vehicle_list = [
+        "Supercar", "Sports Car", "Car",
+        "SUV", "ORV", "Monster Truck",
+        "ATV", "Motorcycle", "Stock Car"
+    ]
+
+    v1, v2, v3 = st.columns(3)
+    veh_cols = [v1, v2, v3]
+
+    for i, veh in enumerate(vehicle_list):
+        disabled = (
+            len(st.session_state.selected_vehicles) >= 3
+            and veh not in st.session_state.selected_vehicles
+        )
+
+        if veh_cols[i % 3].button(
+            veh,
+            disabled=disabled,
+            use_container_width=True
+        ):
+            if veh in st.session_state.selected_vehicles:
+                st.session_state.selected_vehicles.remove(veh)
+            else:
+                if len(st.session_state.selected_vehicles) < 3:
+                    st.session_state.selected_vehicles.append(veh)
+
+    st.info(f"Selected: {st.session_state.selected_vehicles}")
+
+    if st.button("Clear Vehicles"):
+        st.session_state.selected_vehicles = []
+
+    st.markdown("---")
+
+    # -------------------------
+    # 4. PREDICT BUTTON
+    # -------------------------
+    ready = (
+        st.session_state.selected_lap is not None and
+        st.session_state.selected_terrain is not None and
+        len(st.session_state.selected_vehicles) == 3
+    )
+
+    if st.button("🚀 PREDICT", disabled=not ready, use_container_width=True):
+        st.session_state["trigger_prediction"] = True
+        st.success("Prediction triggered!")
+
 
 # ---------------------------------------------------------
-# 3. VEHICLE SELECTION (CLICK ANY 3 VEHICLES)
+# RIGHT 60% — DASHBOARD AREA (EMPTY FOR NOW)
 # ---------------------------------------------------------
-
-st.markdown("## 🚗 Select 3 Vehicles")
-
-vehicle_list = [
-    "Supercar", "Sports Car", "Car",
-    "SUV", "ORV", "Monster Truck",
-    "ATV", "Motorcycle", "Stock Car"
-]
-
-veh_cols = st.columns(3)
-
-for i, veh in enumerate(vehicle_list):
-    disabled = len(st.session_state.selected_vehicles) >= 3 and veh not in st.session_state.selected_vehicles
-
-    if veh_cols[i % 3].button(
-        veh,
-        disabled=disabled,
-        use_container_width=True
-    ):
-        if veh not in st.session_state.selected_vehicles:
-            if len(st.session_state.selected_vehicles) < 3:
-                st.session_state.selected_vehicles.append(veh)
-        else:
-            st.session_state.selected_vehicles.remove(veh)
-
-# Show selected vehicles
-st.info(f"Selected Vehicles: {st.session_state.selected_vehicles}")
-
-# Clear selection button
-if st.button("Clear Vehicle Selection"):
-    st.session_state.selected_vehicles = []
-
-# ---------------------------------------------------------
-# 4. PREDICT BUTTON (ENABLED ONLY WHEN READY)
-# ---------------------------------------------------------
-
-ready = (
-    st.session_state.selected_lap is not None and
-    st.session_state.selected_terrain is not None and
-    len(st.session_state.selected_vehicles) == 3
-)
-
-st.markdown("## 🚀 Run Prediction")
-
-if st.button("PREDICT", disabled=not ready, use_container_width=True):
-    st.success("Prediction triggered! (Phase 2 will connect this to your engine)")
+with dashboard:
+    st.markdown("### Prediction Dashboard")
+    st.caption("Your existing results panel will appear here.")
 
 # ---------------------------------------------------------
 # 8.5 PREDICTION RESULTS PANEL
