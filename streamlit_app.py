@@ -807,7 +807,7 @@ def run_simulation(
 
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
-    # ---------------------------------------------------------
+# ---------------------------------------------------------
 # 8. SIDEBAR (SETUP & PREDICTION) WITH PERFORMANCE-DRIVEN BLENDING
 # ---------------------------------------------------------
 
