@@ -1225,7 +1225,7 @@ with Q2:
                 "Probabilities": probs
             })            
 # ---------------------------------------------------------
-# Q3 — SAVE RACE REPORT (BOTTOM-LEFT, COMPACT, WIDGET-STATE FIX)
+# Q3 — SAVE RACE REPORT (BOTTOM-LEFT, CLEAN & WIDGET-SAFE)
 # ---------------------------------------------------------
 with Q3:
     st.markdown("### 📝 Save Race Report")
@@ -1248,7 +1248,9 @@ with Q3:
         revealed_track = ctx['t']      # terrain used in prediction
         revealed_slot = ctx['slot']
 
-        st.caption(f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})")
+        st.caption(
+            f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
+        )
     else:
         st.info("Run a prediction first to enable saving.")
 
@@ -1277,7 +1279,9 @@ with Q3:
             # Lap inputs
             c1, c2, c3 = st.columns(3)
 
+            # -----------------------------
             # LAP 1
+            # -----------------------------
             with c1:
                 if prediction_available and revealed_lap == 0:
                     s1t = st.selectbox(
@@ -1292,9 +1296,13 @@ with Q3:
                         TRACK_OPTIONS,
                         disabled=disabled_form,
                     )
-                s1l = st.number_input("Lap 1 %", 1, 100, 33, disabled=disabled_form)
+                s1l = st.number_input(
+                    "Lap 1 %", 1, 100, 33, disabled=disabled_form
+                )
 
+            # -----------------------------
             # LAP 2
+            # -----------------------------
             with c2:
                 if prediction_available and revealed_lap == 1:
                     s2t = st.selectbox(
@@ -1309,9 +1317,13 @@ with Q3:
                         TRACK_OPTIONS,
                         disabled=disabled_form,
                     )
-                s2l = st.number_input("Lap 2 %", 1, 100, 33, disabled=disabled_form)
+                s2l = st.number_input(
+                    "Lap 2 %", 1, 100, 33, disabled=disabled_form
+                )
 
+            # -----------------------------
             # LAP 3
+            # -----------------------------
             with c3:
                 if prediction_available and revealed_lap == 2:
                     s3t = st.selectbox(
@@ -1326,9 +1338,11 @@ with Q3:
                         TRACK_OPTIONS,
                         disabled=disabled_form,
                     )
-                s3l = st.number_input("Lap 3 %", 1, 100, 34, disabled=disabled_form)
+                s3l = st.number_input(
+                    "Lap 3 %", 1, 100, 34, disabled=disabled_form
+                )
 
-            # Submit button (always rendered)
+            # Submit button
             save_clicked = st.form_submit_button("💾 Save & Train")
 
         # -----------------------------
