@@ -1077,6 +1077,14 @@ with Q1:
         st.markdown("**Selected Vehicles:** " + ", ".join(st.session_state.selected_vehicles))
     else:
         st.caption("Select up to 3 vehicles to enable prediction.")
+    # -------------------------
+    # CLEAR SELECTION BUTTON
+    # -------------------------
+    if st.button("🧹 Clear Selection"):
+        for v in st.session_state.vehicle_selections:
+            st.session_state.vehicle_selections[v] = False
+        st.session_state.selected_vehicles = []
+        st.rerun()
 
     # 3. PREDICT BUTTON
     ready = (
