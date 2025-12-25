@@ -1035,6 +1035,35 @@ if 'res' in st.session_state:
             st.markdown(f"- **Avg Surprise Index:** {avg_surprise:.3f}")
             st.markdown(f"- **Chaos Score:** {chaos_score:.3f}")
 # ---------------------------------------------------------
+# 8.6 SAVE RACE RESULT PANEL
+# ---------------------------------------------------------
+if 'res' in st.session_state:
+    st.markdown("## 📝 Save Race Report")
+
+    actual_winner = st.selectbox("Actual Winner", res['ctx']['v'])
+    if st.button("💾 Save & Train", use_container_width=True):
+        row = {
+            "Vehicle_1": res['ctx']['v'][0],
+            "Vehicle_2": res['ctx']['v'][1],
+            "Vehicle_3": res['ctx']['v'][2],
+            "Lap_1_Track": res['ctx']['t'] if res['ctx']['slot'] == "Lap 1" else None,
+            "Lap_2_Track": res['ctx']['t'] if res['ctx']['slot'] == "Lap 2" else None,
+            "Lap_3_Track": res['ctx']['t'] if res['ctx']['slot'] == "Lap 3" else None,
+            "Actual_Winner": actual_winner,
+            "Predicted_Winner": max(res['p'], key=res['p'].get),
+            "Top_Prob": res['meta']['top_prob'],
+            "Was_Correct": actual_winner == max(res['p'], key=res['p'].get),
+            "Lane": None  # optional
+        }
+
+        if history is None or history.empty:
+            st.error("History failed to load — not saving to avoid data loss.")
+        else:
+            history = add_race_result(history, row)
+            save_history(history)
+            st.success("✅ Race saved. The model cache will update on next run.")
+            st.rerun()
+# ---------------------------------------------------------
 # 9. MAIN DASHBOARD
 # ---------------------------------------------------------
 st.title("🏁 AI RACE MASTER PRO")
