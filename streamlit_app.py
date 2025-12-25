@@ -1048,16 +1048,18 @@ with Q1:
     # 2. TERRAIN SELECTOR (Clickable Tiles)
     # -------------------------
     st.markdown("### 🌍 Select Terrain")
-    
+
     terrain_list = list(TERRAIN_ICONS.keys())
     t_cols = st.columns(3)
-    
+
     for i, terrain in enumerate(terrain_list):
         col = t_cols[i % 3]
         with col:
             selected = (st.session_state.selected_terrain == terrain)
-            img_path = f"assets/terrain/{terrain}.png"
-    
+
+            # Correct image path (case-sensitive)
+            img_path = TERRAIN_ICONS[terrain]
+
             tile_html = clickable_tile(
                 label=terrain,
                 img_path=img_path,
@@ -1065,31 +1067,41 @@ with Q1:
                 disabled=False,
                 key=f"terrain_{terrain}"
             )
-    
+
             st.markdown(tile_html, unsafe_allow_html=True)
-    
+
+            # Single-select logic
             if st.checkbox("", key=f"terrain_{terrain}_click", label_visibility="collapsed"):
                 st.session_state.selected_terrain = terrain
-                
+                # Uncheck all others
+                for other in terrain_list:
+                    if other != terrain:
+                        st.session_state[f"terrain_{other}_click"] = False
+
+    if st.session_state.selected_terrain:
+        st.success(f"Selected Terrain: {st.session_state.selected_terrain}")
+
+    st.markdown("---")
+
     # -------------------------
     # 3. VEHICLE SELECTOR (Clickable Tiles)
     # -------------------------
     st.markdown("### 🚗 Select 3 Vehicles")
-    
+
     v_cols = st.columns(3)
     vehicle_list = list(VEHICLE_ICONS.keys())
-    
+
     max_selected = 3
     current_count = len(st.session_state.selected_vehicles)
-    
+
     for i, veh in enumerate(vehicle_list):
         col = v_cols[i % 3]
         with col:
             selected = veh in st.session_state.selected_vehicles
             disabled = (not selected) and (current_count >= max_selected)
-    
-            img_path = f"assets/vehicles/{veh}.png"
-    
+
+            img_path = VEHICLE_ICONS[veh]
+
             tile_html = clickable_tile(
                 label=veh,
                 img_path=img_path,
@@ -1097,21 +1109,26 @@ with Q1:
                 disabled=disabled,
                 key=f"veh_{veh}"
             )
-    
+
             st.markdown(tile_html, unsafe_allow_html=True)
-    
-            # Hidden checkbox logic
-            if st.session_state.get(f"veh_{veh}_clicked", False):
-                pass
-    
+
+            # Multi-select with max 3
             if st.checkbox("", key=f"veh_{veh}_click", label_visibility="collapsed"):
-                if not selected and not disabled:
-                    st.session_state.selected_vehicles.append(veh)
-                elif selected:
+                if selected:
                     st.session_state.selected_vehicles.remove(veh)
-                    
+                else:
+                    if len(st.session_state.selected_vehicles) < 3:
+                        st.session_state.selected_vehicles.append(veh)
+                    else:
+                        st.warning("You can only select 3 vehicles.")
+                        st.session_state[f"veh_{veh}_click"] = False
+
+    st.info(f"Selected Vehicles: {st.session_state.selected_vehicles}")
+
+    st.markdown("---")
+
     # -------------------------
-    # 4. PREDICT BUTTON (OUTSIDE LOOP)
+    # 4. PREDICT BUTTON
     # -------------------------
     ready = (
         st.session_state.selected_lap is not None and
