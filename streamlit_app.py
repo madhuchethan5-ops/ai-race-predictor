@@ -860,6 +860,9 @@ with st.sidebar:
 
     model_skill = compute_model_skill(history)
 
+    # ---------------------------------------------------------
+    # FIXED BUTTON LINE + CORRECT INDENTATION
+    # ---------------------------------------------------------
     if st.button("🚀 PREDICT", type="primary", use_container_width=True):
 
         # Simulation-based probabilities
@@ -942,23 +945,23 @@ with st.sidebar:
         else:
             bet_safety = "CAUTION"
 
- # Store results
-st.session_state['res'] = {
-    'p': final_probs,
-    'vpi': vpi_res,
-    'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
-    'p_sim': sim_probs,
-    'p_ml': p_ml_store,
-    'meta': {
-        'top_vehicle': top_vehicle,
-        'top_prob': p1,
-        'second_prob': p2,
-        'volatility_gap_pp': vol_gap,
-        'volatility_label': vol_label,
-        'bet_safety': bet_safety,
-        'expected_regret': expected_regret,
-    },
-}
+        # Store results
+        st.session_state['res'] = {
+            'p': final_probs,
+            'vpi': vpi_res,
+            'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
+            'p_sim': sim_probs,
+            'p_ml': p_ml_store,
+            'meta': {
+                'top_vehicle': top_vehicle,
+                'top_prob': p1,
+                'second_prob': p2,
+                'volatility_gap_pp': vol_gap,
+                'volatility_label': vol_label,
+                'bet_safety': bet_safety,
+                'expected_regret': expected_regret,
+            },
+        }
 
 # ---------------------------------------------------------
 # 8.5 PREDICTION RESULTS PANEL
