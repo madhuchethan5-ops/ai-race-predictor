@@ -999,7 +999,7 @@ with Q1:
     st.markdown("## 🏁 Race Setup")
 
     # -------------------------
-    # 1. LAP SELECTOR (Vertical text buttons)
+    # 1. LAP SELECTOR
     # -------------------------
     st.markdown("### 🔢 Select Lap")
 
@@ -1027,9 +1027,12 @@ with Q1:
         with col:
             selected = (st.session_state.selected_terrain == terrain)
 
+            # FIXED IMAGE PATH
+            img_path = f"assets/terrain/{terrain}.png"
+
             clicked, tile_html = image_tile_button(
                 label=terrain,
-                img_path=TERRAIN_ICONS[terrain],
+                img_path=img_path,
                 key=f"terrain_{terrain}",
                 selected=selected
             )
@@ -1058,9 +1061,12 @@ with Q1:
         with col:
             selected = veh in st.session_state.selected_vehicles
 
+            # FIXED IMAGE PATH
+            img_path = f"assets/vehicles/{veh}.png"
+
             clicked, tile_html = image_tile_button(
                 label=veh,
-                img_path=VEHICLE_ICONS[veh],
+                img_path=img_path,
                 key=f"veh_{veh}",
                 selected=selected
             )
