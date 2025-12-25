@@ -910,6 +910,31 @@ with st.sidebar:
                 for v in [v1_sel, v2_sel, v3_sel]
             }
 
+        # --- VOLATILITY (Top - Second) ---
+        sorted_probs = sorted(final_probs.items(), key=lambda kv: kv[1], reverse=True)
+        (top_vehicle, p1), (_, p2) = sorted_probs[0], sorted_probs[1]
+        vol_gap = round(p1 - p2, 2)  # percentage points
+
+        # Volatility label
+        if vol_gap < 5:
+            vol_label = "Chaos"
+        elif vol_gap < 12:
+            vol_label = "Shaky"
+        else:
+            vol_label = "Calm"
+
+        # --- BET SAFETY CLASSIFICATION ---
+        if p1 < 40:
+            bet_safety = "AVOID"
+        elif vol_gap < 5:
+            bet_safety = "AVOID"
+        elif vol_gap < 12:
+            bet_safety = "CAUTION"
+        elif p1 >= 60 and vol_gap >= 15:
+            bet_safety = "FAVORABLE"
+        else:
+            bet_safety = "CAUTION"
+
         # Store results
         st.session_state['res'] = {
             'p': final_probs,
@@ -917,6 +942,15 @@ with st.sidebar:
             'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
             'p_sim': sim_probs,
             'p_ml': p_ml_store,
+            'meta': {
+                'top_vehicle': top_vehicle,
+                'top_prob': p1,
+                'second_prob': p2,
+                'volatility_gap_pp': vol_gap,
+                'volatility_label': vol_label,
+                'bet_safety': bet_safety,
+                'expected_regret': expected_regret,
+            },
         }
 # ---------------------------------------------------------
 # 9. MAIN DASHBOARD
@@ -1064,6 +1098,18 @@ if save_clicked:
         ml_top_prob = p_ml[ml_pred_winner] / 100.0
         ml_correct = float(ml_pred_winner == winner)
 
+    # -----------------------------------------
+    # 🔥 SURPRISE INDEX (ADD THIS PART)
+    # -----------------------------------------
+    was_correct = float(predicted_winner == winner)
+    p1 = predicted[predicted_winner] / 100.0  # convert to 0–1 scale
+
+    if was_correct == 1:
+        surprise = round(1 - p1, 4)
+    else:
+        surprise = 1.0
+    # -----------------------------------------
+
     row = {
         'Vehicle_1': ctx['v'][0],
         'Vehicle_2': ctx['v'][1],
@@ -1074,8 +1120,9 @@ if save_clicked:
         'Predicted_Winner': predicted_winner,
         'Actual_Winner': winner,
         'Lane': revealed_slot,
-        'Top_Prob': predicted[predicted_winner] / 100.0,
-        'Was_Correct': float(predicted_winner == winner),
+        'Top_Prob': p1,
+        'Was_Correct': was_correct,
+        'Surprise_Index': surprise,   # <-- ADDED HERE
         'Sim_Predicted_Winner': sim_pred_winner,
         'ML_Predicted_Winner': ml_pred_winner,
         'Sim_Top_Prob': sim_top_prob,
@@ -1093,11 +1140,146 @@ if save_clicked:
     save_history(history)
 
     st.success("✅ Race saved. The model cache will update on next run.")
-    st.rerun()
-    # ---------------------------------------------------------
+    st.rerun()    
+    
+# ---------------------------------------------------------
 # 11. PREDICTION ANALYTICS PANEL
 # ---------------------------------------------------------
+st.subheader("🌪️ Chaos Mapping (Surprise & Instability)")
 
+if history is None or history.empty:
+    st.info("Not enough history to compute chaos mapping.")
+else:
+    df = history.copy()
+
+    # Ensure Surprise_Index exists
+    if "Surprise_Index" not in df.columns:
+        st.warning("Surprise Index not found in history. Save more races.")
+    else:
+        # Chaos Score
+        df["Chaos_Score"] = 0.6 * df["Surprise_Index"].astype(float) + \
+                            0.4 * (1 - df["Was_Correct"].astype(float))
+
+        # --- TRACK CHAOS ---
+        st.markdown("### 🏁 Track Chaos (Average Surprise)")
+        track_cols = ["Lap_1_Track", "Lap_2_Track", "Lap_3_Track"]
+
+        track_long = pd.concat([
+            df[["Surprise_Index", col]].rename(columns={col: "Track"})
+            for col in track_cols
+        ])
+
+        track_chaos = track_long.groupby("Track")["Surprise_Index"].mean().sort_values(ascending=False)
+        st.dataframe(track_chaos.to_frame("Avg Surprise"))
+
+        # --- VEHICLE CHAOS ---
+        st.markdown("### 🚗 Vehicle Chaos (Average Surprise)")
+        vehicle_cols = ["Vehicle_1", "Vehicle_2", "Vehicle_3"]
+
+        vehicle_long = pd.concat([
+            df[["Surprise_Index", col]].rename(columns={col: "Vehicle"})
+            for col in vehicle_cols
+        ])
+
+        vehicle_chaos = vehicle_long.groupby("Vehicle")["Surprise_Index"].mean().sort_values(ascending=False)
+        st.dataframe(vehicle_chaos.to_frame("Avg Surprise"))
+
+        # --- TRACK–VEHICLE CHAOS HEATMAP ---
+        st.markdown("### 🔥 Track–Vehicle Chaos Heatmap")
+
+        heatmap_df = pd.DataFrame()
+
+        for col in track_cols:
+            temp = df[[col, "Vehicle_1", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_1": "Vehicle"})
+            heatmap_df = pd.concat([heatmap_df, temp])
+
+            temp = df[[col, "Vehicle_2", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_2": "Vehicle"})
+            heatmap_df = pd.concat([heatmap_df, temp])
+
+            temp = df[[col, "Vehicle_3", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_3": "Vehicle"})
+            heatmap_df = pd.concat([heatmap_df, temp])
+
+pivot = heatmap_df.pivot_table(
+    index="Track",
+    columns="Vehicle",
+    values="Surprise_Index",
+    aggfunc="mean"
+)
+st.dataframe(pivot.fillna(0))
+# ---------------------------------------------------------
+# MODEL DRIFT DETECTION
+# ---------------------------------------------------------
+st.subheader("📉 Model Drift Detection")
+
+if history is None or history.empty or len(history) < 10:
+    st.info("Not enough history to detect drift.")
+else:
+    df = history.copy()
+
+    # Rolling window size
+    window = min(20, len(df))
+
+    # Rolling accuracy
+    df["Rolling_Accuracy"] = df["Was_Correct"].rolling(window).mean()
+
+    # Rolling Brier Score
+    df["Brier"] = (df["Top_Prob"] - df["Was_Correct"])**2
+    df["Rolling_Brier"] = df["Brier"].rolling(window).mean()
+
+    # Rolling Surprise
+    if "Surprise_Index" in df.columns:
+        df["Rolling_Surprise"] = df["Surprise_Index"].rolling(window).mean()
+    else:
+        df["Rolling_Surprise"] = np.nan
+
+    # Latest values
+    acc_now = df["Rolling_Accuracy"].iloc[-1]
+    brier_now = df["Rolling_Brier"].iloc[-1]
+    surprise_now = df["Rolling_Surprise"].iloc[-1]
+
+    # Baseline (first window)
+    acc_then = df["Rolling_Accuracy"].iloc[window-1]
+    brier_then = df["Rolling_Brier"].iloc[window-1]
+    surprise_then = df["Rolling_Surprise"].iloc[window-1]
+
+    # Drift calculations
+    acc_drop = acc_then - acc_now
+    brier_rise = brier_now - brier_then
+    surprise_rise = surprise_now - surprise_then
+
+    # Display metrics
+    st.markdown("### 📊 Drift Metrics (Last 20 Races)")
+    st.write(f"Rolling Accuracy: **{acc_now:.2f}**")
+    st.write(f"Rolling Brier Score: **{brier_now:.3f}**")
+    st.write(f"Rolling Surprise: **{surprise_now:.3f}**")
+
+    # Drift warnings
+    st.markdown("### 🚨 Drift Status")
+
+    if acc_drop > 0.15:
+        st.error("**Accuracy Drift Detected** — Model accuracy has dropped significantly.")
+    elif acc_drop > 0.05:
+        st.warning("**Mild Accuracy Drift** — Monitor performance.")
+    else:
+        st.success("Accuracy stable.")
+
+    if brier_rise > 0.02:
+        st.error("**Calibration Drift Detected** — Predictions are becoming less reliable.")
+    elif brier_rise > 0.01:
+        st.warning("**Mild Calibration Drift** — Keep an eye on this.")
+    else:
+        st.success("Calibration stable.")
+
+    if surprise_rise > 0.10:
+        st.error("**High Surprise Drift** — Environment becoming more chaotic.")
+    elif surprise_rise > 0.05:
+        st.warning("**Moderate Surprise Drift** — Some instability detected.")
+    else:
+        st.success("Surprise levels normal.")
+
+# ---------------------------------------------------------
+# CSV HEALTH CHECK FUNCTION (LEFT‑ALIGNED)
+# ---------------------------------------------------------
 def csv_health_check(df: pd.DataFrame):
     issues = []
 
@@ -1116,7 +1298,6 @@ def csv_health_check(df: pd.DataFrame):
     missing = [c for c in required if c not in df.columns]
     if missing:
         issues.append(f"Missing columns: {missing}")
-
     bad_rows = df[df.isna().all(axis=1)]
     if not bad_rows.empty:
         issues.append(f"Empty/malformed rows: {len(bad_rows)}")
@@ -1141,6 +1322,29 @@ if 'res' in st.session_state:
 
     st.divider()
     st.subheader("🔍 Prediction Explanation")
+
+    # Load meta once
+    meta = res['meta']
+
+    # --- BET SAFETY DISPLAY ---
+    st.subheader("🛡️ Bet Safety")
+    safety = meta['bet_safety']
+
+    if safety == "AVOID":
+        st.error("**AVOID** — This race is too volatile or low-confidence.")
+    elif safety == "CAUTION":
+        st.warning("**CAUTION** — Edge exists but uncertainty is high.")
+    else:
+        st.success("**FAVORABLE** — Model sees a strong, stable edge here.")
+
+    # --- EXPECTED REGRET DISPLAY ---
+    st.subheader("📉 Expected Regret")
+    st.write(f"Expected regret (risk of being confidently wrong): **{meta['expected_regret']:.2f}**")
+
+    # --- VOLATILITY DISPLAY ---
+    st.subheader("⚡ Volatility")
+    st.write(f"Volatility (Top - Second): **{meta['volatility_gap_pp']} pp**")
+    st.write(f"Market Condition: **{meta['volatility_label']}**")
 
     explanation = ""
     if probs[predicted_winner] > 80:
