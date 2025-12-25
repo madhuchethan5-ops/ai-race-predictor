@@ -211,6 +211,88 @@ def download_history(df):
 
 history = load_history()
 
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+
+def build_training_data(history_df):
+    """
+    Build supervised data: each row = race, target = Actual_Winner among 3 vehicles.
+    """
+    df = history_df.copy()
+
+    # Only use rows where we know the actual winner and all vehicles
+    df = df.dropna(subset=[
+        "Actual_Winner",
+        "Vehicle_1", "Vehicle_2", "Vehicle_3",
+        "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
+        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
+        "Lane"
+    ])
+    if df.empty:
+        return None, None, None
+
+    # Target: 0, 1, 2 for which vehicle won
+    def winner_index(row):
+        vs = [row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"]]
+        if row["Actual_Winner"] not in vs:
+            return None
+        return vs.index(row["Actual_Winner"])
+
+    df["winner_idx"] = df.apply(winner_index, axis=1)
+    df = df.dropna(subset=["winner_idx"])
+    if df.empty:
+        return None, None, None
+
+    y = df["winner_idx"].astype(int)
+
+    # Features: race context
+    feature_cols = [
+        "Vehicle_1", "Vehicle_2", "Vehicle_3",
+        "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
+        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
+        "Lane"
+    ]
+    X = df[feature_cols].copy()
+
+    cat_features = [
+        "Vehicle_1", "Vehicle_2", "Vehicle_3",
+        "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
+        "Lane"
+    ]
+    num_features = [
+        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len"
+    ]
+
+    return X, y, (cat_features, num_features)
+def train_ml_model(history_df):
+    X, y, feat_info = build_training_data(history_df)
+    if X is None:
+        return None
+
+    cat_features, num_features = feat_info
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("cat", OneHotEncoder(handle_unknown="ignore"), cat_features),
+            ("num", "passthrough", num_features),
+        ]
+    )
+
+    # Multinomial logistic regression = simple, interpretable multi-class model
+    clf = LogisticRegression(
+        multi_class="multinomial",
+        max_iter=1000
+    )
+
+    model = Pipeline(steps=[
+        ("pre", preprocessor),
+        ("clf", clf),
+    ])
+
+    model.fit(X, y)
+    return model
 # ---------------------------------------------------------
 # 4. METRICS & ANALYTICS HELPERS
 # ---------------------------------------------------------
@@ -561,11 +643,41 @@ with st.sidebar:
     v3_sel = st.selectbox("Vehicle 3", [v for v in ALL_VEHICLES if v not in [v1_sel, v2_sel]], index=0)
 
     if st.button("🚀 PREDICT", type="primary", use_container_width=True):
-        probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
+        # Simulation-based probabilities
+        sim_probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
+
+        # ML-based probabilities (if model exists)
+        ml_probs = None
+        if "ml_model" in st.session_state and st.session_state["ml_model"] is not None:
+            X_curr = build_single_feature_row(v1_sel, v2_sel, v3_sel, k_idx, k_type)
+            model = st.session_state["ml_model"]
+            # Predict class probabilities: output order is classes [0,1,2]
+            proba = model.predict_proba(X_curr)[0]  # np.array length 3
+            ml_probs = {
+                v1_sel: float(proba[0] * 100.0),
+                v2_sel: float(proba[1] * 100.0),
+                v3_sel: float(proba[2] * 100.0),
+            }
+
+        # Blend sim + ML
+        if ml_probs is not None:
+            blend_weight = 0.5  # 0.0 = pure sim, 1.0 = pure ML
+            blended = {}
+            for v in [v1_sel, v2_sel, v3_sel]:
+                blended[v] = (
+                    blend_weight * ml_probs[v] +
+                    (1.0 - blend_weight) * sim_probs[v]
+                )
+            final_probs = blended
+        else:
+            final_probs = sim_probs
+
         st.session_state['res'] = {
-            'p': probs,
+            'p': final_probs,
             'vpi': vpi_res,
-            'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name}
+            'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
+            'p_sim': sim_probs,
+            'p_ml': ml_probs,
         }
 
 # ---------------------------------------------------------
@@ -699,6 +811,41 @@ if history is None or history.empty:
     
     history = add_race_result(history, row)
     save_history(history)
+    
+    # 🔁 Train / update ML model from latest history
+    ml_model = train_ml_model(history)
+    if len(X) < 30:
+    return None
+    if ml_model is not None:
+        st.session_state["ml_model"] = ml_model
+def build_single_feature_row(v1, v2, v3, k_idx, k_type):
+    """
+    Build a single-row DataFrame to feed the ML model.
+    We don't know the full exact lengths yet, so we approximate with 33/33/34,
+    except for the revealed lap, which we'll treat as 100% weight placeholder.
+    """
+    # Simple approximation – can refine later
+    lap_tracks = ["Unknown", "Unknown", "Unknown"]
+    lap_tracks[k_idx] = k_type
+
+    lap_lens = [33.0, 33.0, 34.0]
+
+    # Using slot name (Lap 1/2/3) as Lane context
+    lane = f"Lap {k_idx + 1}"
+
+    data = {
+        "Vehicle_1": v1,
+        "Vehicle_2": v2,
+        "Vehicle_3": v3,
+        "Lap_1_Track": lap_tracks[0],
+        "Lap_2_Track": lap_tracks[1],
+        "Lap_3_Track": lap_tracks[2],
+        "Lap_1_Len": lap_lens[0],
+        "Lap_2_Len": lap_lens[1],
+        "Lap_3_Len": lap_lens[2],
+        "Lane": lane,
+    }
+    return pd.DataFrame([data])
 
     st.success("✅ Race saved and model updated. Download the CSV to sync with GitHub if needed.")
     st.rerun()
