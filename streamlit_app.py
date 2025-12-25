@@ -1023,58 +1023,61 @@ with Q1:
     st.markdown("---")
 
     # -------------------------
-    # 2. VEHICLE SELECTOR — COMPACT IMAGE GRID (Max 3)
+    # 2. VEHICLE SELECTOR — STABLE, FAST, GRAPHICAL (Max 3)
     # -------------------------
     st.markdown("#### 🚗 Select up to 3 Vehicles")
     
-    # Initialize selection state
-    if "vehicle_selections" not in st.session_state:
-        st.session_state.vehicle_selections = {v: False for v in VEHICLE_ICONS}
-    
-    # Selection logic
-    def toggle_vehicle(v):
-        selected = [k for k, val in st.session_state.vehicle_selections.items() if val]
-        if st.session_state.vehicle_selections[v]:
-            st.session_state.vehicle_selections[v] = False
-        elif len(selected) < 3:
-            st.session_state.vehicle_selections[v] = True
-    
-    # Render grid — 3 columns per row
     veh_keys = list(VEHICLE_ICONS.keys())
+    
+    # Initialise per‑vehicle selection state once
+    if "vehicle_selections" not in st.session_state:
+        st.session_state.vehicle_selections = {v: False for v in veh_keys}
+    
+    # Count how many are currently selected
+    current_selected = [
+        v for v, val in st.session_state.vehicle_selections.items() if val
+    ]
+    n_selected = len(current_selected)
+    
+    # We allow selecting up to 3
+    MAX_VEHICLES = 3
+    
     rows = [veh_keys[i:i+3] for i in range(0, len(veh_keys), 3)]
     
     for row in rows:
         cols = st.columns(len(row))
         for i, v in enumerate(row):
-            selected = st.session_state.vehicle_selections[v]
-            border_color = "#E53935" if selected else "#ccc"
-            opacity = 1.0 if selected else 0.4
-    
             with cols[i]:
-                if st.button("", key=f"veh_{v}"):
-                    toggle_vehicle(v)
+                # Disable checkbox if we've already hit max AND this one is currently False
+                disabled = (n_selected >= MAX_VEHICLES) and (not st.session_state.vehicle_selections[v])
     
+                checked = st.checkbox(
+                    v,
+                    value=st.session_state.vehicle_selections[v],
+                    key=f"veh_chk_{v}",
+                    disabled=disabled
+                )
+    
+                # Update internal selection state
+                st.session_state.vehicle_selections[v] = checked
+    
+                # Small, fast‑loading icon
                 st.image(
                     VEHICLE_ICONS[v],
-                    width=80,
-                    caption=v,
-                    use_column_width=False
+                    width=60,
                 )
     
-                st.markdown(
-                    f"<div style='height:0px; border-bottom:3px solid {border_color}; opacity:{opacity};'></div>",
-                    unsafe_allow_html=True
-                )
-    
-    # Update selected vehicles
+    # Recompute selected vehicles after all checkboxes
     st.session_state.selected_vehicles = [
         v for v, val in st.session_state.vehicle_selections.items() if val
     ]
     
-    # Show selected vehicle tags
+    # Show selected as a compact list
     if st.session_state.selected_vehicles:
-        st.markdown("**Selected Vehicles:**")
-        st.write(", ".join(st.session_state.selected_vehicles))
+        st.markdown("**Selected Vehicles:** " + ", ".join(st.session_state.selected_vehicles))
+    else:
+        st.caption("Select up to 3 vehicles to enable prediction.")
+
     # 3. PREDICT BUTTON
     ready = (
         st.session_state.selected_lap is not None and
