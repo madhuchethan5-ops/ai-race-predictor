@@ -1160,23 +1160,24 @@ else:
     df = history.copy()
 
     # Ensure Surprise_Index exists
-if "Surprise_Index" not in df.columns:
-    st.warning("Surprise Index not found in history. Save more races.")
-    st.stop()   # <-- THIS FIXES THE ERROR
-    else:
-        # Chaos Score
-        df["Chaos_Score"] = 0.6 * df["Surprise_Index"].astype(float) + \
-                            0.4 * (1 - df["Was_Correct"].astype(float))
+    if "Surprise_Index" not in df.columns:
+        st.warning("Surprise Index not found in history. Save more races.")
+        st.stop()
 
-        # --- TRACK CHAOS ---
-        st.markdown("### 🏁 Track Chaos (Average Surprise)")
-        track_cols = ["Lap_1_Track", "Lap_2_Track", "Lap_3_Track"]
+    # ---------------------------------------------------------
+    # Chaos Score
+    # ---------------------------------------------------------
+    df["Chaos_Score"] = 0.6 * df["Surprise_Index"].astype(float) + \
+                        0.4 * (1 - df["Was_Correct"].astype(float))
 
-        track_long = pd.concat([
-            df[["Surprise_Index", col]].rename(columns={col: "Track"})
-            for col in track_cols
-        ])
+    # --- TRACK CHAOS ---
+    st.markdown("### 🏁 Track Chaos (Average Surprise)")
+    track_cols = ["Lap_1_Track", "Lap_2_Track", "Lap_3_Track"]
 
+    track_long = pd.concat([
+        df[["Surprise_Index", col]].rename(columns={col: "Track"})
+        for col in track_cols
+    ])
         track_chaos = track_long.groupby("Track")["Surprise_Index"].mean().sort_values(ascending=False)
         st.dataframe(track_chaos.to_frame("Avg Surprise"))
 
