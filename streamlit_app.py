@@ -605,127 +605,78 @@ def run_simulation(
 ):
     vehicles = [v1, v2, v3]
 
-        # --- PHYSICS BIAS ADJUSTMENT (must come BEFORE sample_vehicle_times) ---
+    # --- PHYSICS BIAS ADJUSTMENT ---
     def get_physics_bias(history_df):
-    """
-    Learns per-vehicle multiplicative bias based on how often
-    the simulation was wrong vs right.
+        """
+        Learns per-vehicle multiplicative bias based on how often
+        the simulation was wrong vs right.
+        """
+        if history_df.empty:
+            return {}
 
-    If a vehicle wins more often in reality than simulation predicted,
-    we BOOST its speed slightly.
-    If it wins less often, we REDUCE its speed slightly.
-    """
+        required = ["Sim_Predicted_Winner", "Actual_Winner"]
+        if not all(c in history_df.columns for c in required):
+            return {}
 
-    if history_df.empty:
-        return {}
+        df = history_df.dropna(subset=required).tail(300)
+        if df.empty:
+            return {}
 
-    # Need these columns to compare sim vs actual
-    required = ["Sim_Predicted_Winner", "Actual_Winner"]
-    if not all(c in history_df.columns for c in required):
-        return {}
+        sim_counts = df["Sim_Predicted_Winner"].value_counts()
+        real_counts = df["Actual_Winner"].value_counts()
 
-    df = history_df.dropna(subset=required).tail(300)
+        bias = {}
+        for veh in ALL_VEHICLES:
+            sim = sim_counts.get(veh, 0)
+            real = real_counts.get(veh, 0)
 
-    if df.empty:
-        return {}
+            if sim == 0 and real == 0:
+                bias[veh] = 1.0
+                continue
 
-    # Count how often each vehicle was predicted vs actually won
-    sim_counts = df["Sim_Predicted_Winner"].value_counts()
-    real_counts = df["Actual_Winner"].value_counts()
+            ratio = (real + 1) / (sim + 1)
+            mult = float(np.clip(ratio, 0.90, 1.10))
+            bias[veh] = mult
 
-    bias = {}
+        return bias
 
-    for veh in ALL_VEHICLES:
-        sim = sim_counts.get(veh, 0)
-        real = real_counts.get(veh, 0)
-
-        # Avoid division by zero
-        if sim == 0 and real == 0:
-            bias[veh] = 1.0
-            continue
-
-        # Ratio > 1 means real wins more than sim predicted → speed up
-        # Ratio < 1 means sim overpredicts → slow down
-        ratio = (real + 1) / (sim + 1)
-
-        # Convert ratio into a gentle multiplier
-        # Cap adjustments to ±10%
-        mult = float(np.clip(ratio, 0.90, 1.10))
-
-        bias[veh] = mult
-
-    return bias
-    # 1. BAYESIAN REINFORCEMENT
-    vpi_raw = {v: 1.0 for v in vehicles}
-    if not history_df.empty and 'Actual_Winner' in history_df.columns:
-        winners = history_df['Actual_Winner'].dropna()
-        wins = winners.value_counts()
-        if any(c.startswith('Vehicle_') for c in history_df.columns):
-            all_veh = pd.concat(
-                [history_df[c] for c in history_df.columns if c.startswith('Vehicle_')],
-                axis=0
-            ).dropna()
-            races = all_veh.value_counts()
-        else:
-            races = wins
-        posterior_means = {}
-        for v in vehicles:
-            w = wins.get(v, 0)
-            r = races.get(v, w)
-            post = (w + alpha_prior) / (r + alpha_prior + beta_prior)
-            posterior_means[v] = post
-        mean_post = np.mean(list(posterior_means.values())) if posterior_means else 1.0
-        if mean_post > 0:
-            for v in vehicles:
-                vpi_raw[v] = posterior_means[v] / mean_post
-    vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
-
- # 2. GEOMETRY (UPDATED, STRONGER VERSION)
-def learned_length_dist(track_type, lap_idx):
-    """
-    Returns (mean, std) for the given track type and lap index,
-    using learned geometry from history. This version:
-    - Uses per-lap distributions
-    - Smooths small sample sizes
-    - Falls back gracefully
-    - Adapts to drift
-    """
-
-    if history_df.empty:
-        return base_len_mean, base_len_std
-
-    col_track = f"Lap_{lap_idx+1}_Track"
-    col_len   = f"Lap_{lap_idx+1}_Len"
-
-    if col_track not in history_df.columns or col_len not in history_df.columns:
-        return base_len_mean, base_len_std
-
-    df = history_df[[col_track, col_len]].dropna()
-    df = df[df[col_track] == track_type]
-
-    # Not enough samples → fallback to global distribution
-    if len(df) < 5:
-        mask_l1 = history_df["Lap_1_Track"] == track_type
-        mask_l2 = history_df["Lap_2_Track"] == track_type
-        mask_l3 = history_df["Lap_3_Track"] == track_type
-
-        combined = pd.concat([
-            history_df.loc[mask_l1, "Lap_1_Len"],
-            history_df.loc[mask_l2, "Lap_2_Len"],
-            history_df.loc[mask_l3, "Lap_3_Len"]
-        ]).dropna()
-
-        if len(combined) < 5:
+    # 2. GEOMETRY (UPDATED, STRONGER VERSION)
+    def learned_length_dist(track_type, lap_idx):
+        """
+        Returns (mean, std) for the given track type and lap index.
+        """
+        if history_df.empty:
             return base_len_mean, base_len_std
 
-        return float(combined.mean()), float(max(combined.std(), 1.0))
+        col_track = f"Lap_{lap_idx+1}_Track"
+        col_len   = f"Lap_{lap_idx+1}_Len"
 
-    # Normal case: enough samples for this lap
-    mu = float(df[col_len].mean())
-    sigma = float(max(df[col_len].std(), 1.0))
+        if col_track not in history_df.columns or col_len not in history_df.columns:
+            return base_len_mean, base_len_std
 
-    return mu, sigma
-    
+        df = history_df[[col_track, col_len]].dropna()
+        df = df[df[col_track] == track_type]
+
+        if len(df) < 5:
+            mask_l1 = history_df["Lap_1_Track"] == track_type
+            mask_l2 = history_df["Lap_2_Track"] == track_type
+            mask_l3 = history_df["Lap_3_Track"] == track_type
+
+            combined = pd.concat([
+                history_df.loc[mask_l1, "Lap_1_Len"],
+                history_df.loc[mask_l2, "Lap_2_Len"],
+                history_df.loc[mask_l3, "Lap_3_Len"]
+            ]).dropna()
+
+            if len(combined) < 5:
+                return base_len_mean, base_len_std
+
+            return float(combined.mean()), float(max(combined.std(), 1.0))
+
+        mu = float(df[col_len].mean())
+        sigma = float(max(df[col_len].std(), 1.0))
+        return mu, sigma
+        
     # 3. MARKOV TRANSITIONS
     lap_probs = {0: None, 1: None, 2: None}
     if not history_df.empty:
