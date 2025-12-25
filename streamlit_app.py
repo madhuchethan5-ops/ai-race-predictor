@@ -987,12 +987,14 @@ Q3 = bottom_left.container()   # Bottom-left: Save race
 Q4 = bottom_right.container()  # Bottom-right: Diagnostics
 
 # ---------------------------------------------------------
-# Q1 — COMPACT RACE SETUP (TOP-LEFT)
+# Q1 — COMPACT RACE SETUP (TOP-LEFT) — FINAL FIXED VERSION
 # ---------------------------------------------------------
 with Q1:
     st.markdown("### 🏁 Race Setup")
 
-    # 1. LAP & TERRAIN IN ONE ROW
+    # -------------------------
+    # 1. LAP & TERRAIN
+    # -------------------------
     lap_col, terrain_col = st.columns([1, 1.3])
 
     with lap_col:
@@ -1015,7 +1017,7 @@ with Q1:
         )
         st.session_state.selected_terrain = terrain
 
-    # Small terrain icon row to reduce height
+    # Terrain icon
     icon_col, _ = st.columns([1, 1])
     with icon_col:
         st.image(TERRAIN_ICONS[terrain], width=90)
@@ -1023,34 +1025,30 @@ with Q1:
     st.markdown("---")
 
     # -------------------------
-    # 2. VEHICLE SELECTOR — ROBUST, MAX 3, WITH CLEAR
+    # 2. VEHICLE SELECTOR
     # -------------------------
     st.markdown("#### 🚗 Select up to 3 Vehicles")
-    
+
     veh_keys = list(VEHICLE_ICONS.keys())
     MAX_VEHICLES = 3
-    
-    # Initialise per-vehicle selection state
+
+    # Init state
     if "vehicle_selections" not in st.session_state:
         st.session_state.vehicle_selections = {v: False for v in veh_keys}
-    
-    # Track previous selection set to detect new clicks
+
     if "prev_selected_vehicles" not in st.session_state:
         st.session_state.prev_selected_vehicles = []
-    
-    # ---- CLEAR SELECTION BUTTON (runs before rendering) ----
+
+    # Clear button
     clear_clicked = st.button("🧹 Clear Selection")
-    
     if clear_clicked:
         for v in st.session_state.vehicle_selections:
             st.session_state.vehicle_selections[v] = False
         st.session_state.selected_vehicles = []
         st.session_state.prev_selected_vehicles = []
-        # No need to st.rerun(); below logic will see an empty state
-    
-    # ---- Render checkboxes + icons (no disabling) ----
+
+    # Render checkboxes
     rows = [veh_keys[i:i+3] for i in range(0, len(veh_keys), 3)]
-    
     for row in rows:
         cols = st.columns(len(row))
         for i, v in enumerate(row):
@@ -1062,52 +1060,64 @@ with Q1:
                 )
                 st.session_state.vehicle_selections[v] = checked
                 st.image(VEHICLE_ICONS[v], width=60)
-    
-    # ---- Compute current selection from checkboxes ----
-    current_selected = [
-        v for v, val in st.session_state.vehicle_selections.items() if val
-    ]
-    
+
+    # Compute selection
+    current_selected = [v for v, val in st.session_state.vehicle_selections.items() if val]
     prev_selected = st.session_state.prev_selected_vehicles
-    
-    # ---- Enforce MAX_VEHICLES by reverting the last added one ----
+
+    # Enforce max 3
     if len(current_selected) > MAX_VEHICLES and len(current_selected) > len(prev_selected):
-        # Find which vehicle was just added
         newly_added = list(set(current_selected) - set(prev_selected))
         if newly_added:
             last_added = newly_added[0]
-            # Revert that selection
             st.session_state.vehicle_selections[last_added] = False
             current_selected = prev_selected.copy()
             st.warning("You can select up to 3 vehicles only.")
-    
-    # ---- Update session_state with final, valid selection ----
+
+    # Update state
     st.session_state.selected_vehicles = current_selected
     st.session_state.prev_selected_vehicles = current_selected.copy()
-    
-    # ---- Display selected vehicles ----
+
+    # Display selected vehicles
     if st.session_state.selected_vehicles:
         st.markdown("**Selected Vehicles:** " + ", ".join(st.session_state.selected_vehicles))
     else:
         st.caption("Select up to 3 vehicles to enable prediction.")
-    # 3. PREDICT BUTTON
+
+    # -------------------------
+    # 3. RUN PREDICTION BUTTON
+    # -------------------------
     ready = (
         st.session_state.selected_lap is not None and
         st.session_state.selected_terrain is not None and
         len(st.session_state.selected_vehicles) == 3
     )
 
-    st.button(
+    run_clicked = st.button(
         "🚀 RUN PREDICTION",
         disabled=not ready,
         use_container_width=True,
         key="run_prediction_main"
     )
 
-    # Trigger flag (keep logic same as before)
-    if st.session_state.get("run_prediction_main"):
-        st.session_state.trigger_prediction = True
+    # -------------------------
+    # 4. BUILD CONTEXT FOR Q3
+    # -------------------------
+    if run_clicked:
+        # Convert lap label to index
+        lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
+        lap_idx = lap_map[st.session_state.selected_lap]
 
+        # Store context EXACTLY as Q3 expects
+        st.session_state.prediction_context = {
+            "idx": lap_idx,                               # lap index
+            "t": st.session_state.selected_terrain,       # terrain label (CRITICAL FIX)
+            "slot": st.session_state.selected_lap,        # lane/lap label
+            "v": st.session_state.selected_vehicles       # vehicles
+        }
+
+        st.session_state.trigger_prediction = True
+        
 # ---------------------------------------------------------
 # Q2 — COMPACT PREDICTION PANEL (TOP-RIGHT)
 # ---------------------------------------------------------
@@ -1121,9 +1131,27 @@ with Q2:
         k_type = st.session_state.selected_terrain
         v1, v2, v3 = st.session_state.selected_vehicles
 
-        run_full_prediction(v1, v2, v3, k_idx, k_type, history)
+        # -----------------------------
+        # RUN PREDICTION
+        # -----------------------------
+        res = run_full_prediction(v1, v2, v3, k_idx, k_type, history)
+
+        # -----------------------------
+        # STORE CORRECT CONTEXT (CRITICAL FIX)
+        # -----------------------------
+        res['ctx'] = {
+            "idx": k_idx,                          # lap index
+            "t": k_type,                           # terrain label (Highway, Expressway, etc.)
+            "slot": st.session_state.selected_lap, # Lap 1 / Lap 2 / Lap 3
+            "v": [v1, v2, v3]                      # vehicles
+        }
+
+        st.session_state['res'] = res
         st.session_state.trigger_prediction = False
 
+    # -----------------------------------------------------
+    # DISPLAY PANEL
+    # -----------------------------------------------------
     if 'res' not in st.session_state:
         st.info("Set up the race on the left and run a prediction.")
     else:
@@ -1146,7 +1174,7 @@ with Q2:
             predicted_winner = max(probs, key=probs.get)
             st.metric("🏆 Predicted Winner", predicted_winner)
 
-        # Probabilities (compact list + bars)
+        # Probabilities
         st.markdown("#### 📊 Win Probabilities")
         for v in res['ctx']['v']:
             p_val = probs[v]
@@ -1155,7 +1183,7 @@ with Q2:
             st.markdown(f"- **{v}**: {p_val:.1f}%{boost_str}")
             confidence_bar(v, p_val)
 
-        # Volatility + bet safety summary
+        # Volatility + bet safety
         st.markdown("#### ⚡ Volatility & Safety")
         st.write(f"Volatility Gap: **{meta['volatility_gap_pp']} pp**")
         st.write(f"Market: **{meta['volatility_label']}**")
@@ -1168,7 +1196,7 @@ with Q2:
         else:
             st.success("**FAVORABLE** — Strong, stable edge detected.")
 
-        # Tightness + expected regret as quick metrics
+        # Tightness + regret
         sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
         (_, p1), (_, p2) = sorted_probs[0], sorted_probs[1]
         margin = p1 - p2
@@ -1179,9 +1207,8 @@ with Q2:
         c2.metric("Top‑2 Margin", f"{margin:.1f} pts")
         c3.metric("Expected Regret", f"{meta['expected_regret']:.2f}")
 
-        # Deep details in an expander (to save height)
+        # Diagnostics
         with st.expander("🔍 Detailed diagnostics"):
-            # Physics vs ML divergence
             if res.get('p_sim') and res.get('p_ml'):
                 sim_winner = max(res['p_sim'], key=res['p_sim'].get)
                 ml_winner = max(res['p_ml'], key=res['p_ml'].get)
@@ -1194,7 +1221,6 @@ with Q2:
                 else:
                     st.success("✅ Physics and ML agree on the winner.")
 
-            # Lap-by-lap physics view (placeholder-style summary)
             st.markdown("**Context snapshot:**")
             st.json({
                 "Revealed Lap": res['ctx']['slot'],
@@ -1202,7 +1228,7 @@ with Q2:
                 "Winner": predicted_winner,
                 "Probabilities": probs
             })
-
+            
 # ---------------------------------------------------------
 # Q3 — SAVE RACE REPORT (BOTTOM-LEFT, COMPACT, FINAL FIXED VERSION)
 # ---------------------------------------------------------
