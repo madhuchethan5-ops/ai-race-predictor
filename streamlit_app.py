@@ -606,15 +606,55 @@ def run_simulation(
     vehicles = [v1, v2, v3]
 
         # --- PHYSICS BIAS ADJUSTMENT (must come BEFORE sample_vehicle_times) ---
-    bias_table = get_physics_bias(history_df)
+    def get_physics_bias(history_df):
+    """
+    Learns per-vehicle multiplicative bias based on how often
+    the simulation was wrong vs right.
 
-    adjusted_speed_data = {}
-    for veh in vehicles:
-        mult = bias_table.get(veh, 1.0)
-        adjusted_speed_data[veh] = {
-            t: spd * mult for t, spd in SPEED_DATA[veh].items()
-        }
+    If a vehicle wins more often in reality than simulation predicted,
+    we BOOST its speed slightly.
+    If it wins less often, we REDUCE its speed slightly.
+    """
 
+    if history_df.empty:
+        return {}
+
+    # Need these columns to compare sim vs actual
+    required = ["Sim_Predicted_Winner", "Actual_Winner"]
+    if not all(c in history_df.columns for c in required):
+        return {}
+
+    df = history_df.dropna(subset=required).tail(300)
+
+    if df.empty:
+        return {}
+
+    # Count how often each vehicle was predicted vs actually won
+    sim_counts = df["Sim_Predicted_Winner"].value_counts()
+    real_counts = df["Actual_Winner"].value_counts()
+
+    bias = {}
+
+    for veh in ALL_VEHICLES:
+        sim = sim_counts.get(veh, 0)
+        real = real_counts.get(veh, 0)
+
+        # Avoid division by zero
+        if sim == 0 and real == 0:
+            bias[veh] = 1.0
+            continue
+
+        # Ratio > 1 means real wins more than sim predicted → speed up
+        # Ratio < 1 means sim overpredicts → slow down
+        ratio = (real + 1) / (sim + 1)
+
+        # Convert ratio into a gentle multiplier
+        # Cap adjustments to ±10%
+        mult = float(np.clip(ratio, 0.90, 1.10))
+
+        bias[veh] = mult
+
+    return bias
     # 1. BAYESIAN REINFORCEMENT
     vpi_raw = {v: 1.0 for v in vehicles}
     if not history_df.empty and 'Actual_Winner' in history_df.columns:
