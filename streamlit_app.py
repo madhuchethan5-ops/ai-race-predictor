@@ -15,6 +15,28 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 st.set_page_config(layout="wide", page_title="AI Race Master Pro", page_icon="🏎️")
 st.write("RUNNING FILE:", __file__)
 
+# Maps MUST match your data names exactly
+TERRAIN_ICONS = {
+    "Expressway": "assets/terrain/expressway.png",
+    "Highway": "assets/terrain/highway.png",
+    "Bumpy": "assets/terrain/bumpy.png",
+    "Dirt": "assets/terrain/dirt.png",
+    "Potholes": "assets/terrain/potholes.png",
+    "Desert": "assets/terrain/desert.png",
+}
+
+VEHICLE_ICONS = {
+    "Supercar": "assets/vehicles/supercar.png",
+    "Sports Car": "assets/vehicles/sports_car.png",
+    "Car": "assets/vehicles/car.png",
+    "Stock Car": "assets/vehicles/stock_car.png",
+    "SUV": "assets/vehicles/suv.png",
+    "ORV": "assets/vehicles/orv.png",
+    "ATV": "assets/vehicles/atv.png",
+    "Motorcycle": "assets/vehicles/motorcycle.png",
+    "Monster Truck": "assets/vehicles/monster_truck.png",
+}
+
 # ---------------------------------------------------------
 # 0. CONFIDENCE VISUALS
 # ---------------------------------------------------------
