@@ -57,7 +57,7 @@ SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
     "Motorcycle":    {"Expressway": 94,  "Desert": 45, "Dirt": 76, "Potholes": 36, "Bumpy": 66, "Highway": 89},
-    "Stock Car":     {"Expressway": 100, "Desert": 50, "Dirt": 80, "Pothholes": 45, "Bumpy": 72, "Highway": 99},
+    "Stock Car":     {"Expressway": 100, "Desert": 50, "Dirt": 80, "Potholes": 45, "Bumpy": 72, "Highway": 99},
     "SUV":           {"Expressway": 180, "Desert": 63, "Dirt": 100, "Potholes": 60, "Bumpy": 80, "Highway": 143},
     "Car":           {"Expressway": 235, "Desert": 70, "Dirt": 120, "Potholes": 68, "Bumpy": 81, "Highway": 180},
     "ATV":           {"Expressway": 80,  "Desert": 40, "Dirt": 66, "Potholes": 32, "Bumpy": 60, "Highway": 80},
@@ -128,7 +128,7 @@ def auto_clean_history(df: pd.DataFrame):
     return df, issues
 
 # ---------------------------------------------------------
-# 3. STREAMLIT + GITHUB SAFE STORAGE
+# 3. HISTORY LOAD / SAVE
 # ---------------------------------------------------------
 
 def load_history():
@@ -149,6 +149,7 @@ def load_history():
         'Lap_3_Track','Lap_3_Len',
         'Actual_Winner','Predicted_Winner',
         'Lane','Top_Prob','Was_Correct',
+        # model-skill logging
         'Sim_Predicted_Winner','ML_Predicted_Winner',
         'Sim_Top_Prob','ML_Top_Prob',
         'Sim_Was_Correct','ML_Was_Correct',
@@ -171,24 +172,28 @@ def load_history():
 
     return df
 
-def save_history(df):
+def save_history(df: pd.DataFrame):
     df.to_csv(HISTORY_FILE, index=False)
 
-def add_race_result(history_df, row_dict):
+def add_race_result(history_df: pd.DataFrame, row_dict: dict):
     history_df.loc[len(history_df)] = row_dict
     return history_df
 
 history = load_history()
 
 # ---------------------------------------------------------
-# 4. ML UTILITIES: LEAK-SAFE FEATURES + TRAINING
+# 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
 # ---------------------------------------------------------
 
-def add_leakage_safe_win_rates(df: pd.DataFrame):
+def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute per-vehicle win rates using only past races (expanding window),
     to avoid target leakage.
     """
+    if "Timestamp" not in df.columns:
+        df = df.copy()
+        df["Timestamp"] = pd.Timestamp.now()
+
     df = df.sort_values("Timestamp").reset_index(drop=True)
     win_counts = {}
     race_counts = {}
@@ -197,17 +202,19 @@ def add_leakage_safe_win_rates(df: pd.DataFrame):
 
     for _, row in df.iterrows():
         def rate(v):
-            if race_counts.get(v, 0) > 0:
-                return win_counts.get(v, 0) / race_counts.get(v, 1)
-            else:
-                return 0.33
+            rc = race_counts.get(v, 0)
+            wc = win_counts.get(v, 0)
+            if rc > 0:
+                return wc / rc
+            return 0.33
 
         v1_rates.append(rate(row["Vehicle_1"]))
         v2_rates.append(rate(row["Vehicle_2"]))
         v3_rates.append(rate(row["Vehicle_3"]))
 
         for v in [row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"]]:
-            race_counts[v] = race_counts.get(v, 0) + 1
+            if pd.notna(v):
+                race_counts[v] = race_counts.get(v, 0) + 1
         w = row["Actual_Winner"]
         if pd.notna(w):
             win_counts[w] = win_counts.get(w, 0) + 1
@@ -246,8 +253,6 @@ def build_training_data(history_df: pd.DataFrame):
     if df.empty:
         return None, None, None
 
-    y = df["winner_idx"].astype(int)
-
     def is_high_speed(track):
         return track in ["Expressway", "Highway"]
 
@@ -267,6 +272,8 @@ def build_training_data(history_df: pd.DataFrame):
     ) / 3.0
 
     df = add_leakage_safe_win_rates(df)
+
+    y = df["winner_idx"].astype(int)
 
     feature_cols = [
         "Vehicle_1", "Vehicle_2", "Vehicle_3",
@@ -335,6 +342,9 @@ def get_trained_model(history_df: pd.DataFrame):
     Cached ML model; invalidates automatically when history_df changes.
     """
     return train_ml_model(history_df)
+# ---------------------------------------------------------
+# 5. SINGLE-ROW FEATURE BUILDER FOR LIVE PREDICTIONS
+# ---------------------------------------------------------
 
 def build_single_feature_row(v1, v2, v3, k_idx, k_type):
     """
@@ -375,7 +385,7 @@ def build_single_feature_row(v1, v2, v3, k_idx, k_type):
     return pd.DataFrame([data])
 
 # ---------------------------------------------------------
-# 5. METRICS & MODEL SKILL
+# 6. METRICS & MODEL SKILL
 # ---------------------------------------------------------
 
 def compute_basic_metrics(history: pd.DataFrame):
@@ -448,7 +458,7 @@ def compute_model_skill(history: pd.DataFrame, window: int = 100):
     return {
         "sim_brier": float(sim_brier),
         "ml_brier": float(ml_brier),
-        "n": len(df)
+        "n": int(len(df))
     }
 
 def compute_learning_curve(history: pd.DataFrame, window: int = 30):
@@ -475,23 +485,25 @@ def compute_learning_curve(history: pd.DataFrame, window: int = 30):
         df['Brier_Roll'] = np.nan
         return df
 
-def compute_learned_geometry(df):
+def compute_learned_geometry(df: pd.DataFrame):
     st.write("GEOMETRY FUNCTION VERSION:", "v2")
     results = []
     for lap in [1, 2, 3]:
         t_col = f"Lap_{lap}_Track"
         l_col = f"Lap_{lap}_Len"
+        if t_col not in df.columns or l_col not in df.columns:
+            continue
         tmp = df[[t_col, l_col]].dropna()
         tmp = tmp[tmp[t_col] != ""]
         if tmp.empty:
             continue
-        grouped = tmp.groupby(t_col)[l_col].agg(['mean','std','count']).reset_index()
+        grouped = tmp.groupby(t_col)[l_col].agg(['mean', 'std', 'count']).reset_index()
         grouped['Lap'] = lap
-        grouped = grouped.rename(columns={t_col:'Track'})
+        grouped = grouped.rename(columns={t_col: 'Track'})
         results.append(grouped)
     if results:
         return pd.concat(results, ignore_index=True)
-    return pd.DataFrame(columns=['Lap','Track','mean','std','count'])
+    return pd.DataFrame(columns=['Lap', 'Track', 'mean', 'std', 'count'])
 
 def compute_transition_matrices(history: pd.DataFrame):
     mats = {}
@@ -547,7 +559,7 @@ def compute_volatility_from_probs(probs: dict):
     return {'volatility': top - second, 'ranking': items}
 
 # ---------------------------------------------------------
-# 6. CORE SIMULATION (LIGHTLY VECTORIZED)
+# 7. CORE SIMULATION (BAYES + GEOMETRY + MARKOV + VECTORISED PHYSICS)
 # ---------------------------------------------------------
 
 def run_simulation(
@@ -733,9 +745,8 @@ def run_simulation(
 
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
-
-# ---------------------------------------------------------
-# 7. SIDEBAR (SETUP & PREDICTION) WITH PERFORMANCE-DRIVEN BLENDING
+    # ---------------------------------------------------------
+# 8. SIDEBAR (SETUP & PREDICTION) WITH PERFORMANCE-DRIVEN BLENDING
 # ---------------------------------------------------------
 
 with st.sidebar:
@@ -782,11 +793,11 @@ with st.sidebar:
                 if ml_brier < sim_brier:
                     # ML sharper than sim: weight increases with relative improvement
                     improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-                    blend_weight = np.clip(0.3 + 0.5 * improvement, 0.3, 0.8)
+                    blend_weight = float(np.clip(0.3 + 0.5 * improvement, 0.3, 0.8))
                 else:
                     # ML worse: throttle down
                     degradation = (ml_brier - sim_brier) / max(sim_brier, 1e-8)
-                    blend_weight = np.clip(0.3 - 0.3 * degradation, 0.0, 0.3)
+                    blend_weight = float(np.clip(0.3 - 0.3 * degradation, 0.0, 0.3))
             else:
                 blend_weight = 0.4  # not enough skill data yet
         elif ml_probs is not None:
@@ -813,7 +824,7 @@ with st.sidebar:
         }
 
 # ---------------------------------------------------------
-# 8. MAIN DASHBOARD
+# 9. MAIN DASHBOARD
 # ---------------------------------------------------------
 
 st.title("🏁 AI RACE MASTER PRO")
@@ -832,7 +843,7 @@ if 'res' in st.session_state:
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
 # ---------------------------------------------------------
-# 9. SAVE RACE REPORT (LOG SIM & ML SEPARATELY)
+# 10. SAVE RACE REPORT (LOG SIM & ML SEPARATELY)
 # ---------------------------------------------------------
 
 st.divider()
@@ -972,10 +983,43 @@ if save_clicked:
 
     st.success("✅ Race saved. The model cache will update on next run.")
     st.rerun()
+    # ---------------------------------------------------------
+# 11. PREDICTION ANALYTICS PANEL
+# ---------------------------------------------------------
 
-# ---------------------------------------------------------
-# 10. PREDICTION ANALYTICS PANEL
-# ---------------------------------------------------------
+def csv_health_check(df: pd.DataFrame):
+    issues = []
+
+    unnamed = [c for c in df.columns if "Unnamed" in c]
+    if unnamed:
+        issues.append(f"Unnamed columns detected: {unnamed}")
+
+    required = [
+        'Vehicle_1', 'Vehicle_2', 'Vehicle_3',
+        'Lap_1_Track', 'Lap_1_Len',
+        'Lap_2_Track', 'Lap_2_Len',
+        'Lap_3_Track', 'Lap_3_Len',
+        'Actual_Winner', 'Predicted_Winner',
+        'Lane', 'Top_Prob', 'Was_Correct'
+    ]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        issues.append(f"Missing columns: {missing}")
+
+    bad_rows = df[df.isna().all(axis=1)]
+    if not bad_rows.empty:
+        issues.append(f"Empty/malformed rows: {len(bad_rows)}")
+
+    valid_tracks = set(TRACK_OPTIONS)
+    for lap in [1, 2, 3]:
+        col = f"Lap_{lap}_Track"
+        if col in df.columns:
+            invalid = df[~df[col].isin(valid_tracks)][col].unique()
+            invalid = [x for x in invalid if pd.notna(x)]
+            if invalid:
+                issues.append(f"Invalid track names in {col}: {invalid}")
+
+    return issues
 
 if 'res' in st.session_state:
     res = st.session_state['res']
@@ -1065,7 +1109,7 @@ if 'res' in st.session_state:
     lap_data = []
     for v in ctx['v']:
         for lap_idx in range(3):
-            track = ctx['t'] if lap_idx == ctx['idx"] else "Hidden"
+            track = ctx['t'] if lap_idx == ctx['idx'] else "Hidden"
             lap_data.append({
                 "Vehicle": v,
                 "Lap": lap_idx + 1,
@@ -1084,45 +1128,7 @@ if 'res' in st.session_state:
     })
 
 # ---------------------------------------------------------
-# 11. CSV HEALTH CHECK
-# ---------------------------------------------------------
-
-def csv_health_check(df: pd.DataFrame):
-    issues = []
-
-    unnamed = [c for c in df.columns if "Unnamed" in c]
-    if unnamed:
-        issues.append(f"Unnamed columns detected: {unnamed}")
-
-    required = [
-        'Vehicle_1', 'Vehicle_2', 'Vehicle_3',
-        'Lap_1_Track', 'Lap_1_Len',
-        'Lap_2_Track', 'Lap_2_Len',
-        'Lap_3_Track', 'Lap_3_Len',
-        'Actual_Winner', 'Predicted_Winner',
-        'Lane', 'Top_Prob', 'Was_Correct'
-    ]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        issues.append(f"Missing columns: {missing}")
-
-    bad_rows = df[df.isna().all(axis=1)]
-    if not bad_rows.empty:
-        issues.append(f"Empty/malformed rows: {len(bad_rows)}")
-
-    valid_tracks = set(TRACK_OPTIONS)
-    for lap in [1, 2, 3]:
-        col = f"Lap_{lap}_Track"
-        if col in df.columns:
-            invalid = df[~df[col].isin(valid_tracks)][col].unique()
-            invalid = [x for x in invalid if pd.notna(x)]
-            if invalid:
-                issues.append(f"Invalid track names in {col}: {invalid}")
-
-    return issues
-
-# ---------------------------------------------------------
-# 12. ANALYTICS TABS + GHOST LAP IN WHAT-IF
+# 12. ANALYTICS TABS + GHOST LAP WHAT-IF
 # ---------------------------------------------------------
 
 if not history.empty:
@@ -1349,9 +1355,7 @@ if not history.empty:
             st.write("### 👻 Ghost Lap Scenarios")
             st.caption("Stress-test the hidden laps by assuming extreme terrain profiles.")
 
-            # Ghost High-Speed: treat revealed track as Expressway
             probs_high, _ = run_simulation(sim_v1, sim_v2, sim_v3, sim_idx, "Expressway", history)
-            # Ghost Rough: treat revealed track as Dirt
             probs_rough, _ = run_simulation(sim_v1, sim_v2, sim_v3, sim_idx, "Dirt", history)
 
             col_gh, col_gr = st.columns(2)
@@ -1361,4 +1365,4 @@ if not history.empty:
             with col_gr:
                 st.write("Ghost Rough (Dirt as revealed)")
                 st.json(probs_rough)
-            st.caption("Ghost scenarios approximate how outcomes shift if the underlying laps are biased towards high-speed or rough terrain.")
+            st.caption("Ghost scenarios approximate how outcomes shift if underlying laps skew high-speed vs rough.")
