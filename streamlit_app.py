@@ -724,8 +724,10 @@ def run_simulation(
                 sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations, p=p))
             else:
                 sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations))
+
         terrain_i = sim_terrains[-1]
         lengths_i = np.empty(iterations, dtype=float)
+
         for t in np.unique(terrain_i):
             mu, sigma = learned_length_dist(t, i)
             sigma = max(sigma, 1e-3)
@@ -733,6 +735,7 @@ def run_simulation(
             n = mask.sum()
             if n > 0:
                 lengths_i[mask] = np.random.normal(mu, sigma, size=n)
+
         lengths_i = np.clip(lengths_i, 1.0, None)
         sim_lengths.append(lengths_i)
 
@@ -743,9 +746,20 @@ def run_simulation(
 
     terrain_matrix = np.column_stack(sim_terrains)
 
+    # --- PHYSICS BIAS APPLIED TO SPEED DATA ---
+    bias_table = get_physics_bias(history_df)
+
+    adjusted_speed_data = {}
+    for veh in vehicles:
+        mult = bias_table.get(veh, 1.0)
+        adjusted_speed_data[veh] = {
+            t: spd * mult for t, spd in SPEED_DATA[veh].items()
+        }
+
     # 5. NOISE MODELING (vectorized speed lookup per track)
-    def sample_vehicle_times(vehicle):
+    def sample_vehicle_times(vehicle, vpi):
         speed_map = adjusted_speed_data[vehicle]
+
         base_speed = np.empty_like(terrain_matrix, dtype=float)
         for t, spd in speed_map.items():
             mask = (terrain_matrix == t)
@@ -760,24 +774,18 @@ def run_simulation(
 
         return np.sum(len_matrix / (effective_speed * vpi[vehicle]), axis=1)
 
-        # Apply physics bias (small correction)
-    bias_table = get_physics_bias(history_df)
-
-    # Adjust SPEED_DATA dynamically
-    adjusted_speed_data = {}
-    for veh in vehicles:
-        mult = bias_table.get(veh, 1.0)
-        adjusted_speed_data[veh] = {t: spd * mult for t, spd in SPEED_DATA[veh].items()}
-    results = {v: sample_vehicle_times(v) for v in vehicles}
+    # Sample times for each vehicle
+    results = {v: sample_vehicle_times(v, vpi) for v in vehicles}
 
     # 6. RAW WIN PROBABILITIES
     total_times = np.vstack([results[v] for v in vehicles])
     winners = np.argmin(total_times, axis=0)
+
     freq = pd.Series(winners).value_counts(normalize=True).sort_index()
     raw_probs = np.array([freq.get(i, 0.0) for i in range(3)], dtype=float)
     raw_probs = np.clip(raw_probs, 1e-6, 1.0)
     raw_probs /= raw_probs.sum()
-
+    
     # 7. TEMPERATURE CALIBRATION
     def estimate_temperature_from_history(df):
         if df.empty or 'Top_Prob' not in df.columns or 'Was_Correct' not in df.columns:
