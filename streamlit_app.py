@@ -1456,7 +1456,7 @@ if 'res' in st.session_state:
 # 12. ANALYTICS TABS + GHOST LAP WHAT-IF
 # ---------------------------------------------------------
 
-if not history.empty:
+if history is not None and not history.empty:
     st.divider()
     tabs = st.tabs([
         "📊 Performance Dashboard",
