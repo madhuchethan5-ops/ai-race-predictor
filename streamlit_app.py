@@ -693,6 +693,10 @@ if save_clicked:
         'Timestamp': pd.Timestamp.now()
     }
 
+if history is None or history.empty:
+    st.error("History failed to load — not saving to avoid data loss.")
+    st.stop()
+    
     history = add_race_result(history, row)
     save_history(history)
 
