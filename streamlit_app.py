@@ -1232,6 +1232,10 @@ with Q2:
 # ---------------------------------------------------------
 with Q3:
     st.markdown("### 📝 Save Race Report")
+    # 🚫 If invalid vehicle selection, hide the form entirely
+    if len(st.session_state.selected_vehicles) != 3:
+    st.warning("Select exactly 3 vehicles to enable saving.")
+    st.stop()
 
     # Check if prediction exists
     prediction_available = 'res' in st.session_state
