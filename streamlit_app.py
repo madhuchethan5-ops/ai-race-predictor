@@ -958,7 +958,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         },
     }
 # ---------------------------------------------------------
-# 8. QUADRANT UI LAYOUT — NEW GRAPHICAL SYSTEM
+# 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
 # ---------------------------------------------------------
 
 # --- Initialize State ---
@@ -974,139 +974,100 @@ if "selected_vehicles" not in st.session_state:
 if "trigger_prediction" not in st.session_state:
     st.session_state.trigger_prediction = False
 
-
 # ---------------------------------------------------------
-# IMAGE TILE BUTTON (90×90 px, red highlight)
-# ---------------------------------------------------------
-
-def image_tile_button(label, img_path, key, selected=False):
-    """
-    Renders a clickable image tile with:
-    - 90×90 icon
-    - label below
-    - red highlight if selected
-    """
-
-    border = "3px solid #E53935" if selected else "1px solid #999"
-    bg = "rgba(229,57,53,0.15)" if selected else "#f8f8f8"
-    font_weight = "700" if selected else "500"
-
-    tile_html = f"""
-    <div style="
-        border:{border};
-        background:{bg};
-        border-radius:10px;
-        padding:6px;
-        text-align:center;
-        cursor:pointer;
-        transition:0.15s;
-    ">
-        <img src="file://{os.path.abspath(img_path)}"
-             style="width:90px; height:90px; object-fit:contain;" />
-        <div style="font-size:14px; font-weight:{font_weight}; margin-top:4px;">
-            {label}
-        </div>
-    </div>
-    """
-
-    return st.button(label, key=key, help=label, use_container_width=True), tile_html
-
-
-# ---------------------------------------------------------
-# QUADRANT LAYOUT
+# QUADRANT LAYOUT (2×2, AUTO-FIT)
 # ---------------------------------------------------------
 
-# Top row: Q1 (left) and Q2 (right)
-Q1, Q2 = st.columns([0.40, 0.60])
+top_left, top_right = st.columns(2)
+bottom_left, bottom_right = st.columns(2)
 
-# Bottom row: Q3 (left) and Q4 (right)
-Q3, Q4 = st.columns([0.40, 0.60])
+Q1 = top_left.container()      # Top-left  : Race setup
+Q2 = top_right.container()     # Top-right : Prediction
+Q3 = bottom_left.container()   # Bottom-left: Save race
+Q4 = bottom_right.container()  # Bottom-right: Diagnostics
 
 # ---------------------------------------------------------
-# Q1 — CLEAN, STABLE, FAST VERSION
+# Q1 — COMPACT RACE SETUP (TOP-LEFT)
 # ---------------------------------------------------------
 with Q1:
+    st.markdown("### 🏁 Race Setup")
 
-    st.markdown("## 🏁 Race Setup")
+    # 1. LAP & TERRAIN IN ONE ROW
+    lap_col, terrain_col = st.columns([1, 1.3])
 
-    # -------------------------
-    # 1. LAP SELECTOR
-    # -------------------------
-    st.markdown("### 🔢 Select Lap")
+    with lap_col:
+        st.caption("Lap")
+        st.session_state.selected_lap = st.radio(
+            label="",
+            options=["Lap 1", "Lap 2", "Lap 3"],
+            index=["Lap 1", "Lap 2", "Lap 3"].index(st.session_state.selected_lap)
+            if st.session_state.selected_lap else 0,
+            horizontal=True
+        )
 
-    st.session_state.selected_lap = st.radio(
-        "Choose Lap",
-        ["Lap 1", "Lap 2", "Lap 3"],
-        index=["Lap 1", "Lap 2", "Lap 3"].index(st.session_state.selected_lap)
-        if st.session_state.selected_lap else 0,
-        horizontal=True
-    )
+    with terrain_col:
+        st.caption("Terrain")
+        terrain = st.selectbox(
+            label="",
+            options=list(TERRAIN_ICONS.keys()),
+            index=list(TERRAIN_ICONS.keys()).index(st.session_state.selected_terrain)
+            if st.session_state.selected_terrain else 0,
+        )
+        st.session_state.selected_terrain = terrain
 
-    st.markdown("---")
-
-    # -------------------------
-    # 2. TERRAIN SELECTOR (Native Streamlit)
-    # -------------------------
-    st.markdown("### 🌍 Select Terrain")
-
-    terrain = st.radio(
-        "Choose Terrain",
-        list(TERRAIN_ICONS.keys()),
-        index=list(TERRAIN_ICONS.keys()).index(st.session_state.selected_terrain)
-        if st.session_state.selected_terrain else 0,
-        horizontal=True
-    )
-
-    st.session_state.selected_terrain = terrain
-
-    st.image(TERRAIN_ICONS[terrain], width=200)
+    # Small terrain icon row to reduce height
+    icon_col, _ = st.columns([1, 1])
+    with icon_col:
+        st.image(TERRAIN_ICONS[terrain], width=90)
 
     st.markdown("---")
 
-    # -------------------------
-    # 3. VEHICLE SELECTOR (Max 3)
-    # -------------------------
-    st.markdown("### 🚗 Select 3 Vehicles")
+    # 2. VEHICLE SELECTOR (MAX 3) — COMPACT
+    st.markdown("#### 🚗 Select 3 Vehicles")
 
     selected = st.multiselect(
-        "Choose Vehicles",
+        "Vehicles",
         list(VEHICLE_ICONS.keys()),
         default=st.session_state.selected_vehicles,
         max_selections=3
     )
-
     st.session_state.selected_vehicles = selected
 
-    # Show selected vehicle images
-    cols = st.columns(3)
-    for i, veh in enumerate(selected):
-        with cols[i]:
-            st.image(VEHICLE_ICONS[veh], width=150)
-            st.caption(veh)
+    # Show small vehicle icons on a single line
+    if selected:
+        cols = st.columns(len(selected))
+        for i, veh in enumerate(selected):
+            with cols[i]:
+                st.image(VEHICLE_ICONS[veh], width=70)
+                st.caption(veh)
 
     st.markdown("---")
 
-    # -------------------------
-    # 4. PREDICT BUTTON
-    # -------------------------
+    # 3. PREDICT BUTTON
     ready = (
         st.session_state.selected_lap is not None and
         st.session_state.selected_terrain is not None and
         len(st.session_state.selected_vehicles) == 3
     )
 
-    if st.button("🚀 RUN PREDICTION", disabled=not ready, use_container_width=True):
+    st.button(
+        "🚀 RUN PREDICTION",
+        disabled=not ready,
+        use_container_width=True,
+        key="run_prediction_main"
+    )
+
+    # Trigger flag (keep logic same as before)
+    if st.session_state.get("run_prediction_main"):
         st.session_state.trigger_prediction = True
-        st.success("Prediction triggered!")
 
 # ---------------------------------------------------------
-# Q2 — PREDICTION PANEL (TOP‑RIGHT)
+# Q2 — COMPACT PREDICTION PANEL (TOP-RIGHT)
 # ---------------------------------------------------------
 with Q2:
+    st.markdown("### 📡 Prediction & Bet Guidance")
 
-    st.markdown("## 📡 Prediction & Bet Guidance")
-
-    # Trigger prediction if user clicked RUN PREDICTION
+    # Run prediction once when triggered
     if st.session_state.get("trigger_prediction", False):
         lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
         k_idx = lap_map[st.session_state.selected_lap]
@@ -1116,44 +1077,41 @@ with Q2:
         run_full_prediction(v1, v2, v3, k_idx, k_type, history)
         st.session_state.trigger_prediction = False
 
-    # If no prediction yet
     if 'res' not in st.session_state:
-        st.info("Set up the race on the left and click RUN PREDICTION.")
+        st.info("Set up the race on the left and run a prediction.")
     else:
         res = st.session_state['res']
         meta = res['meta']
         probs = res['p']
         vpi = res['vpi']
 
-        # -------------------------
-        # AI Accuracy (from history)
-        # -------------------------
-        if not history.empty and 'Actual_Winner' in history.columns:
-            valid = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
-            if not valid.empty:
-                acc = (valid['Predicted_Winner'] == valid['Actual_Winner']).mean() * 100
-                st.metric("🎯 AI Prediction Accuracy", f"{acc:.1f}%")
+        # Top row: global accuracy + winner
+        top_col1, top_col2 = st.columns(2)
 
-        # -------------------------
-        # Winner + Probabilities
-        # -------------------------
-        st.markdown("### 🏆 Prediction Results")
+        with top_col1:
+            if not history.empty and 'Actual_Winner' in history.columns:
+                valid = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
+                if not valid.empty:
+                    acc = (valid['Predicted_Winner'] == valid['Actual_Winner']).mean() * 100
+                    st.metric("🎯 AI Accuracy", f"{acc:.1f}%")
 
+        with top_col2:
+            predicted_winner = max(probs, key=probs.get)
+            st.metric("🏆 Predicted Winner", predicted_winner)
+
+        # Probabilities (compact list + bars)
+        st.markdown("#### 📊 Win Probabilities")
         for v in res['ctx']['v']:
             p_val = probs[v]
             boost = (vpi[v] - 1.0) * 100
             boost_str = f" (+{boost:.1f}% ML Boost)" if boost > 0 else ""
             st.markdown(f"- **{v}**: {p_val:.1f}%{boost_str}")
+            confidence_bar(v, p_val)
 
-        predicted_winner = max(probs, key=probs.get)
-        st.success(f"**Predicted Winner: {predicted_winner}**")
-
-        # -------------------------
-        # Volatility + Bet Safety
-        # -------------------------
-        st.markdown("### ⚡ Volatility & Bet Safety")
+        # Volatility + bet safety summary
+        st.markdown("#### ⚡ Volatility & Safety")
         st.write(f"Volatility Gap: **{meta['volatility_gap_pp']} pp**")
-        st.write(f"Market Condition: **{meta['volatility_label']}**")
+        st.write(f"Market: **{meta['volatility_label']}**")
 
         safety = meta['bet_safety']
         if safety == "AVOID":
@@ -1163,82 +1121,46 @@ with Q2:
         else:
             st.success("**FAVORABLE** — Strong, stable edge detected.")
 
-        # -------------------------
-        # Expected Regret
-        # -------------------------
-        st.markdown("### 📉 Expected Regret")
-        st.write(f"Risk of being confidently wrong: **{meta['expected_regret']:.2f}**")
-
-        # -------------------------
-        # Confidence Bars
-        # -------------------------
-        st.markdown("### 📊 Confidence by Vehicle")
-        for v, p_val in probs.items():
-            confidence_bar(v, p_val)
-
-        # -------------------------
-        # Divergence Warning
-        # -------------------------
-        if res.get('p_sim') and res.get('p_ml'):
-            sim_winner = max(res['p_sim'], key=res['p_sim'].get)
-            ml_winner = max(res['p_ml'], key=res['p_ml'].get)
-
-            if sim_winner != ml_winner:
-                st.warning(
-                    f"⚠️ **Model Divergence:** Physics → {sim_winner}, ML → {ml_winner}. "
-                    "This race has higher uncertainty."
-                )
-            else:
-                st.success("✅ Physics and ML agree on the winner.")
-
-        # -------------------------
-        # Tightness Score
-        # -------------------------
+        # Tightness + expected regret as quick metrics
         sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
         (_, p1), (_, p2) = sorted_probs[0], sorted_probs[1]
         margin = p1 - p2
         tightness = max(0, 100 - margin)
 
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         c1.metric("Race Tightness", f"{tightness:.1f}")
         c2.metric("Top‑2 Margin", f"{margin:.1f} pts")
+        c3.metric("Expected Regret", f"{meta['expected_regret']:.2f}")
 
-        # -------------------------
-        # Lap-by-Lap Expected Time
-        # -------------------------
-        st.markdown("### ⏱️ Lap-by-Lap Expected Time (Physics Model)")
+        # Deep details in an expander (to save height)
+        with st.expander("🔍 Detailed diagnostics"):
+            # Physics vs ML divergence
+            if res.get('p_sim') and res.get('p_ml'):
+                sim_winner = max(res['p_sim'], key=res['p_sim'].get)
+                ml_winner = max(res['p_ml'], key=res['p_ml'].get)
 
-        lap_data = []
-        for v in res['ctx']['v']:
-            for lap_idx in range(3):
-                track = res['ctx']['t'] if lap_idx == res['ctx']['idx'] else "Hidden"
-                lap_data.append({
-                    "Vehicle": v,
-                    "Lap": lap_idx + 1,
-                    "Track": track,
-                    "Speed": SPEED_DATA[v].get(track, "—") if track != "Hidden" else "—"
-                })
+                if sim_winner != ml_winner:
+                    st.warning(
+                        f"⚠️ **Model Divergence:** Physics → {sim_winner}, ML → {ml_winner}. "
+                        "This race has higher uncertainty."
+                    )
+                else:
+                    st.success("✅ Physics and ML agree on the winner.")
 
-        st.dataframe(pd.DataFrame(lap_data), use_container_width=True)
+            # Lap-by-lap physics view (placeholder-style summary)
+            st.markdown("**Context snapshot:**")
+            st.json({
+                "Revealed Lap": res['ctx']['slot'],
+                "Revealed Track": res['ctx']['t'],
+                "Winner": predicted_winner,
+                "Probabilities": probs
+            })
 
-        # -------------------------
-        # Hidden Lap Predictions
-        # -------------------------
-        st.markdown("### 🔮 Hidden Lap Predictions")
-        st.caption("Based on learned Markov transitions and geometry.")
-
-        st.json({
-            "Revealed Lap": res['ctx']['slot'],
-            "Revealed Track": res['ctx']['t'],
-            "Winner": predicted_winner,
-            "Probabilities": probs
-        })
 # ---------------------------------------------------------
-# Q3 — SAVE RACE REPORT (BOTTOM‑LEFT)
+# Q3 — SAVE RACE REPORT (BOTTOM-LEFT, COMPACT)
 # ---------------------------------------------------------
 with Q3:
-
-    st.markdown("## 📝 Save Race Report")
+    st.markdown("### 📝 Save Race Report")
 
     if 'res' not in st.session_state:
         st.info("Run a prediction first to enable saving.")
@@ -1255,327 +1177,200 @@ with Q3:
         revealed_track = ctx['t']
         revealed_slot = ctx['slot']
 
-        # -------------------------
-        # SAVE FORM
-        # -------------------------
-        with st.form("race_report_form"):
+        # Small summary strip
+        st.caption(
+            f"Last prediction: **{predicted_winner}** on {revealed_slot} "
+            f"({revealed_track})"
+        )
 
-            # Actual Winner
-            winner = st.selectbox(
-                "🏆 Actual Winner",
-                ctx['v'],
-                index=None,
-                placeholder="Select the actual winner..."
-            )
+        # Form hidden in expander to keep height low
+        with st.expander("💾 Open save & training form", expanded=False):
+            with st.form("race_report_form"):
+                # Actual Winner
+                winner = st.selectbox(
+                    "🏆 Actual Winner",
+                    ctx['v'],
+                    index=None,
+                    placeholder="Select the actual winner..."
+                )
 
-            # Lap inputs
-            c1, c2, c3 = st.columns(3)
+                # Lap inputs compact in one row
+                c1, c2, c3 = st.columns(3)
 
-            # LAP 1
-            with c1:
-                if revealed_lap == 0:
-                    s1t = st.selectbox(
-                        "Lap 1 Track",
-                        TRACK_OPTIONS,
-                        index=TRACK_OPTIONS.index(revealed_track),
-                        disabled=True
-                    )
-                    s1l = st.number_input("Lap 1 %", 1, 100, 33)
+                # LAP 1
+                with c1:
+                    if revealed_lap == 0:
+                        s1t = st.selectbox(
+                            "Lap 1 Track",
+                            TRACK_OPTIONS,
+                            index=TRACK_OPTIONS.index(revealed_track),
+                            disabled=True
+                        )
+                        s1l = st.number_input("Lap 1 %", 1, 100, 33)
+                    else:
+                        s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS)
+                        s1l = st.number_input("Lap 1 %", 1, 100, 33)
+
+                # LAP 2
+                with c2:
+                    if revealed_lap == 1:
+                        s2t = st.selectbox(
+                            "Lap 2 Track",
+                            TRACK_OPTIONS,
+                            index=TRACK_OPTIONS.index(revealed_track),
+                            disabled=True
+                        )
+                        s2l = st.number_input("Lap 2 %", 1, 100, 33)
+                    else:
+                        s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS)
+                        s2l = st.number_input("Lap 2 %", 1, 100, 33)
+
+                # LAP 3
+                with c3:
+                    if revealed_lap == 2:
+                        s3t = st.selectbox(
+                            "Lap 3 Track",
+                            TRACK_OPTIONS,
+                            index=TRACK_OPTIONS.index(revealed_track),
+                            disabled=True
+                        )
+                        s3l = st.number_input("Lap 3 %", 1, 100, 34)
+                    else:
+                        s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS)
+                        s3l = st.number_input("Lap 3 %", 1, 100, 34)
+
+                save_clicked = st.form_submit_button("💾 Save & Train")
+
+            # SAVE LOGIC (unchanged)
+            if save_clicked:
+
+                if winner is None:
+                    st.error("Please select the actual winner.")
+                    st.stop()
+
+                s1l = float(s1l)
+                s2l = float(s2l)
+                s3l = float(s3l)
+
+                if s1l + s2l + s3l != 100:
+                    st.error("Lap lengths must total 100%.")
+                    st.stop()
+
+                if not s1t or not s2t or not s3t:
+                    st.error("All laps must have a track selected.")
+                    st.stop()
+
+                st.session_state['last_train_probs'] = dict(predicted)
+
+                sim_pred_winner = None
+                ml_pred_winner = None
+                sim_top_prob = np.nan
+                ml_top_prob = np.nan
+                sim_correct = np.nan
+                ml_correct = np.nan
+
+                if isinstance(p_sim, dict):
+                    sim_pred_winner = max(p_sim, key=p_sim.get)
+                    sim_top_prob = p_sim[sim_pred_winner] / 100.0
+                    sim_correct = float(sim_pred_winner == winner)
+
+                if isinstance(p_ml, dict):
+                    ml_pred_winner = max(p_ml, key=p_ml.get)
+                    ml_top_prob = p_ml[ml_pred_winner] / 100.0
+                    ml_correct = float(ml_pred_winner == winner)
+
+                was_correct = float(predicted_winner == winner)
+                p1 = predicted[predicted_winner] / 100.0
+
+                if was_correct == 1:
+                    surprise = round(1 - p1, 4)
                 else:
-                    s1t = st.selectbox("Lap 1 Track", TRACK_OPTIONS)
-                    s1l = st.number_input("Lap 1 %", 1, 100, 33)
+                    surprise = 1.0
 
-            # LAP 2
-            with c2:
-                if revealed_lap == 1:
-                    s2t = st.selectbox(
-                        "Lap 2 Track",
-                        TRACK_OPTIONS,
-                        index=TRACK_OPTIONS.index(revealed_track),
-                        disabled=True
-                    )
-                    s2l = st.number_input("Lap 2 %", 1, 100, 33)
+                row = {
+                    'Vehicle_1': ctx['v'][0],
+                    'Vehicle_2': ctx['v'][1],
+                    'Vehicle_3': ctx['v'][2],
+
+                    'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
+                    'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
+                    'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
+
+                    'Predicted_Winner': predicted_winner,
+                    'Actual_Winner': winner,
+                    'Lane': revealed_slot,
+
+                    'Top_Prob': p1,
+                    'Was_Correct': was_correct,
+                    'Surprise_Index': surprise,
+
+                    'Sim_Predicted_Winner': sim_pred_winner,
+                    'ML_Predicted_Winner': ml_pred_winner,
+                    'Sim_Top_Prob': sim_top_prob,
+                    'ML_Top_Prob': ml_top_prob,
+                    'Sim_Was_Correct': sim_correct,
+                    'ML_Was_Correct': ml_correct,
+
+                    'Timestamp': pd.Timestamp.now()
+                }
+
+                if history is None or history.empty:
+                    st.error("History failed to load — not saving to avoid data loss.")
                 else:
-                    s2t = st.selectbox("Lap 2 Track", TRACK_OPTIONS)
-                    s2l = st.number_input("Lap 2 %", 1, 100, 33)
+                    history = add_race_result(history, row)
+                    save_history(history)
+                    st.success("✅ Race saved! Model will update on next prediction.")
+                    st.rerun()
 
-            # LAP 3
-            with c3:
-                if revealed_lap == 2:
-                    s3t = st.selectbox(
-                        "Lap 3 Track",
-                        TRACK_OPTIONS,
-                        index=TRACK_OPTIONS.index(revealed_track),
-                        disabled=True
-                    )
-                    s3l = st.number_input("Lap 3 %", 1, 100, 34)
-                else:
-                    s3t = st.selectbox("Lap 3 Track", TRACK_OPTIONS)
-                    s3l = st.number_input("Lap 3 %", 1, 100, 34)
-
-            save_clicked = st.form_submit_button("💾 Save & Train")
-
-        # -------------------------
-        # SAVE LOGIC
-        # -------------------------
-        if save_clicked:
-
-            # Validation
-            if winner is None:
-                st.error("Please select the actual winner.")
-                st.stop()
-
-            s1l = float(s1l)
-            s2l = float(s2l)
-            s3l = float(s3l)
-
-            if s1l + s2l + s3l != 100:
-                st.error("Lap lengths must total 100%.")
-                st.stop()
-
-            if not s1t or not s2t or not s3t:
-                st.error("All laps must have a track selected.")
-                st.stop()
-
-            # Store last train probabilities
-            st.session_state['last_train_probs'] = dict(predicted)
-
-            # Simulation correctness
-            sim_pred_winner = None
-            ml_pred_winner = None
-            sim_top_prob = np.nan
-            ml_top_prob = np.nan
-            sim_correct = np.nan
-            ml_correct = np.nan
-
-            if isinstance(p_sim, dict):
-                sim_pred_winner = max(p_sim, key=p_sim.get)
-                sim_top_prob = p_sim[sim_pred_winner] / 100.0
-                sim_correct = float(sim_pred_winner == winner)
-
-            if isinstance(p_ml, dict):
-                ml_pred_winner = max(p_ml, key=p_ml.get)
-                ml_top_prob = p_ml[ml_pred_winner] / 100.0
-                ml_correct = float(ml_pred_winner == winner)
-
-            # Surprise Index
-            was_correct = float(predicted_winner == winner)
-            p1 = predicted[predicted_winner] / 100.0
-
-            if was_correct == 1:
-                surprise = round(1 - p1, 4)
-            else:
-                surprise = 1.0
-
-            # Build row
-            row = {
-                'Vehicle_1': ctx['v'][0],
-                'Vehicle_2': ctx['v'][1],
-                'Vehicle_3': ctx['v'][2],
-
-                'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
-                'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
-                'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
-
-                'Predicted_Winner': predicted_winner,
-                'Actual_Winner': winner,
-                'Lane': revealed_slot,
-
-                'Top_Prob': p1,
-                'Was_Correct': was_correct,
-                'Surprise_Index': surprise,
-
-                'Sim_Predicted_Winner': sim_pred_winner,
-                'ML_Predicted_Winner': ml_pred_winner,
-                'Sim_Top_Prob': sim_top_prob,
-                'ML_Top_Prob': ml_top_prob,
-                'Sim_Was_Correct': sim_correct,
-                'ML_Was_Correct': ml_correct,
-
-                'Timestamp': pd.Timestamp.now()
-            }
-
-            # Save
-            if history is None or history.empty:
-                st.error("History failed to load — not saving to avoid data loss.")
-            else:
-                history = add_race_result(history, row)
-                save_history(history)
-                st.success("✅ Race saved! Model will update on next prediction.")
-                st.rerun()
 # ---------------------------------------------------------
-# Q4 — DASHBOARD (BOTTOM‑RIGHT)
+# Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
 # ---------------------------------------------------------
 with Q4:
-
-    st.markdown("## 📊 Dashboard & Diagnostics")
+    st.markdown("### 📊 Dashboard & Diagnostics")
 
     if history is None or history.empty:
         st.info("Not enough history to compute analytics.")
     else:
+        # 1. Quick health metrics
+        metrics = compute_basic_metrics(history)
+        col1, col2, col3 = st.columns(3)
 
-        # -------------------------------------------------
-        # 1. CONSENSUS CHECK
-        # -------------------------------------------------
-        st.markdown("### 🤝 Consensus Check")
-
-        if 'res' in st.session_state:
-            res = st.session_state['res']
-            sim_probs = res.get('p_sim')
-            ml_probs = res.get('p_ml')
-
-            if sim_probs and ml_probs:
-                sim_winner = max(sim_probs, key=sim_probs.get)
-                ml_winner = max(ml_probs, key=ml_probs.get)
-
-                if sim_winner == ml_winner:
-                    st.success(f"Physics & ML agree → **{sim_winner}**")
-                else:
-                    st.warning(
-                        f"Physics → **{sim_winner}**, ML → **{ml_winner}** "
-                        "(divergence indicates uncertainty)"
-                    )
-            else:
-                st.info("Run a prediction to see consensus.")
-        else:
-            st.info("Run a prediction to see consensus.")
+        if metrics:
+            col1.metric(
+                "Global Accuracy",
+                f"{metrics['accuracy']*100:.1f}%"
+            )
+            col2.metric(
+                "Mean Top Prob",
+                f"{metrics['mean_top_prob']*100:.1f}%"
+                if pd.notna(metrics['mean_top_prob']) else "N/A"
+            )
+            col3.metric(
+                "Calib Error |p̂ - acc|",
+                f"{metrics['calib_error']*100:.2f}%"
+                if pd.notna(metrics['calib_error']) else "N/A"
+            )
 
         st.markdown("---")
 
-        # -------------------------------------------------
-        # 2. CHAOS MAPPING
-        # -------------------------------------------------
-        st.markdown("### 🌪️ Chaos Mapping (Surprise & Instability)")
+        # 2. Recent drift snapshot (very compact)
+        if 'Was_Correct' in history.columns and 'Top_Prob' in history.columns:
+            df = history.dropna(subset=['Was_Correct', 'Top_Prob']).copy()
+            if len(df) >= 20:
+                window = min(20, len(df))
+                df["Rolling_Accuracy"] = df["Was_Correct"].rolling(window).mean()
+                df["Brier"] = (df["Top_Prob"] - df["Was_Correct"])**2
+                df["Rolling_Brier"] = df["Brier"].rolling(window).mean()
 
-        df = history.copy()
+                acc_now = df["Rolling_Accuracy"].iloc[-1]
+                brier_now = df["Rolling_Brier"].iloc[-1]
 
-        if "Surprise_Index" not in df.columns:
-            st.info("Not enough Surprise Index data yet.")
-        else:
-            df["Chaos_Score"] = (
-                0.6 * df["Surprise_Index"].astype(float) +
-                0.4 * (1 - df["Was_Correct"].astype(float))
-            )
+                c1, c2 = st.columns(2)
+                c1.metric("Recent Accuracy (20)", f"{acc_now*100:.1f}%")
+                c2.metric("Recent Brier (20)", f"{brier_now:.3f}")
 
-            # Track Chaos
-            st.markdown("#### 🏁 Track Chaos (Avg Surprise)")
-            track_cols = ["Lap_1_Track", "Lap_2_Track", "Lap_3_Track"]
-
-            track_long = pd.concat([
-                df[["Surprise_Index", col]].rename(columns={col: "Track"})
-                for col in track_cols
-            ])
-
-            track_chaos = (
-                track_long.groupby("Track")["Surprise_Index"]
-                .mean()
-                .sort_values(ascending=False)
-            )
-
-            st.dataframe(track_chaos.to_frame("Avg Surprise"))
-
-            # Vehicle Chaos
-            st.markdown("#### 🚗 Vehicle Chaos (Avg Surprise)")
-            vehicle_cols = ["Vehicle_1", "Vehicle_2", "Vehicle_3"]
-
-            vehicle_long = pd.concat([
-                df[["Surprise_Index", col]].rename(columns={col: "Vehicle"})
-                for col in vehicle_cols
-            ])
-
-            vehicle_chaos = (
-                vehicle_long.groupby("Vehicle")["Surprise_Index"]
-                .mean()
-                .sort_values(ascending=False)
-            )
-
-            st.dataframe(vehicle_chaos.to_frame("Avg Surprise"))
-
-            # Heatmap
-            st.markdown("#### 🔥 Track–Vehicle Chaos Heatmap")
-
-            heatmap_df = pd.DataFrame()
-
-            for col in track_cols:
-                for vcol in ["Vehicle_1", "Vehicle_2", "Vehicle_3"]:
-                    temp = df[[col, vcol, "Surprise_Index"]].rename(
-                        columns={col: "Track", vcol: "Vehicle"}
-                    )
-                    heatmap_df = pd.concat([heatmap_df, temp])
-
-            pivot = heatmap_df.pivot_table(
-                index="Track",
-                columns="Vehicle",
-                values="Surprise_Index",
-                aggfunc="mean"
-            )
-
-            st.dataframe(pivot.fillna(0))
-
-        st.markdown("---")
-
-        # -------------------------------------------------
-        # 3. DRIFT DETECTION
-        # -------------------------------------------------
-        st.markdown("### 🌊 Drift Detection")
-
-        if len(history) < 10:
-            st.info("Not enough races to detect drift.")
-        else:
-            df = history.copy()
-            window = min(20, len(df))
-
-            df["Rolling_Accuracy"] = df["Was_Correct"].rolling(window).mean()
-            df["Brier"] = (df["Top_Prob"] - df["Was_Correct"])**2
-            df["Rolling_Brier"] = df["Brier"].rolling(window).mean()
-
-            if "Surprise_Index" in df.columns:
-                df["Rolling_Surprise"] = df["Surprise_Index"].rolling(window).mean()
-            else:
-                df["Rolling_Surprise"] = np.nan
-
-            acc_now = df["Rolling_Accuracy"].iloc[-1]
-            brier_now = df["Rolling_Brier"].iloc[-1]
-            surprise_now = df["Rolling_Surprise"].iloc[-1]
-
-            acc_then = df["Rolling_Accuracy"].iloc[window-1]
-            brier_then = df["Rolling_Brier"].iloc[window-1]
-            surprise_then = df["Rolling_Surprise"].iloc[window-1]
-
-            acc_drop = acc_then - acc_now
-            brier_rise = brier_now - brier_then
-            surprise_rise = surprise_now - surprise_then
-
-            st.markdown("#### 📊 Drift Metrics (Last 20 Races)")
-            st.write(f"Rolling Accuracy: **{acc_now:.2f}**")
-            st.write(f"Rolling Brier Score: **{brier_now:.3f}**")
-            st.write(f"Rolling Surprise: **{surprise_now:.3f}**")
-
-            st.markdown("#### 🚨 Drift Status")
-
-            # Accuracy Drift
-            if acc_drop > 0.15:
-                st.error("**Accuracy Drift Detected** — accuracy dropped significantly.")
-            elif acc_drop > 0.05:
-                st.warning("**Mild Accuracy Drift** — monitor performance.")
-            else:
-                st.success("Accuracy stable.")
-
-            # Calibration Drift
-            if brier_rise > 0.02:
-                st.error("**Calibration Drift Detected** — predictions less reliable.")
-            elif brier_rise > 0.01:
-                st.warning("**Mild Calibration Drift** — keep an eye on this.")
-            else:
-                st.success("Calibration stable.")
-
-            # Surprise Drift
-            if surprise_rise > 0.10:
-                st.error("**High Surprise Drift** — environment becoming chaotic.")
-            elif surprise_rise > 0.05:
-                st.warning("**Moderate Surprise Drift** — some instability detected.")
-            else:
-                st.success("Surprise levels normal.")
+        st.caption("For full chaos, drift, and heatmap views, use the Analytics tabs below.")
+        
 # ---------------------------------------------------------
 # 10. ANALYTICS TABS + WHAT‑IF SIMULATOR (FULL ORIGINAL LOGIC)
 # ---------------------------------------------------------
