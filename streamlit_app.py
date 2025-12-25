@@ -1057,8 +1057,7 @@ with Q1:
         with col:
             selected = (st.session_state.selected_terrain == terrain)
 
-            # Correct image path (case-sensitive)
-            img_path = TERRAIN_ICONS[terrain]
+            img_path = TERRAIN_ICONS[terrain]  # CASE-SENSITIVE FIX
 
             tile_html = clickable_tile(
                 label=terrain,
@@ -1070,13 +1069,9 @@ with Q1:
 
             st.markdown(tile_html, unsafe_allow_html=True)
 
-            # Single-select logic
-            if st.checkbox("", key=f"terrain_{terrain}_click", label_visibility="collapsed"):
+            # SINGLE SELECT — NO CHECKBOXES
+            if st.button(f"select_{terrain}", key=f"terrain_btn_{terrain}", use_container_width=True):
                 st.session_state.selected_terrain = terrain
-                # Uncheck all others
-                for other in terrain_list:
-                    if other != terrain:
-                        st.session_state[f"terrain_{other}_click"] = False
 
     if st.session_state.selected_terrain:
         st.success(f"Selected Terrain: {st.session_state.selected_terrain}")
@@ -1092,15 +1087,14 @@ with Q1:
     vehicle_list = list(VEHICLE_ICONS.keys())
 
     max_selected = 3
-    current_count = len(st.session_state.selected_vehicles)
 
     for i, veh in enumerate(vehicle_list):
         col = v_cols[i % 3]
         with col:
             selected = veh in st.session_state.selected_vehicles
-            disabled = (not selected) and (current_count >= max_selected)
+            disabled = (not selected) and (len(st.session_state.selected_vehicles) >= max_selected)
 
-            img_path = VEHICLE_ICONS[veh]
+            img_path = VEHICLE_ICONS[veh]  # CASE-SENSITIVE FIX
 
             tile_html = clickable_tile(
                 label=veh,
@@ -1112,16 +1106,13 @@ with Q1:
 
             st.markdown(tile_html, unsafe_allow_html=True)
 
-            # Multi-select with max 3
-            if st.checkbox("", key=f"veh_{veh}_click", label_visibility="collapsed"):
+            # MULTI SELECT — NO CHECKBOXES
+            if st.button(f"select_{veh}", key=f"veh_btn_{veh}", use_container_width=True):
                 if selected:
                     st.session_state.selected_vehicles.remove(veh)
                 else:
                     if len(st.session_state.selected_vehicles) < 3:
                         st.session_state.selected_vehicles.append(veh)
-                    else:
-                        st.warning("You can only select 3 vehicles.")
-                        st.session_state[f"veh_{veh}_click"] = False
 
     st.info(f"Selected Vehicles: {st.session_state.selected_vehicles}")
 
@@ -1139,6 +1130,7 @@ with Q1:
     if st.button("🚀 RUN PREDICTION", key="run_prediction_btn", disabled=not ready, use_container_width=True):
         st.session_state.trigger_prediction = True
         st.success("Prediction triggered!")
+
 # ---------------------------------------------------------
 # Q2 — PREDICTION PANEL (TOP‑RIGHT)
 # ---------------------------------------------------------
