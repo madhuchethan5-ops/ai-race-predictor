@@ -680,18 +680,34 @@ def run_simulation(
                 vpi_raw[v] = posterior_means[v] / mean_post
     vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
 
-    # 2. GEOMETRY (UPDATED)
-    def learned_length_dist(track_type):
-        """
-        Uses actual historical lap lengths for this track type.
-        Much more accurate than the flat 33.3% assumption.
-        """
-        if history_df.empty:
-            return base_len_mean, base_len_std
+ # 2. GEOMETRY (UPDATED, STRONGER VERSION)
+def learned_length_dist(track_type, lap_idx):
+    """
+    Returns (mean, std) for the given track type and lap index,
+    using learned geometry from history. This version:
+    - Uses per-lap distributions
+    - Smooths small sample sizes
+    - Falls back gracefully
+    - Adapts to drift
+    """
 
-        mask_l1 = (history_df["Lap_1_Track"] == track_type)
-        mask_l2 = (history_df["Lap_2_Track"] == track_type)
-        mask_l3 = (history_df["Lap_3_Track"] == track_type)
+    if history_df.empty:
+        return base_len_mean, base_len_std
+
+    col_track = f"Lap_{lap_idx+1}_Track"
+    col_len   = f"Lap_{lap_idx+1}_Len"
+
+    if col_track not in history_df.columns or col_len not in history_df.columns:
+        return base_len_mean, base_len_std
+
+    df = history_df[[col_track, col_len]].dropna()
+    df = df[df[col_track] == track_type]
+
+    # Not enough samples → fallback to global distribution
+    if len(df) < 5:
+        mask_l1 = history_df["Lap_1_Track"] == track_type
+        mask_l2 = history_df["Lap_2_Track"] == track_type
+        mask_l3 = history_df["Lap_3_Track"] == track_type
 
         combined = pd.concat([
             history_df.loc[mask_l1, "Lap_1_Len"],
@@ -702,8 +718,14 @@ def run_simulation(
         if len(combined) < 5:
             return base_len_mean, base_len_std
 
-        return float(combined.mean()), float(combined.std())
-        
+        return float(combined.mean()), float(max(combined.std(), 1.0))
+
+    # Normal case: enough samples for this lap
+    mu = float(df[col_len].mean())
+    sigma = float(max(df[col_len].std(), 1.0))
+
+    return mu, sigma
+    
     # 3. MARKOV TRANSITIONS
     lap_probs = {0: None, 1: None, 2: None}
     if not history_df.empty:
@@ -754,7 +776,7 @@ def run_simulation(
         terrain_i = sim_terrains[-1]
         lengths_i = np.empty(iterations, dtype=float)
         for t in np.unique(terrain_i):
-            mu, sigma = learned_length_dist(t)
+            mu, sigma = learned_length_dist(t, i)
             sigma = max(sigma, 1e-3)
             mask = (terrain_i == t)
             n = mask.sum()
