@@ -1026,8 +1026,6 @@ with Q1:
 
         with col:
             selected = (st.session_state.selected_terrain == terrain)
-
-            # FIXED IMAGE PATH
             img_path = f"assets/terrain/{terrain}.png"
 
             clicked, tile_html = image_tile_button(
@@ -1047,47 +1045,50 @@ with Q1:
 
     st.markdown("---")
 
-# -------------------------
-# 3. VEHICLE SELECTOR (Optimized Grid)
-# -------------------------
-st.markdown("### 🚗 Select 3 Vehicles")
-
-v_cols = st.columns(3)
-vehicle_list = list(VEHICLE_ICONS.keys())
-
-for i, veh in enumerate(vehicle_list):
-    col = v_cols[i % 3]
-    with col:
-        selected = veh in st.session_state.selected_vehicles
-        img_path = f"assets/vehicles/{veh}.png"
-
-        # Fallback if image missing
-        if not os.path.exists(img_path):
-            img_path = "assets/vehicles/placeholder.png"
-
-        # Render image tile
-        tile_html = f"""
-        <div style="border:3px solid {'#E53935' if selected else '#CCCCCC'};
-                    border-radius:8px;
-                    padding:4px;
-                    text-align:center;
-                    cursor:pointer;"
-             onclick="fetch('{veh}')">
-            <img src="{img_path}" style="width:100%; height:auto; border-radius:4px;" />
-            <div style="font-size:0.85rem; margin-top:4px;">{veh}</div>
-        </div>
-        """
-        st.markdown(tile_html, unsafe_allow_html=True)
-
-        # Selection logic
-        if st.button(f"Select {veh}", key=f"veh_btn_{veh}", use_container_width=True):
-            if selected:
-                st.session_state.selected_vehicles.remove(veh)
-            else:
-                if len(st.session_state.selected_vehicles) < 3:
-                    st.session_state.selected_vehicles.append(veh)
     # -------------------------
-    # 4. PREDICT BUTTON
+    # 3. VEHICLE SELECTOR (Optimized Grid)
+    # -------------------------
+    st.markdown("### 🚗 Select 3 Vehicles")
+
+    v_cols = st.columns(3)
+    vehicle_list = list(VEHICLE_ICONS.keys())
+
+    for i, veh in enumerate(vehicle_list):
+        col = v_cols[i % 3]
+        with col:
+            selected = veh in st.session_state.selected_vehicles
+            img_path = f"assets/vehicles/{veh}.png"
+
+            if not os.path.exists(img_path):
+                img_path = "assets/vehicles/placeholder.png"
+
+            tile_html = f"""
+            <div style="border:3px solid {'#E53935' if selected else '#CCCCCC'};
+                        border-radius:8px;
+                        padding:4px;
+                        text-align:center;">
+                <img src="{img_path}" style="width:100%; height:auto; border-radius:4px;" />
+                <div style="font-size:0.85rem; margin-top:4px;">{veh}</div>
+            </div>
+            """
+            st.markdown(tile_html, unsafe_allow_html=True)
+
+            if st.button(f"Select {veh}", key=f"veh_btn_{veh}", use_container_width=True):
+                if selected:
+                    st.session_state.selected_vehicles.remove(veh)
+                else:
+                    if len(st.session_state.selected_vehicles) < 3:
+                        st.session_state.selected_vehicles.append(veh)
+
+    st.info(f"Selected Vehicles: {st.session_state.selected_vehicles}")
+
+    if st.button("Clear Vehicles", key="clear_vehicles_btn", use_container_width=True):
+        st.session_state.selected_vehicles = []
+
+    st.markdown("---")
+
+    # -------------------------
+    # 4. PREDICT BUTTON (OUTSIDE LOOP)
     # -------------------------
     ready = (
         st.session_state.selected_lap is not None and
@@ -1095,7 +1096,7 @@ for i, veh in enumerate(vehicle_list):
         len(st.session_state.selected_vehicles) == 3
     )
 
-    if st.button("🚀 RUN PREDICTION", disabled=not ready, use_container_width=True):
+    if st.button("🚀 RUN PREDICTION", key="run_prediction_btn", disabled=not ready, use_container_width=True):
         st.session_state.trigger_prediction = True
         st.success("Prediction triggered!")
 # ---------------------------------------------------------
