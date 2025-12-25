@@ -1148,7 +1148,6 @@ if save_clicked:
 
     st.success("✅ Race saved. The model cache will update on next run.")
     st.rerun()    
-    
 # ---------------------------------------------------------
 # 11. PREDICTION ANALYTICS PANEL
 # ---------------------------------------------------------
@@ -1178,43 +1177,45 @@ else:
         df[["Surprise_Index", col]].rename(columns={col: "Track"})
         for col in track_cols
     ])
-        track_chaos = track_long.groupby("Track")["Surprise_Index"].mean().sort_values(ascending=False)
-        st.dataframe(track_chaos.to_frame("Avg Surprise"))
 
-        # --- VEHICLE CHAOS ---
-        st.markdown("### 🚗 Vehicle Chaos (Average Surprise)")
-        vehicle_cols = ["Vehicle_1", "Vehicle_2", "Vehicle_3"]
+    track_chaos = track_long.groupby("Track")["Surprise_Index"].mean().sort_values(ascending=False)
+    st.dataframe(track_chaos.to_frame("Avg Surprise"))
 
-        vehicle_long = pd.concat([
-            df[["Surprise_Index", col]].rename(columns={col: "Vehicle"})
-            for col in vehicle_cols
-        ])
+    # --- VEHICLE CHAOS ---
+    st.markdown("### 🚗 Vehicle Chaos (Average Surprise)")
+    vehicle_cols = ["Vehicle_1", "Vehicle_2", "Vehicle_3"]
 
-        vehicle_chaos = vehicle_long.groupby("Vehicle")["Surprise_Index"].mean().sort_values(ascending=False)
-        st.dataframe(vehicle_chaos.to_frame("Avg Surprise"))
+    vehicle_long = pd.concat([
+        df[["Surprise_Index", col]].rename(columns={col: "Vehicle"})
+        for col in vehicle_cols
+    ])
 
-        # --- TRACK–VEHICLE CHAOS HEATMAP ---
-        st.markdown("### 🔥 Track–Vehicle Chaos Heatmap")
+    vehicle_chaos = vehicle_long.groupby("Vehicle")["Surprise_Index"].mean().sort_values(ascending=False)
+    st.dataframe(vehicle_chaos.to_frame("Avg Surprise"))
 
-        heatmap_df = pd.DataFrame()
+    # --- TRACK–VEHICLE CHAOS HEATMAP ---
+    st.markdown("### 🔥 Track–Vehicle Chaos Heatmap")
 
-        for col in track_cols:
-            temp = df[[col, "Vehicle_1", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_1": "Vehicle"})
-            heatmap_df = pd.concat([heatmap_df, temp])
+    heatmap_df = pd.DataFrame()
 
-            temp = df[[col, "Vehicle_2", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_2": "Vehicle"})
-            heatmap_df = pd.concat([heatmap_df, temp])
+    for col in track_cols:
+        temp = df[[col, "Vehicle_1", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_1": "Vehicle"})
+        heatmap_df = pd.concat([heatmap_df, temp])
 
-            temp = df[[col, "Vehicle_3", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_3": "Vehicle"})
-            heatmap_df = pd.concat([heatmap_df, temp])
+        temp = df[[col, "Vehicle_2", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_2": "Vehicle"})
+        heatmap_df = pd.concat([heatmap_df, temp])
 
-pivot = heatmap_df.pivot_table(
-    index="Track",
-    columns="Vehicle",
-    values="Surprise_Index",
-    aggfunc="mean"
-)
-st.dataframe(pivot.fillna(0))
+        temp = df[[col, "Vehicle_3", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_3": "Vehicle"})
+        heatmap_df = pd.concat([heatmap_df, temp])
+
+    pivot = heatmap_df.pivot_table(
+        index="Track",
+        columns="Vehicle",
+        values="Surprise_Index",
+        aggfunc="mean"
+    )
+
+    st.dataframe(pivot.fillna(0))    
 # ---------------------------------------------------------
 # MODEL DRIFT DETECTION
 # ---------------------------------------------------------
