@@ -1224,7 +1224,7 @@ with Q3:
         p_ml = res.get('p_ml', None)
 
         revealed_lap = ctx['idx']
-        revealed_track = ctx['t']
+        revealed_track = st.session_state.selected_terrain
         revealed_slot = ctx['slot']
 
         st.caption(f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})")
