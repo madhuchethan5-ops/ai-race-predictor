@@ -776,8 +776,13 @@ def run_simulation(
         avg_acc = recent['Was_Correct'].mean()
         if avg_conf <= 0 or avg_acc <= 0:
             return 1.0
-        ratio = avg_conf / max(avg_acc, 1e-3)
-        temp = np.clip(ratio, 0.7, 1.5)
+        # Stronger calibration: use absolute calibration error
+        calib_error = abs(avg_conf - avg_acc)
+
+        # Base temperature = 1.0 (no change)
+        # Add up to +1.0 depending on how bad calibration is
+        temp = float(np.clip(1.0 + calib_error * 2.0, 0.8, 2.0))
+
         return float(temp)
 
     temp = estimate_temperature_from_history(history_df)
