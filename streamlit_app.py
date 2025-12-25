@@ -81,7 +81,7 @@ SPEED_DATA = {
     "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
     "Motorcycle":    {"Expressway": 94,  "Desert": 45, "Dirt": 76, "Potholes": 36, "Bumpy": 66, "Highway": 89},
-    "Stock Car":     {"Expressway": 100, "Desert": 50, "Dirt": 80, "Potholes": 45, "Bumpy": 72, "Highway": 99},
+    "Stock Car":     {"Expressway": 100, "Desert": 50, "Dirt": 80, "Pothholes": 45, "Bumpy": 72, "Highway": 99},
     "SUV":           {"Expressway": 180, "Desert": 63, "Dirt": 100, "Potholes": 60, "Bumpy": 80, "Highway": 143},
     "Car":           {"Expressway": 235, "Desert": 70, "Dirt": 120, "Potholes": 68, "Bumpy": 81, "Highway": 180},
     "ATV":           {"Expressway": 80,  "Desert": 40, "Dirt": 66, "Potholes": 32, "Bumpy": 60, "Highway": 80},
@@ -186,7 +186,7 @@ def load_history():
     df, issues = auto_clean_history(df)
     st.session_state["data_quality_issues"] = issues
 
-    # ✅ Force numeric conversion for ML columns
+    # Force numeric conversion for ML columns
     numeric_cols = ["Top_Prob", "Was_Correct"]
     for col in numeric_cols:
         if col in df.columns:
@@ -271,7 +271,6 @@ def build_training_data(history_df):
 
     return X, y, (cat_features, num_features)
 
-
 def train_ml_model(history_df):
     """
     Train a multinomial logistic regression model on historical races.
@@ -306,6 +305,35 @@ def train_ml_model(history_df):
 
     model.fit(X, y)
     return model
+
+def build_single_feature_row(v1, v2, v3, k_idx, k_type):
+    """
+    Build a single-row DataFrame to feed the ML model.
+    We don't know the full exact lengths yet, so we approximate with 33/33/34,
+    except for the revealed lap, which we'll treat as 100% weight placeholder.
+    """
+    # Simple approximation – can refine later
+    lap_tracks = ["Unknown", "Unknown", "Unknown"]
+    lap_tracks[k_idx] = k_type
+
+    lap_lens = [33.0, 33.0, 34.0]
+
+    # Using slot name (Lap 1/2/3) as Lane context
+    lane = f"Lap {k_idx + 1}"
+
+    data = {
+        "Vehicle_1": v1,
+        "Vehicle_2": v2,
+        "Vehicle_3": v3,
+        "Lap_1_Track": lap_tracks[0],
+        "Lap_2_Track": lap_tracks[1],
+        "Lap_3_Track": lap_tracks[2],
+        "Lap_1_Len": lap_lens[0],
+        "Lap_2_Len": lap_lens[1],
+        "Lap_3_Len": lap_lens[2],
+        "Lane": lane,
+    }
+    return pd.DataFrame([data])
 
 # ---------------------------------------------------------
 # 4. METRICS & ANALYTICS HELPERS
@@ -713,7 +741,6 @@ if 'res' in st.session_state:
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
-
 # ---------------------------------------------------------
 # 8. SAVE RACE REPORT
 # ---------------------------------------------------------
@@ -802,6 +829,7 @@ if save_clicked:
         st.error("All laps must have a track selected.")
         st.stop()
 
+    # Store last train probabilities for delta panel
     st.session_state['last_train_probs'] = dict(predicted)
 
     row = {
@@ -814,52 +842,24 @@ if save_clicked:
         'Predicted_Winner': predicted_winner,
         'Actual_Winner': winner,
         'Lane': revealed_slot,
-        'Top_Prob': predicted[predicted_winner] / 100.0,
+        'Top_Prob': predicted[predicted_winner] / 100.0,  # store as 0-1
         'Was_Correct': float(predicted_winner == winner),
         'Timestamp': pd.Timestamp.now()
     }
 
-if history is None or history.empty:
-    st.error("History failed to load — not saving to avoid data loss.")
-    st.stop()
-    
+    # Safety check before saving
+    if history is None or history.empty:
+        st.error("History failed to load — not saving to avoid data loss.")
+        st.stop()
+
+    # Save race
     history = add_race_result(history, row)
     save_history(history)
 
-# 🔁 Train / update ML model from latest history
-ml_model = train_ml_model(history)
-
-if ml_model is not None:
-    st.session_state["ml_model"] = ml_model    
-
-def build_single_feature_row(v1, v2, v3, k_idx, k_type):
-    """
-    Build a single-row DataFrame to feed the ML model.
-    We don't know the full exact lengths yet, so we approximate with 33/33/34,
-    except for the revealed lap, which we'll treat as 100% weight placeholder.
-    """
-    # Simple approximation – can refine later
-    lap_tracks = ["Unknown", "Unknown", "Unknown"]
-    lap_tracks[k_idx] = k_type
-
-    lap_lens = [33.0, 33.0, 34.0]
-
-    # Using slot name (Lap 1/2/3) as Lane context
-    lane = f"Lap {k_idx + 1}"
-
-    data = {
-        "Vehicle_1": v1,
-        "Vehicle_2": v2,
-        "Vehicle_3": v3,
-        "Lap_1_Track": lap_tracks[0],
-        "Lap_2_Track": lap_tracks[1],
-        "Lap_3_Track": lap_tracks[2],
-        "Lap_1_Len": lap_lens[0],
-        "Lap_2_Len": lap_lens[1],
-        "Lap_3_Len": lap_lens[2],
-        "Lane": lane,
-    }
-    return pd.DataFrame([data])
+    # Train / update ML model from latest history
+    ml_model = train_ml_model(history)
+    if ml_model is not None:
+        st.session_state["ml_model"] = ml_model
 
     st.success("✅ Race saved and model updated. Download the CSV to sync with GitHub if needed.")
     st.rerun()
