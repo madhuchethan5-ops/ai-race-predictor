@@ -860,7 +860,7 @@ with st.sidebar:
 
     model_skill = compute_model_skill(history)
 
-    if st.buttonst.session_state use_container_width=True):
+    if st.button("🚀 PREDICT", type="primary", use_container_width=True):
 
         # Simulation-based probabilities
         sim_probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
