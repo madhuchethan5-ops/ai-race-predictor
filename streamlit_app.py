@@ -882,14 +882,14 @@ if ml_probs is not None:
         for v in [v1_sel, v2_sel, v3_sel]
     }
 
-        st.session_state['res'] = {
-            'p': final_probs,
-            'vpi': vpi_res,
-            'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
-            'p_sim': sim_probs,
-            'p_ml': p_ml_store,
-        }
-
+# Store results
+st.session_state['res'] = {
+    'p': final_probs,
+    'vpi': vpi_res,
+    'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
+    'p_sim': sim_probs,
+    'p_ml': p_ml_store,
+}
 # ---------------------------------------------------------
 # 9. MAIN DASHBOARD
 # ---------------------------------------------------------
