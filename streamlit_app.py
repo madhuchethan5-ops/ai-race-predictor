@@ -1761,69 +1761,70 @@ if history is not None and not history.empty:
             st.dataframe(lane_stats.style.format("{:.1f}%").background_gradient(cmap="YlOrRd", axis=1))
         else:
             st.info("Record more races to see Lane win rates.")
-
     # ---------------------------------------------------------
-# CSV HEALTH CHECK FUNCTION
-# ---------------------------------------------------------
-def csv_health_check(df: pd.DataFrame):
-    issues = []
-    if df is None or df.empty:
-        issues.append("CSV is empty or failed to load.")
+    # CSV HEALTH CHECK FUNCTION
+    # ---------------------------------------------------------
+    def csv_health_check(df: pd.DataFrame):
+        issues = []
+        if df is None or df.empty:
+            issues.append("CSV is empty or failed to load.")
+            return issues
+    
+        required_cols = [
+            "Vehicle_1", "Vehicle_2", "Vehicle_3",
+            "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
+            "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
+            "Actual_Winner", "Predicted_Winner"
+        ]
+    
+        for col in required_cols:
+            if col not in df.columns:
+                issues.append(f"Missing column: {col}")
+    
+        if df.isnull().sum().sum() > 0:
+            issues.append("CSV contains missing values.")
+    
         return issues
-
-    required_cols = [
-        "Vehicle_1", "Vehicle_2", "Vehicle_3",
-        "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
-        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
-        "Actual_Winner", "Predicted_Winner"
-    ]
-
-    for col in required_cols:
-        if col not in df.columns:
-            issues.append(f"Missing column: {col}")
-
-    if df.isnull().sum().sum() > 0:
-        issues.append("CSV contains missing values.")
-
-    return issues
-
-# ---------------------------------------------------------
-# TAB 7 — DATA QUALITY CHECKER
-# ---------------------------------------------------------
-with tabs[7]:
-    st.write("### 🧹 Data Quality Checker")
-
-    issues = st.session_state.get("data_quality_issues", [])
-
-    if not issues:
-        st.success("✅ No data quality issues detected by auto-cleaner.")
-    else:
-        st.warning("⚠️ Issues detected and auto-corrected at load time:")
-        for i in issues:
-            st.write(f"- {i}")
-
-    geom = compute_learned_geometry(history)
-
-    if geom is not None and not geom.empty:
-        unstable = geom[geom["std"] > geom["mean"] * 0.6]
-
-        if not unstable.empty:
-            st.error("⚠️ Geometry instability detected:")
-            st.dataframe(unstable, use_container_width=True)
+    
+    
+    # ---------------------------------------------------------
+    # TAB 7 — DATA QUALITY CHECKER
+    # ---------------------------------------------------------
+    with tabs[7]:
+        st.write("### 🧹 Data Quality Checker")
+    
+        issues = st.session_state.get("data_quality_issues", [])
+    
+        if not issues:
+            st.success("✅ No data quality issues detected by auto-cleaner.")
         else:
-            st.success("✅ Geometry looks stable.")
-    else:
-        st.info("Not enough data yet to evaluate geometry stability.")
+            st.warning("⚠️ Issues detected and auto-corrected at load time:")
+            for i in issues:
+                st.write(f"- {i}")
+    
+        geom = compute_learned_geometry(history)
+    
+        if geom is not None and not geom.empty:
+            unstable = geom[geom["std"] > geom["mean"] * 0.6]
+    
+            if not unstable.empty:
+                st.error("⚠️ Geometry instability detected:")
+                st.dataframe(unstable, use_container_width=True)
+            else:
+                st.success("✅ Geometry looks stable.")
+        else:
+            st.info("Not enough data yet to evaluate geometry stability.")
+    
+        st.write("### 🧹 CSV Health Check")
+        csv_issues = csv_health_check(history)
+    
+        if not csv_issues:
+            st.success("✅ CSV is healthy and fully compatible.")
+        else:
+            st.error("⚠️ Issues detected:")
+            for i in csv_issues:
+                st.write(f"- {i}")
 
-    st.write("### 🧹 CSV Health Check")
-    csv_issues = csv_health_check(history)
-
-    if not csv_issues:
-        st.success("✅ CSV is healthy and fully compatible.")
-    else:
-        st.error("⚠️ Issues detected:")
-        for i in csv_issues:
-            st.write(f"- {i}")
     # -----------------------------------------------------
     # 9) RAW HISTORY
     # -----------------------------------------------------
