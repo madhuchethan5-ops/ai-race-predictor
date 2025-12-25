@@ -1765,6 +1765,28 @@ if history is not None and not history.empty:
     # -----------------------------------------------------
     # 8) DATA QUALITY CHECKER
     # -----------------------------------------------------
+    def csv_health_check(df: pd.DataFrame):
+    issues = []
+    if df is None or df.empty:
+        issues.append("CSV is empty or failed to load.")
+        return issues
+
+    required_cols = [
+        "Vehicle_1", "Vehicle_2", "Vehicle_3",
+        "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
+        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
+        "Actual_Winner", "Predicted_Winner"
+    ]
+
+    for col in required_cols:
+        if col not in df.columns:
+            issues.append(f"Missing column: {col}")
+
+    if df.isnull().sum().sum() > 0:
+        issues.append("CSV contains missing values.")
+
+    return issues
+    
     with tabs[7]:
         st.write("### 🧹 Data Quality Checker")
 
