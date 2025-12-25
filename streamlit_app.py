@@ -211,6 +211,10 @@ def download_history(df):
 
 history = load_history()
 
+# ---------------------------------------------------------
+# 4. MACHINE LEARNING UTILITIES (NEW)
+# ---------------------------------------------------------
+
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
@@ -266,9 +270,19 @@ def build_training_data(history_df):
     ]
 
     return X, y, (cat_features, num_features)
+
+
 def train_ml_model(history_df):
+    """
+    Train a multinomial logistic regression model on historical races.
+    Returns None if not enough data.
+    """
     X, y, feat_info = build_training_data(history_df)
     if X is None:
+        return None
+
+    # Require at least 30 samples before training
+    if len(X) < 30:
         return None
 
     cat_features, num_features = feat_info
@@ -280,7 +294,6 @@ def train_ml_model(history_df):
         ]
     )
 
-    # Multinomial logistic regression = simple, interpretable multi-class model
     clf = LogisticRegression(
         multi_class="multinomial",
         max_iter=1000
@@ -293,6 +306,7 @@ def train_ml_model(history_df):
 
     model.fit(X, y)
     return model
+
 # ---------------------------------------------------------
 # 4. METRICS & ANALYTICS HELPERS
 # ---------------------------------------------------------
@@ -811,13 +825,13 @@ if history is None or history.empty:
     
     history = add_race_result(history, row)
     save_history(history)
-    
-    # 🔁 Train / update ML model from latest history
-    ml_model = train_ml_model(history)
-    if len(X) < 30:
-    return None
-    if ml_model is not None:
-        st.session_state["ml_model"] = ml_model
+
+# 🔁 Train / update ML model from latest history
+ml_model = train_ml_model(history)
+
+if ml_model is not None:
+    st.session_state["ml_model"] = ml_model    
+
 def build_single_feature_row(v1, v2, v3, k_idx, k_type):
     """
     Build a single-row DataFrame to feed the ML model.
