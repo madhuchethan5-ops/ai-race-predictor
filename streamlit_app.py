@@ -860,7 +860,7 @@ with st.sidebar:
 
     model_skill = compute_model_skill(history)
 
-    if st.button("🚀 PREDICT", type="primary", use_container_width=True):
+    if st.buttonst.session_state use_container_width=True):
 
         # Simulation-based probabilities
         sim_probs, vpi_res = run_simulation(v1_sel, v2_sel, v3_sel, k_idx, k_type, history)
@@ -942,27 +942,92 @@ with st.sidebar:
         else:
             bet_safety = "CAUTION"
 
-        # Store results
-        st.session_state['res'] = {
-            'p': final_probs,
-            'vpi': vpi_res,
-            'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
-            'p_sim': sim_probs,
-            'p_ml': p_ml_store,
-            'meta': {
-                'top_vehicle': top_vehicle,
-                'top_prob': p1,
-                'second_prob': p2,
-                'volatility_gap_pp': vol_gap,
-                'volatility_label': vol_label,
-                'bet_safety': bet_safety,
-                'expected_regret': expected_regret,
-            },
-        }
+ # Store results
+st.session_state['res'] = {
+    'p': final_probs,
+    'vpi': vpi_res,
+    'ctx': {'v': [v1_sel, v2_sel, v3_sel], 'idx': k_idx, 't': k_type, 'slot': slot_name},
+    'p_sim': sim_probs,
+    'p_ml': p_ml_store,
+    'meta': {
+        'top_vehicle': top_vehicle,
+        'top_prob': p1,
+        'second_prob': p2,
+        'volatility_gap_pp': vol_gap,
+        'volatility_label': vol_label,
+        'bet_safety': bet_safety,
+        'expected_regret': expected_regret,
+    },
+}
+
+# ---------------------------------------------------------
+# 8.5 PREDICTION RESULTS PANEL
+# ---------------------------------------------------------
+if 'res' in st.session_state:
+    res = st.session_state['res']
+    meta = res['meta']
+    p = res['p']
+
+    st.markdown("## 🎯 Prediction Results")
+
+    # --- Top Probabilities ---
+    for v in res['ctx']['v']:
+        prob = p[v]
+        boost = meta.get('ml_boost', {}).get(v, 0.0)
+        boost_str = f" (+{boost:.1f}% ML Boost)" if boost > 0 else ""
+        st.markdown(f"- **{v}**: {prob:.1f}%{boost_str}")
+
+    # --- Predicted Winner ---
+    st.markdown(f"**Predicted Winner:** {max(p, key=p.get)}")
+
+    # --- Volatility & Bet Safety ---
+    st.markdown(f"**Volatility:** {meta['volatility_label']} ({meta['volatility_gap_pp']} pp gap)")
+    st.markdown(f"**Bet Safety:** {meta['bet_safety']}")
+
+    # --- Expected Regret ---
+    st.markdown(f"**Expected Regret:** {meta['expected_regret']:.2f}")
+
+    # --- Divergence Warning ---
+    if 'p_ml' in res and res['p_ml'] is not None:
+        sim_winner = max(res['p_sim'], key=res['p_sim'].get)
+        ml_winner = max(res['p_ml'], key=res['p_ml'].get)
+        if sim_winner != ml_winner:
+            st.warning(
+                f"⚠️ Model Divergence: Physics favors **{sim_winner}**, "
+                f"ML favors **{ml_winner}**. This race has higher uncertainty."
+            )
+
+    # --- Performance Matrix ---
+    st.markdown("## 📊 Performance Matrix")
+
+    if history is not None and len(history) >= 10:
+        skill = compute_model_skill(history)
+        acc_sim = skill.get("sim_acc", None)
+        acc_ml = skill.get("ml_acc", None)
+        brier_sim = skill.get("sim_brier", None)
+        brier_ml = skill.get("ml_brier", None)
+
+        st.markdown(f"- **Sim Accuracy:** {acc_sim:.2f}")
+        st.markdown(f"- **ML Accuracy:** {acc_ml:.2f}")
+        st.markdown(f"- **Sim Brier Score:** {brier_sim:.3f}")
+        st.markdown(f"- **ML Brier Score:** {brier_ml:.3f}")
+
+        # Drift metrics
+        if "Rolling_Accuracy" in history.columns:
+            acc_now = history["Rolling_Accuracy"].iloc[-1]
+            acc_then = history["Rolling_Accuracy"].iloc[-20] if len(history) >= 20 else history["Rolling_Accuracy"].iloc[0]
+            acc_drop = acc_then - acc_now
+            st.markdown(f"- **Accuracy Drift:** {acc_drop:+.2f}")
+
+        if "Surprise_Index" in history.columns:
+            avg_surprise = history["Surprise_Index"].mean()
+            chaos_score = 0.6 * avg_surprise + 0.4 * (1 - history["Was_Correct"].mean())
+            st.markdown(f"- **Avg Surprise Index:** {avg_surprise:.3f}")
+            st.markdown(f"- **Chaos Score:** {chaos_score:.3f}")
+
 # ---------------------------------------------------------
 # 9. MAIN DASHBOARD
-# ------------------------------------------------------
-
+# ---------------------------------------------------------
 st.title("🏁 AI RACE MASTER PRO")
 
 if not history.empty and 'Actual_Winner' in history.columns:
