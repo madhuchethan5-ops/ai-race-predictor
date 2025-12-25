@@ -559,6 +559,34 @@ def compute_volatility_from_probs(probs: dict):
     return {'volatility': top - second, 'ranking': items}
 
 # ---------------------------------------------------------
+# PHYSICS BIAS CORRECTION (LIGHTWEIGHT)
+# ---------------------------------------------------------
+
+def get_physics_bias(history_df):
+    """
+    Computes how often each vehicle's simulation prediction was correct.
+    If the simulation is consistently wrong for a vehicle, we adjust its speed slightly.
+    """
+    if history_df.empty or len(history_df) < 20:
+        return {}
+
+    df = history_df.dropna(subset=['Actual_Winner', 'Sim_Was_Correct'])
+    if df.empty:
+        return {}
+
+    # Mean correctness per vehicle
+    bias = df.groupby('Actual_Winner')['Sim_Was_Correct'].mean().to_dict()
+
+    # Convert correctness into a small speed multiplier
+    # If sim correctness = 0.40 → multiplier = 0.97 (slightly slower)
+    # If sim correctness = 0.70 → multiplier = 1.02 (slightly faster)
+    corrected = {}
+    for veh, score in bias.items():
+        corrected[veh] = float(np.clip(1.0 + (score - 0.55) * 0.10, 0.97, 1.03))
+
+    return corrected
+
+# ---------------------------------------------------------
 # 7. CORE SIMULATION (BAYES + GEOMETRY + MARKOV + VECTORISED PHYSICS)
 # ---------------------------------------------------------
 
@@ -602,32 +630,30 @@ def run_simulation(
                 vpi_raw[v] = posterior_means[v] / mean_post
     vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
 
-    # 2. GEOMETRY
+    # 2. GEOMETRY (UPDATED)
     def learned_length_dist(track_type):
+        """
+        Uses actual historical lap lengths for this track type.
+        Much more accurate than the flat 33.3% assumption.
+        """
         if history_df.empty:
             return base_len_mean, base_len_std
-        vals_all = []
-        for lap in [1, 2, 3]:
-            t_col = f"Lap_{lap}_Track"
-            l_col = f"Lap_{lap}_Len"
-            if t_col not in history_df.columns or l_col not in history_df.columns:
-                continue
-            mask = (history_df[t_col] == track_type)
-            subset = history_df.loc[mask, l_col]
-            subset = pd.to_numeric(subset, errors='coerce').dropna()
-            if not subset.empty:
-                vals_all.append(subset)
-        if not vals_all:
-            return base_len_mean, base_len_std
-        vals = pd.concat(vals_all)
-        if len(vals) < 5:
-            return base_len_mean, base_len_std
-        mu = vals.mean()
-        sigma = vals.std(ddof=1)
-        if not np.isfinite(mu) or sigma <= 0:
-            return base_len_mean, base_len_std
-        return float(mu), float(sigma)
 
+        mask_l1 = (history_df["Lap_1_Track"] == track_type)
+        mask_l2 = (history_df["Lap_2_Track"] == track_type)
+        mask_l3 = (history_df["Lap_3_Track"] == track_type)
+
+        combined = pd.concat([
+            history_df.loc[mask_l1, "Lap_1_Len"],
+            history_df.loc[mask_l2, "Lap_2_Len"],
+            history_df.loc[mask_l3, "Lap_3_Len"]
+        ]).dropna()
+
+        if len(combined) < 5:
+            return base_len_mean, base_len_std
+
+        return float(combined.mean()), float(combined.std())
+        
     # 3. MARKOV TRANSITIONS
     lap_probs = {0: None, 1: None, 2: None}
     if not history_df.empty:
@@ -696,7 +722,7 @@ def run_simulation(
 
     # 5. NOISE MODELING (vectorized speed lookup per track)
     def sample_vehicle_times(vehicle):
-        speed_map = SPEED_DATA[vehicle]
+        speed_map = adjusted_speed_data[vehicle]
         base_speed = np.empty_like(terrain_matrix, dtype=float)
         for t, spd in speed_map.items():
             mask = (terrain_matrix == t)
@@ -711,6 +737,14 @@ def run_simulation(
 
         return np.sum(len_matrix / (effective_speed * vpi[vehicle]), axis=1)
 
+        # Apply physics bias (small correction)
+    bias_table = get_physics_bias(history_df)
+
+    # Adjust SPEED_DATA dynamically
+    adjusted_speed_data = {}
+    for veh in vehicles:
+        mult = bias_table.get(veh, 1.0)
+        adjusted_speed_data[veh] = {t: spd * mult for t, spd in SPEED_DATA[veh].items()}
     results = {v: sample_vehicle_times(v) for v in vehicles}
 
     # 6. RAW WIN PROBABILITIES
