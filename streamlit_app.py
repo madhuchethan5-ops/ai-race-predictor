@@ -832,37 +832,42 @@ with st.sidebar:
         final_probs = sim_probs
         p_ml_store = ml_probs
 
-        # Performance-aware blending
-        if ml_probs is not None and model_skill is not None:
-            sim_brier = model_skill["sim_brier"]
-            ml_brier = model_skill["ml_brier"]
-            n_skill = model_skill["n"]
+# --- PERFORMANCE-DRIVEN BLENDING (UPGRADED) ---
+blend_weight = 0.0
 
-            if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
-                if ml_brier < sim_brier:
-                    # ML sharper than sim: weight increases with relative improvement
-                    improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-                    blend_weight = float(np.clip(0.3 + 0.6 * improvement, 0.3, 0.9))
-                else:
-                    # ML worse: throttle down
-                    degradation = (ml_brier - sim_brier) / max(sim_brier, 1e-8)
-                    blend_weight = float(np.clip(0.3 - 0.3 * degradation, 0.0, 0.3))
+if ml_probs is not None:
+    # Default ML trust when no skill data
+    blend_weight = 0.45
+
+    if model_skill is not None:
+        sim_brier = model_skill["sim_brier"]
+        ml_brier = model_skill["ml_brier"]
+        n_skill = model_skill["n"]
+
+        # Require at least 30 samples for stable comparison
+        if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
+
+            # Relative improvement (positive = ML better)
+            improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
+
+            # Convert improvement into weight
+            # ML can dominate up to 95% if consistently better
+            if improvement > 0:
+                blend_weight = float(np.clip(0.45 + improvement * 0.8, 0.45, 0.95))
             else:
-                blend_weight = 0.4  # not enough skill data yet
-        elif ml_probs is not None:
-            # Model exists but no skill history yet
-            blend_weight = 0.4
-        else:
-            blend_weight = 0.0  # no ML
+                # ML worse → reduce weight but never below 0.2
+                degradation = abs(improvement)
+                blend_weight = float(np.clip(0.45 - degradation * 0.4, 0.20, 0.45))
 
-        if ml_probs is not None and blend_weight > 0.0:
-            blended = {}
-            for v in [v1_sel, v2_sel, v3_sel]:
-                blended[v] = (
-                    blend_weight * ml_probs[v] +
-                    (1.0 - blend_weight) * sim_probs[v]
-                )
-            final_probs = blended
+# Final clamp for safety
+blend_weight = float(np.clip(blend_weight, 0.20, 0.95))
+
+# Apply blending
+if ml_probs is not None:
+    final_probs = {
+        v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
+        for v in [v1_sel, v2_sel, v3_sel]
+    }
 
         st.session_state['res'] = {
             'p': final_probs,
