@@ -149,7 +149,6 @@ def load_history():
         'Lap_3_Track','Lap_3_Len',
         'Actual_Winner','Predicted_Winner',
         'Lane','Top_Prob','Was_Correct',
-        # model-skill logging
         'Sim_Predicted_Winner','ML_Predicted_Winner',
         'Sim_Top_Prob','ML_Top_Prob',
         'Sim_Was_Correct','ML_Was_Correct',
@@ -186,10 +185,6 @@ history = load_history()
 # ---------------------------------------------------------
 
 def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute per-vehicle win rates using only past races (expanding window),
-    to avoid target leakage.
-    """
     if "Timestamp" not in df.columns:
         df = df.copy()
         df["Timestamp"] = pd.Timestamp.now()
@@ -225,10 +220,6 @@ def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def build_training_data(history_df: pd.DataFrame):
-    """
-    Build supervised data: each row = race, target = Actual_Winner among 3 vehicles.
-    Includes leak-safe per-vehicle win rates and terrain mix features.
-    """
     df = history_df.copy()
 
     df = df.dropna(subset=[
@@ -300,11 +291,6 @@ def build_training_data(history_df: pd.DataFrame):
     return X, y, (cat_features, num_features)
 
 def train_ml_model(history_df: pd.DataFrame):
-    """
-    Train a gradient boosting model on recent historical races.
-    Uses last 200 races, requires at least 15 samples.
-    Returns (model, n_samples) or (None, 0).
-    """
     df_recent = history_df.copy().tail(200)
     X, y, feat_info = build_training_data(df_recent)
     if X is None:
@@ -338,19 +324,13 @@ def train_ml_model(history_df: pd.DataFrame):
 
 @st.cache_resource
 def get_trained_model(history_df: pd.DataFrame):
-    """
-    Cached ML model; invalidates automatically when history_df changes.
-    """
     return train_ml_model(history_df)
+
 # ---------------------------------------------------------
 # 5. SINGLE-ROW FEATURE BUILDER FOR LIVE PREDICTIONS
 # ---------------------------------------------------------
 
 def build_single_feature_row(v1, v2, v3, k_idx, k_type):
-    """
-    Build a single-row DataFrame to feed the ML model for current race context.
-    Unknown laps approximated as 'Unknown' with 33/33/34 lengths.
-    """
     lap_tracks = ["Unknown", "Unknown", "Unknown"]
     lap_tracks[k_idx] = k_type
 
@@ -383,7 +363,6 @@ def build_single_feature_row(v1, v2, v3, k_idx, k_type):
         "V3_win_rate": 0.33,
     }
     return pd.DataFrame([data])
-
 # ---------------------------------------------------------
 # 6. METRICS & MODEL SKILL
 # ---------------------------------------------------------
@@ -439,10 +418,6 @@ def compute_basic_metrics(history: pd.DataFrame):
     }
 
 def compute_model_skill(history: pd.DataFrame, window: int = 100):
-    """
-    Compare recent Brier scores for Simulation vs ML using separately logged
-    top probabilities and correctness.
-    """
     cols = ['Sim_Top_Prob', 'Sim_Was_Correct',
             'ML_Top_Prob', 'ML_Was_Correct']
     if not all(c in history.columns for c in cols):
@@ -486,7 +461,6 @@ def compute_learning_curve(history: pd.DataFrame, window: int = 30):
         return df
 
 def compute_learned_geometry(df: pd.DataFrame):
-    st.write("GEOMETRY FUNCTION VERSION:", "v2")
     results = []
     for lap in [1, 2, 3]:
         t_col = f"Lap_{lap}_Track"
@@ -562,11 +536,7 @@ def compute_volatility_from_probs(probs: dict):
 # PHYSICS BIAS CORRECTION (LIGHTWEIGHT)
 # ---------------------------------------------------------
 
-def get_physics_bias(history_df):
-    """
-    Computes how often each vehicle's simulation prediction was correct.
-    If the simulation is consistently wrong for a vehicle, we adjust its speed slightly.
-    """
+def get_physics_bias(history_df: pd.DataFrame):
     if history_df.empty or len(history_df) < 20:
         return {}
 
@@ -574,12 +544,8 @@ def get_physics_bias(history_df):
     if df.empty:
         return {}
 
-    # Mean correctness per vehicle
     bias = df.groupby('Actual_Winner')['Sim_Was_Correct'].mean().to_dict()
 
-    # Convert correctness into a small speed multiplier
-    # If sim correctness = 0.40 → multiplier = 0.97 (slightly slower)
-    # If sim correctness = 0.70 → multiplier = 1.02 (slightly faster)
     corrected = {}
     for veh, score in bias.items():
         corrected[veh] = float(np.clip(1.0 + (score - 0.55) * 0.10, 0.97, 1.03))
@@ -635,46 +601,8 @@ def run_simulation(
 
     vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
 
-    # --- PHYSICS BIAS ADJUSTMENT ---
-    def get_physics_bias(history_df):
-        """
-        Learns per-vehicle multiplicative bias based on how often
-        the simulation was wrong vs right.
-        """
-        if history_df.empty:
-            return {}
-
-        required = ["Sim_Predicted_Winner", "Actual_Winner"]
-        if not all(c in history_df.columns for c in required):
-            return {}
-
-        df = history_df.dropna(subset=required).tail(300)
-        if df.empty:
-            return {}
-
-        sim_counts = df["Sim_Predicted_Winner"].value_counts()
-        real_counts = df["Actual_Winner"].value_counts()
-
-        bias = {}
-        for veh in ALL_VEHICLES:
-            sim = sim_counts.get(veh, 0)
-            real = real_counts.get(veh, 0)
-
-            if sim == 0 and real == 0:
-                bias[veh] = 1.0
-                continue
-
-            ratio = (real + 1) / (sim + 1)
-            mult = float(np.clip(ratio, 0.90, 1.10))
-            bias[veh] = mult
-
-        return bias
-
-    # 2. GEOMETRY (UPDATED, STRONGER VERSION)
+    # 2. GEOMETRY
     def learned_length_dist(track_type, lap_idx):
-        """
-        Returns (mean, std) for the given track type and lap index.
-        """
         if history_df.empty:
             return base_len_mean, base_len_std
 
@@ -777,7 +705,7 @@ def run_simulation(
 
     terrain_matrix = np.column_stack(sim_terrains)
 
-    # --- PHYSICS BIAS APPLIED TO SPEED DATA ---
+    # PHYSICS BIAS APPLIED TO SPEED DATA
     bias_table = get_physics_bias(history_df)
 
     adjusted_speed_data = {}
@@ -787,7 +715,6 @@ def run_simulation(
             t: spd * mult for t, spd in SPEED_DATA[veh].items()
         }
 
-    # 5. NOISE MODELING (vectorized speed lookup per track)
     def sample_vehicle_times(vehicle, vpi_local):
         speed_map = adjusted_speed_data[vehicle]
 
@@ -805,7 +732,6 @@ def run_simulation(
 
         return np.sum(len_matrix / (effective_speed * vpi_local[vehicle]), axis=1)
 
-    # Sample times for each vehicle
     results = {v: sample_vehicle_times(v, vpi) for v in vehicles}
 
     # 6. RAW WIN PROBABILITIES
@@ -843,8 +769,7 @@ def run_simulation(
 
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
-    
-# ---------------------------------------------------------
+    # ---------------------------------------------------------
 # 8. SIDEBAR (SETUP & PREDICTION) WITH PERFORMANCE-DRIVEN BLENDING
 # ---------------------------------------------------------
 with st.sidebar:
@@ -862,9 +787,6 @@ with st.sidebar:
 
     model_skill = compute_model_skill(history)
 
-    # ---------------------------------------------------------
-    # PREDICT BUTTON + LOGIC
-    # ---------------------------------------------------------
     if st.button("🚀 PREDICT", type="primary", use_container_width=True):
 
         # Simulation-based probabilities
@@ -885,7 +807,6 @@ with st.sidebar:
         final_probs = sim_probs
         p_ml_store = ml_probs
 
-        # --- PERFORMANCE-DRIVEN BLENDING ---
         blend_weight = 0.0
 
         if ml_probs is not None:
@@ -915,19 +836,15 @@ with st.sidebar:
         else:
             final_probs = sim_probs
 
-        # --- Identify predicted winner ---
         predicted_winner = max(final_probs, key=final_probs.get)
         p1 = final_probs[predicted_winner]
 
-        # --- EXPECTED REGRET ---
         expected_regret = p1 / 100.0
 
-        # --- VOLATILITY ---
         sorted_probs = sorted(final_probs.items(), key=lambda kv: kv[1], reverse=True)
         (top_vehicle, p1_sorted), (_, p2) = sorted_probs[0], sorted_probs[1]
         vol_gap = round(p1_sorted - p2, 2)
 
-        # Volatility label
         if vol_gap < 5:
             vol_label = "Chaos"
         elif vol_gap < 12:
@@ -935,7 +852,6 @@ with st.sidebar:
         else:
             vol_label = "Calm"
 
-        # --- BET SAFETY ---
         if p1 < 40:
             bet_safety = "AVOID"
         elif vol_gap < 5:
@@ -947,7 +863,6 @@ with st.sidebar:
         else:
             bet_safety = "CAUTION"
 
-        # Store results
         st.session_state['res'] = {
             'p': final_probs,
             'vpi': vpi_res,
@@ -980,24 +895,17 @@ if 'res' in st.session_state:
 
     st.markdown("## 🎯 Prediction Results")
 
-    # --- Top Probabilities ---
     for v in res['ctx']['v']:
         prob = p[v]
         boost = meta.get('ml_boost', {}).get(v, 0.0)
         boost_str = f" (+{boost:.1f}% ML Boost)" if boost > 0 else ""
         st.markdown(f"- **{v}**: {prob:.1f}%{boost_str}")
 
-    # --- Predicted Winner ---
     st.markdown(f"**Predicted Winner:** {max(p, key=p.get)}")
-
-    # --- Volatility & Bet Safety ---
     st.markdown(f"**Volatility:** {meta['volatility_label']} ({meta['volatility_gap_pp']} pp gap)")
     st.markdown(f"**Bet Safety:** {meta['bet_safety']}")
-
-    # --- Expected Regret ---
     st.markdown(f"**Expected Regret:** {meta['expected_regret']:.2f}")
 
-    # --- Divergence Warning ---
     if res.get('p_ml') is not None:
         sim_winner = max(res['p_sim'], key=res['p_sim'].get)
         ml_winner = max(res['p_ml'], key=res['p_ml'].get)
@@ -1007,22 +915,19 @@ if 'res' in st.session_state:
                 f"ML favors **{ml_winner}**. This race has higher uncertainty."
             )
 
-    # --- Performance Matrix ---
     st.markdown("## 📊 Performance Matrix")
 
     if history is not None and len(history) >= 10:
         skill = compute_model_skill(history)
-        acc_sim = skill.get("sim_acc", None)
-        acc_ml = skill.get("ml_acc", None)
-        brier_sim = skill.get("sim_brier", None)
-        brier_ml = skill.get("ml_brier", None)
+        if skill is not None:
+            brier_sim = skill.get("sim_brier", None)
+            brier_ml = skill.get("ml_brier", None)
+            n_skill = skill.get("n", 0)
 
-        st.markdown(f"- **Sim Accuracy:** {acc_sim:.2f}")
-        st.markdown(f"- **ML Accuracy:** {acc_ml:.2f}")
-        st.markdown(f"- **Sim Brier Score:** {brier_sim:.3f}")
-        st.markdown(f"- **ML Brier Score:** {brier_ml:.3f}")
+            st.markdown(f"- **Sim Brier Score:** {brier_sim:.3f}" if brier_sim is not None else "- **Sim Brier Score:** N/A")
+            st.markdown(f"- **ML Brier Score:** {brier_ml:.3f}" if brier_ml is not None else "- **ML Brier Score:** N/A")
+            st.markdown(f"- **Samples Used:** {n_skill}")
 
-        # Drift metrics
         if "Rolling_Accuracy" in history.columns:
             acc_now = history["Rolling_Accuracy"].iloc[-1]
             acc_then = history["Rolling_Accuracy"].iloc[-20] if len(history) >= 20 else history["Rolling_Accuracy"].iloc[0]
@@ -1034,35 +939,7 @@ if 'res' in st.session_state:
             chaos_score = 0.6 * avg_surprise + 0.4 * (1 - history["Was_Correct"].mean())
             st.markdown(f"- **Avg Surprise Index:** {avg_surprise:.3f}")
             st.markdown(f"- **Chaos Score:** {chaos_score:.3f}")
-# ---------------------------------------------------------
-# 8.6 SAVE RACE RESULT PANEL
-# ---------------------------------------------------------
-if 'res' in st.session_state:
-    st.markdown("## 📝 Save Race Report")
 
-    actual_winner = st.selectbox("Actual Winner", res['ctx']['v'])
-    if st.button("💾 Save & Train", use_container_width=True):
-        row = {
-            "Vehicle_1": res['ctx']['v'][0],
-            "Vehicle_2": res['ctx']['v'][1],
-            "Vehicle_3": res['ctx']['v'][2],
-            "Lap_1_Track": res['ctx']['t'] if res['ctx']['slot'] == "Lap 1" else None,
-            "Lap_2_Track": res['ctx']['t'] if res['ctx']['slot'] == "Lap 2" else None,
-            "Lap_3_Track": res['ctx']['t'] if res['ctx']['slot'] == "Lap 3" else None,
-            "Actual_Winner": actual_winner,
-            "Predicted_Winner": max(res['p'], key=res['p'].get),
-            "Top_Prob": res['meta']['top_prob'],
-            "Was_Correct": actual_winner == max(res['p'], key=res['p'].get),
-            "Lane": None  # optional
-        }
-
-        if history is None or history.empty:
-            st.error("History failed to load — not saving to avoid data loss.")
-        else:
-            history = add_race_result(history, row)
-            save_history(history)
-            st.success("✅ Race saved. The model cache will update on next run.")
-            st.rerun()
 # ---------------------------------------------------------
 # 9. MAIN DASHBOARD
 # ---------------------------------------------------------
@@ -1081,7 +958,6 @@ if 'res' in st.session_state:
         boost = (res['vpi'][v] - 1.0) * 100
         m_grid.metric(v, f"{val:.1f}%", f"+{boost:.1f}% ML Boost" if boost > 0 else None)
 
-    # --- MODEL DIVERGENCE ALERT ---
     sim_probs = res.get('p_sim')
     ml_probs = res.get('p_ml')
 
@@ -1098,7 +974,7 @@ if 'res' in st.session_state:
             st.success("✅ **Model Consensus:** Physics and ML agree on the likely winner.")
 
 # ---------------------------------------------------------
-# 10. SAVE RACE REPORT (LOG SIM & ML SEPARATELY)
+# 10. SAVE RACE REPORT (UNIFIED, WITH SURPRISE INDEX)
 # ---------------------------------------------------------
 
 st.divider()
@@ -1190,7 +1066,6 @@ if save_clicked:
 
     st.session_state['last_train_probs'] = dict(predicted)
 
-    # Sim / ML logging for skill computation
     sim_pred_winner = None
     ml_pred_winner = None
     sim_top_prob = np.nan
@@ -1208,17 +1083,13 @@ if save_clicked:
         ml_top_prob = p_ml[ml_pred_winner] / 100.0
         ml_correct = float(ml_pred_winner == winner)
 
-    # -----------------------------------------
-    # 🔥 SURPRISE INDEX (ADD THIS PART)
-    # -----------------------------------------
     was_correct = float(predicted_winner == winner)
-    p1 = predicted[predicted_winner] / 100.0  # convert to 0–1 scale
+    p1 = predicted[predicted_winner] / 100.0
 
     if was_correct == 1:
         surprise = round(1 - p1, 4)
     else:
         surprise = 1.0
-    # -----------------------------------------
 
     row = {
         'Vehicle_1': ctx['v'][0],
@@ -1232,7 +1103,7 @@ if save_clicked:
         'Lane': revealed_slot,
         'Top_Prob': p1,
         'Was_Correct': was_correct,
-        'Surprise_Index': surprise,   # <-- ADDED HERE
+        'Surprise_Index': surprise,
         'Sim_Predicted_Winner': sim_pred_winner,
         'ML_Predicted_Winner': ml_pred_winner,
         'Sim_Top_Prob': sim_top_prob,
@@ -1244,14 +1115,14 @@ if save_clicked:
 
     if history is None or history.empty:
         st.error("History failed to load — not saving to avoid data loss.")
+    else:
+        history = add_race_result(history, row)
+        save_history(history)
+        st.success("✅ Race saved. The model cache will update on next run.")
+        st.rerun()
 
-    history = add_race_result(history, row)
-    save_history(history)
-
-    st.success("✅ Race saved. The model cache will update on next run.")
-    st.rerun()    
 # ---------------------------------------------------------
-# 11. PREDICTION ANALYTICS PANEL
+# 11. PREDICTION ANALYTICS PANEL – CHAOS & DRIFT
 # ---------------------------------------------------------
 st.subheader("🌪️ Chaos Mapping (Surprise & Instability)")
 
@@ -1260,67 +1131,57 @@ if history is None or history.empty:
 else:
     df = history.copy()
 
-    # Ensure Surprise_Index exists
     if "Surprise_Index" not in df.columns:
         st.warning("Surprise Index not found in history. Save more races.")
-        st.stop()
+    else:
+        df["Chaos_Score"] = 0.6 * df["Surprise_Index"].astype(float) + \
+                            0.4 * (1 - df["Was_Correct"].astype(float))
 
-    # ---------------------------------------------------------
-    # Chaos Score
-    # ---------------------------------------------------------
-    df["Chaos_Score"] = 0.6 * df["Surprise_Index"].astype(float) + \
-                        0.4 * (1 - df["Was_Correct"].astype(float))
+        st.markdown("### 🏁 Track Chaos (Average Surprise)")
+        track_cols = ["Lap_1_Track", "Lap_2_Track", "Lap_3_Track"]
 
-    # --- TRACK CHAOS ---
-    st.markdown("### 🏁 Track Chaos (Average Surprise)")
-    track_cols = ["Lap_1_Track", "Lap_2_Track", "Lap_3_Track"]
+        track_long = pd.concat([
+            df[["Surprise_Index", col]].rename(columns={col: "Track"})
+            for col in track_cols
+        ])
 
-    track_long = pd.concat([
-        df[["Surprise_Index", col]].rename(columns={col: "Track"})
-        for col in track_cols
-    ])
+        track_chaos = track_long.groupby("Track")["Surprise_Index"].mean().sort_values(ascending=False)
+        st.dataframe(track_chaos.to_frame("Avg Surprise"))
 
-    track_chaos = track_long.groupby("Track")["Surprise_Index"].mean().sort_values(ascending=False)
-    st.dataframe(track_chaos.to_frame("Avg Surprise"))
+        st.markdown("### 🚗 Vehicle Chaos (Average Surprise)")
+        vehicle_cols = ["Vehicle_1", "Vehicle_2", "Vehicle_3"]
 
-    # --- VEHICLE CHAOS ---
-    st.markdown("### 🚗 Vehicle Chaos (Average Surprise)")
-    vehicle_cols = ["Vehicle_1", "Vehicle_2", "Vehicle_3"]
+        vehicle_long = pd.concat([
+            df[["Surprise_Index", col]].rename(columns={col: "Vehicle"})
+            for col in vehicle_cols
+        ])
 
-    vehicle_long = pd.concat([
-        df[["Surprise_Index", col]].rename(columns={col: "Vehicle"})
-        for col in vehicle_cols
-    ])
+        vehicle_chaos = vehicle_long.groupby("Vehicle")["Surprise_Index"].mean().sort_values(ascending=False)
+        st.dataframe(vehicle_chaos.to_frame("Avg Surprise"))
 
-    vehicle_chaos = vehicle_long.groupby("Vehicle")["Surprise_Index"].mean().sort_values(ascending=False)
-    st.dataframe(vehicle_chaos.to_frame("Avg Surprise"))
+        st.markdown("### 🔥 Track–Vehicle Chaos Heatmap")
 
-    # --- TRACK–VEHICLE CHAOS HEATMAP ---
-    st.markdown("### 🔥 Track–Vehicle Chaos Heatmap")
+        heatmap_df = pd.DataFrame()
 
-    heatmap_df = pd.DataFrame()
+        for col in track_cols:
+            temp = df[[col, "Vehicle_1", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_1": "Vehicle"})
+            heatmap_df = pd.concat([heatmap_df, temp])
 
-    for col in track_cols:
-        temp = df[[col, "Vehicle_1", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_1": "Vehicle"})
-        heatmap_df = pd.concat([heatmap_df, temp])
+            temp = df[[col, "Vehicle_2", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_2": "Vehicle"})
+            heatmap_df = pd.concat([heatmap_df, temp])
 
-        temp = df[[col, "Vehicle_2", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_2": "Vehicle"})
-        heatmap_df = pd.concat([heatmap_df, temp])
+            temp = df[[col, "Vehicle_3", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_3": "Vehicle"})
+            heatmap_df = pd.concat([heatmap_df, temp])
 
-        temp = df[[col, "Vehicle_3", "Surprise_Index"]].rename(columns={col: "Track", "Vehicle_3": "Vehicle"})
-        heatmap_df = pd.concat([heatmap_df, temp])
+        pivot = heatmap_df.pivot_table(
+            index="Track",
+            columns="Vehicle",
+            values="Surprise_Index",
+            aggfunc="mean"
+        )
 
-    pivot = heatmap_df.pivot_table(
-        index="Track",
-        columns="Vehicle",
-        values="Surprise_Index",
-        aggfunc="mean"
-    )
+        st.dataframe(pivot.fillna(0))
 
-    st.dataframe(pivot.fillna(0))    
-# ---------------------------------------------------------
-# MODEL DRIFT DETECTION
-# ---------------------------------------------------------
 st.subheader("📉 Model Drift Detection")
 
 if history is None or history.empty or len(history) < 10:
@@ -1328,44 +1189,35 @@ if history is None or history.empty or len(history) < 10:
 else:
     df = history.copy()
 
-    # Rolling window size
     window = min(20, len(df))
 
-    # Rolling accuracy
     df["Rolling_Accuracy"] = df["Was_Correct"].rolling(window).mean()
 
-    # Rolling Brier Score
     df["Brier"] = (df["Top_Prob"] - df["Was_Correct"])**2
     df["Rolling_Brier"] = df["Brier"].rolling(window).mean()
 
-    # Rolling Surprise
     if "Surprise_Index" in df.columns:
         df["Rolling_Surprise"] = df["Surprise_Index"].rolling(window).mean()
     else:
         df["Rolling_Surprise"] = np.nan
 
-    # Latest values
     acc_now = df["Rolling_Accuracy"].iloc[-1]
     brier_now = df["Rolling_Brier"].iloc[-1]
     surprise_now = df["Rolling_Surprise"].iloc[-1]
 
-    # Baseline (first window)
     acc_then = df["Rolling_Accuracy"].iloc[window-1]
     brier_then = df["Rolling_Brier"].iloc[window-1]
     surprise_then = df["Rolling_Surprise"].iloc[window-1]
 
-    # Drift calculations
     acc_drop = acc_then - acc_now
     brier_rise = brier_now - brier_then
     surprise_rise = surprise_now - surprise_then
 
-    # Display metrics
     st.markdown("### 📊 Drift Metrics (Last 20 Races)")
     st.write(f"Rolling Accuracy: **{acc_now:.2f}**")
     st.write(f"Rolling Brier Score: **{brier_now:.3f}**")
     st.write(f"Rolling Surprise: **{surprise_now:.3f}**")
 
-    # Drift warnings
     st.markdown("### 🚨 Drift Status")
 
     if acc_drop > 0.15:
@@ -1388,9 +1240,8 @@ else:
         st.warning("**Moderate Surprise Drift** — Some instability detected.")
     else:
         st.success("Surprise levels normal.")
-
-# ---------------------------------------------------------
-# CSV HEALTH CHECK FUNCTION (LEFT‑ALIGNED)
+    # ---------------------------------------------------------
+# CSV HEALTH CHECK FUNCTION
 # ---------------------------------------------------------
 def csv_health_check(df: pd.DataFrame):
     issues = []
@@ -1435,10 +1286,8 @@ if 'res' in st.session_state:
     st.divider()
     st.subheader("🔍 Prediction Explanation")
 
-    # Load meta once
     meta = res['meta']
 
-    # --- BET SAFETY DISPLAY ---
     st.subheader("🛡️ Bet Safety")
     safety = meta['bet_safety']
 
@@ -1449,11 +1298,9 @@ if 'res' in st.session_state:
     else:
         st.success("**FAVORABLE** — Model sees a strong, stable edge here.")
 
-    # --- EXPECTED REGRET DISPLAY ---
     st.subheader("📉 Expected Regret")
     st.write(f"Expected regret (risk of being confidently wrong): **{meta['expected_regret']:.2f}**")
 
-    # --- VOLATILITY DISPLAY ---
     st.subheader("⚡ Volatility")
     st.write(f"Volatility (Top - Second): **{meta['volatility_gap_pp']} pp**")
     st.write(f"Market Condition: **{meta['volatility_label']}**")
@@ -1553,9 +1400,8 @@ if 'res' in st.session_state:
         "Winner": predicted_winner,
         "Probabilities": probs
     })
-
 # ---------------------------------------------------------
-# 12. ANALYTICS TABS + GHOST LAP WHAT-IF
+# 12. ANALYTICS TABS + WHAT-IF
 # ---------------------------------------------------------
 
 if history is not None and not history.empty:
@@ -1630,7 +1476,7 @@ if history is not None and not history.empty:
         else:
             st.info("Top_Prob / Was_Correct not available yet for calibration analysis.")
 
-    # 4) DRIFT DETECTOR
+    # 4) DRIFT DETECTOR (GEOMETRY)
     with tabs[3]:
         st.write("### 🌊 Drift Detector (Track Geometry)")
         drift = compute_drift(history)
