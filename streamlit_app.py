@@ -16,7 +16,7 @@ from collections import Counter, defaultdict
 # SQLITE DATABASE (PERSISTENT — STORED IN .streamlit/)
 # ---------------------------------------------------------
 
-DB_PATH = Path(".streamlit/race_history.db")
+DB_PATH = Path("race_history.db")
 DB_PATH.parent.mkdir(exist_ok=True)
 
 def get_connection():
