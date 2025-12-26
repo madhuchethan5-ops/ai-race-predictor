@@ -2346,3 +2346,32 @@ def import_csv_to_sqlite(csv_path="race_history.csv"):
         save_race_to_db(row.to_dict())
 
 import_csv_to_sqlite()
+def extend_schema():
+    conn = get_connection()
+    commands = [
+        "ALTER TABLE races ADD COLUMN predicted_winner TEXT;",
+        "ALTER TABLE races ADD COLUMN top_prob REAL;",
+        "ALTER TABLE races ADD COLUMN was_correct REAL;",
+        "ALTER TABLE races ADD COLUMN surprise_index REAL;",
+        "ALTER TABLE races ADD COLUMN sim_predicted_winner TEXT;",
+        "ALTER TABLE races ADD COLUMN ml_predicted_winner TEXT;",
+        "ALTER TABLE races ADD COLUMN sim_top_prob REAL;",
+        "ALTER TABLE races ADD COLUMN ml_top_prob REAL;",
+        "ALTER TABLE races ADD COLUMN sim_was_correct REAL;",
+        "ALTER TABLE races ADD COLUMN ml_was_correct REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_track_error_l1 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_track_error_l2 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_track_error_l3 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_len_error_l1 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_len_error_l2 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_len_error_l3 REAL;",
+    ]
+    for cmd in commands:
+        try:
+            conn.execute(cmd)
+        except:
+            pass
+    conn.commit()
+    conn.close()
+    extend_schema()
+
