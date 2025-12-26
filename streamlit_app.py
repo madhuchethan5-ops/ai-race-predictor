@@ -136,6 +136,23 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
+# ADMIN: FORCE RESET DB SCHEMA
+# ---------------------------------------------------------
+import sqlite3
+
+with st.expander("⚙️ Admin: Reset Database Schema"):
+    if st.button("🧨 Drop and recreate 'races' table"):
+        try:
+            conn = sqlite3.connect("race_history.db")
+            cur = conn.cursor()
+            cur.execute("DROP TABLE IF EXISTS races")
+            conn.commit()
+            conn.close()
+            st.success("Dropped table. Reload the app to recreate with correct schema.")
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+# ---------------------------------------------------------
 # ADMIN: FORCE DELETE OLD SQLITE DB (TEMPORARY TOOL)
 # ---------------------------------------------------------
 import os
