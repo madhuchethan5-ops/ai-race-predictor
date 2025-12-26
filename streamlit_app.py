@@ -134,6 +134,7 @@ st.set_page_config(
     page_title="AI Race Master Pro",
     page_icon="🏎️"
 )
+
 # ---------------------------------------------------------
 # ADMIN: FORCE DELETE OLD SQLITE DB (TEMPORARY TOOL)
 # ---------------------------------------------------------
