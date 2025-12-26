@@ -198,6 +198,107 @@ def estimate_hidden_laps(ctx, stats, track_options, alpha: float = 0.7):
         }
 
     return lap_guess
+# =========================================================
+# TERRAIN–VEHICLE INTERACTION MATRIX
+# =========================================================
+
+def build_tv_matrix(history: pd.DataFrame):
+    """
+    Build a simple terrain–vehicle win-rate matrix from history.
+    Returns:
+        tv_matrix[(vehicle, terrain)] = win_rate (0–1) based on past races.
+    """
+    tv_counts = {}   # (vehicle, terrain) -> {"wins": x, "total": y}
+
+    if history is None or history.empty:
+        return {}
+
+    # We assume history has: Vehicle_1/2/3, Lap_1_Track/2/3, Actual_Winner
+    for _, row in history.iterrows():
+        actual_winner = row.get("Actual_Winner")
+        if pd.isna(actual_winner):
+            continue
+
+        vehicles = [
+            row.get("Vehicle_1"),
+            row.get("Vehicle_2"),
+            row.get("Vehicle_3"),
+        ]
+
+        lap_tracks = [
+            row.get("Lap_1_Track"),
+            row.get("Lap_2_Track"),
+            row.get("Lap_3_Track"),
+        ]
+
+        # For each vehicle and each terrain in this race, update stats
+        for v in vehicles:
+            if not isinstance(v, str):
+                continue
+
+            for t in lap_tracks:
+                if not isinstance(t, str):
+                    continue
+
+                key = (v, t)
+                if key not in tv_counts:
+                    tv_counts[key] = {"wins": 0, "total": 0}
+
+                tv_counts[key]["total"] += 1
+                if v == actual_winner:
+                    tv_counts[key]["wins"] += 1
+
+    # Convert to win rates
+    tv_matrix = {}
+    for key, stats in tv_counts.items():
+        wins = stats["wins"]
+        total = max(stats["total"], 1)
+        tv_matrix[key] = wins / total
+
+    return tv_matrix
+
+
+def apply_tv_adjustment(final_probs: dict, ctx: dict, tv_matrix: dict, k_type: str,
+                        strength_alpha: float = 0.15):
+    """
+    Adjust final probabilities slightly based on terrain–vehicle strengths.
+
+    strength_alpha: how strongly to apply the terrain–vehicle adjustment.
+                    0.0 = no effect, 0.15 = gentle nudge, 0.3 = strong.
+    """
+    vehicles = ctx["v"]
+
+    # 1) Extract raw strengths for this terrain
+    strengths = {}
+    for v in vehicles:
+        key = (v, k_type)
+        strengths[v] = tv_matrix.get(key, 0.5)  # 0.5 = neutral if no data
+
+    # 2) Normalize strengths to mean 1.0 (so we don't inflate/deflate globally)
+    avg_strength = np.mean(list(strengths.values())) if strengths else 1.0
+    if avg_strength <= 0:
+        return final_probs, strengths  # safety
+
+    norm_strengths = {v: strengths[v] / avg_strength for v in vehicles}
+
+    # 3) Apply a small multiplicative adjustment to probabilities
+    #    adjusted_p = p * (1 + alpha*(s - 1))
+    adjusted = {}
+    for v in vehicles:
+        base_p = final_probs[v]
+        s = norm_strengths[v]
+        factor = 1.0 + strength_alpha * (s - 1.0)
+        adjusted[v] = base_p * factor
+
+    # 4) Renormalize to keep sum around the same scale
+    total = sum(adjusted.values())
+    if total > 0:
+        adjusted = {v: (adjusted[v] / total) * sum(final_probs.values())
+                    for v in vehicles}
+    else:
+        adjusted = final_probs.copy()
+
+    return adjusted, strengths
 # ---------------------------------------------------------
 # CONFIDENCE BAR
 # ---------------------------------------------------------
@@ -1030,6 +1131,19 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         }
     else:
         final_probs = sim_probs
+    
+    # --- Terrain–vehicle adjustment (gentle) ---
+    tv_matrix = build_tv_matrix(history)
+    ctx = {
+        "v": [v1_sel, v2_sel, v3_sel],
+        "idx": k_idx,
+        "t": k_type,
+        "slot": f"Lap {k_idx + 1}",
+    }
+
+    final_probs, tv_strengths = apply_tv_adjustment(
+        final_probs, ctx, tv_matrix, k_type, strength_alpha=0.15
+    )
 
     # --- Winner & meta calculations ---
     predicted_winner = max(final_probs, key=final_probs.get)
@@ -1098,6 +1212,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             'expected_regret': expected_regret,
         },
         'hidden_guess': lap_guess,   # <-- stays here
+        'tv_strengths': tv_strengths,
     }
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
@@ -1376,6 +1491,35 @@ with Q2:
 
         else:
             st.write("Not enough history to estimate hidden laps.")
+            
+        # -----------------------------------------------------
+        # 🧬 Terrain–vehicle matchup (today's terrain)
+        # -----------------------------------------------------
+        tv_strengths = res.get("tv_strengths", {})
+
+        if tv_strengths:
+            st.markdown("#### 🧬 Terrain–vehicle matchup (win tendency)")
+            terrain = res['ctx']['t']
+            lines = []
+            for v in res['ctx']['v']:
+                s = tv_strengths.get(v, 0.5)
+                if s > 0.55:
+                    flavor = "favored"
+                    icon = "🟢"
+                elif s < 0.45:
+                    flavor = "penalized"
+                    icon = "🔴"
+                else:
+                    flavor = "neutral"
+                    icon = "⚪"
+
+                lines.append(f"- {icon} **{v}** on **{terrain}** → {flavor} (win‑rate ~{s*100:.0f}%)")
+
+            for line in lines:
+                st.markdown(line)
+        else:
+            st.markdown("#### 🧬 Terrain–vehicle matchup")
+            st.caption("Not enough history yet to learn terrain–vehicle strengths.")
 
         # -----------------------------------------------------
         # Probabilities
