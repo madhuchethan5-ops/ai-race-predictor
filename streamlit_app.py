@@ -606,23 +606,8 @@ def load_history():
 history = load_history()
 def normalize_history_columns(df):
     rename_map = {
+        # ML-required columns
         "Actual_Winner": "actual_winner",
-        "Predicted_Winner": "predicted_winner",
-        "Top_Prob": "top_prob",
-        "Was_Correct": "was_correct",
-        "Surprise_Index": "surprise_index",
-        "Sim_Predicted_Winner": "sim_predicted_winner",
-        "ML_Predicted_Winner": "ml_predicted_winner",
-        "Sim_Top_Prob": "sim_top_prob",
-        "ML_Top_Prob": "ml_top_prob",
-        "Sim_Was_Correct": "sim_was_correct",
-        "ML_Was_Correct": "ml_was_correct",
-        "Hidden_Track_Error_L1": "hidden_track_error_l1",
-        "Hidden_Track_Error_L2": "hidden_track_error_l2",
-        "Hidden_Track_Error_L3": "hidden_track_error_l3",
-        "Hidden_Len_Error_L1": "hidden_len_error_l1",
-        "Hidden_Len_Error_L2": "hidden_len_error_l2",
-        "Hidden_Len_Error_L3": "hidden_len_error_l3",
         "Vehicle_1": "vehicle_1",
         "Vehicle_2": "vehicle_2",
         "Vehicle_3": "vehicle_3",
@@ -634,6 +619,28 @@ def normalize_history_columns(df):
         "Lap_3_Len": "lap_3_len",
         "Lane": "lane",
         "Timestamp": "timestamp",
+
+        # Prediction metadata
+        "Predicted_Winner": "predicted_winner",
+        "Top_Prob": "top_prob",
+        "Was_Correct": "was_correct",
+        "Surprise_Index": "surprise_index",
+
+        # Simulation + ML diagnostics
+        "Sim_Predicted_Winner": "sim_predicted_winner",
+        "ML_Predicted_Winner": "ml_predicted_winner",
+        "Sim_Top_Prob": "sim_top_prob",
+        "ML_Top_Prob": "ml_top_prob",
+        "Sim_Was_Correct": "sim_was_correct",
+        "ML_Was_Correct": "ml_was_correct",
+
+        # Hidden lap guess errors
+        "Hidden_Track_Error_L1": "hidden_track_error_l1",
+        "Hidden_Track_Error_L2": "hidden_track_error_l2",
+        "Hidden_Track_Error_L3": "hidden_track_error_l3",
+        "Hidden_Len_Error_L1": "hidden_len_error_l1",
+        "Hidden_Len_Error_L2": "hidden_len_error_l2",
+        "Hidden_Len_Error_L3": "hidden_len_error_l3",
     }
 
     df = df.rename(columns=rename_map)
