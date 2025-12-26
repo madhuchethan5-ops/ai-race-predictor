@@ -107,6 +107,15 @@ def save_race_to_db(row: dict):
     conn.commit()
     conn.close()
 
+def load_history():
+    conn = get_connection()
+    try:
+        df = pd.read_sql_query("SELECT * FROM races ORDER BY id ASC", conn)
+    except Exception:
+        df = pd.DataFrame()
+    conn.close()
+    return df
+
 def import_csv_to_sqlite(uploaded_csv):
     df = pd.read_csv(uploaded_csv)
 
