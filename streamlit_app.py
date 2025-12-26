@@ -274,8 +274,9 @@ def apply_tv_adjustment(final_probs: dict, ctx: dict, tv_matrix: dict, k_type: s
         key = (v, k_type)
         strengths[v] = tv_matrix.get(key, 0.5)  # 0.5 = neutral if no data
 
-    # 2) Normalize strengths to mean 1.0 (so we don't inflate/deflate globally)
-    avg_strength = np.mean(list(strengths.values())) if strengths else 1.0
+    # 2) Normalize strengths to sum to 1.0 (relative tendency)
+    total_strength = sum(strengths.values())
+    norm_strengths = {v: strengths[v] / total_strength for v in vehicles} if total_strength > 0 else {v: 1.0 / len(vehicles) for v in vehicles}
     if avg_strength <= 0:
         return final_probs, strengths  # safety
 
