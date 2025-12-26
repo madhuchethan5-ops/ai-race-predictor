@@ -1838,15 +1838,6 @@ with Q2:
                 "Probabilities": probs
             })
 
-import sqlite3
-
-conn = sqlite3.connect(DB_PATH)
-cursor = conn.cursor()
-cursor.execute("PRAGMA table_info(races)")
-schema = cursor.fetchall()
-st.write("DEBUG TABLE SCHEMA:", schema)
-conn.close()
-
 # ---------------------------------------------------------
 # Q3 — SAVE RACE REPORT (BOTTOM-LEFT, CLEAN & WIDGET-SAFE)
 # ---------------------------------------------------------
