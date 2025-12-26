@@ -149,6 +149,73 @@ with st.expander("⚙️ Admin Tools"):
             st.info("DB file not found — nothing to delete.")
         except Exception as e:
             st.error(f"Could not delete DB: {e}")
+# ---------------------------------------------------------
+# ADMIN: IMPORT LEGACY CSV INTO SQLITE
+# ---------------------------------------------------------
+import pandas as pd
+import sqlite3
+
+with st.expander("📥 Import Legacy Race History (Admin)"):
+    uploaded_csv = st.file_uploader("Upload old_history.csv", type=["csv"])
+
+    if uploaded_csv is not None:
+        if st.button("📥 Import CSV into Database"):
+            try:
+                df = pd.read_csv(uploaded_csv)
+
+                # Normalize column names
+                df.columns = [c.strip().lower() for c in df.columns]
+
+                # Required columns for import
+                required = [
+                    "timestamp", "vehicle_1", "vehicle_2", "vehicle_3",
+                    "actual_winner", "predicted_winner",
+                    "top_prob", "was_correct", "surprise_index",
+                    "lap_1_track", "lap_2_track", "lap_3_track",
+                    "lap_1_len", "lap_2_len", "lap_3_len",
+                    "lane",
+                    "sim_predicted_winner", "ml_predicted_winner",
+                    "sim_top_prob", "ml_top_prob",
+                    "sim_was_correct", "ml_was_correct",
+                    "hidden_track_error_l1", "hidden_track_error_l2", "hidden_track_error_l3",
+                    "hidden_len_error_l1", "hidden_len_error_l2", "hidden_len_error_l3"
+                ]
+
+                # Add missing columns as NaN
+                for col in required:
+                    if col not in df.columns:
+                        df[col] = None
+
+                conn = sqlite3.connect("race_history.db")
+                cursor = conn.cursor()
+
+                inserted = 0
+                for _, row in df.iterrows():
+                    cursor.execute("""
+                        INSERT INTO races (
+                            timestamp, vehicle_1, vehicle_2, vehicle_3,
+                            actual_winner, predicted_winner, top_prob, was_correct, surprise_index,
+                            lap_1_track, lap_2_track, lap_3_track,
+                            lap_1_len, lap_2_len, lap_3_len,
+                            lane,
+                            sim_predicted_winner, ml_predicted_winner,
+                            sim_top_prob, ml_top_prob,
+                            sim_was_correct, ml_was_correct,
+                            hidden_track_error_l1, hidden_track_error_l2, hidden_track_error_l3,
+                            hidden_len_error_l1, hidden_len_error_l2, hidden_len_error_l3
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, tuple(row[col] for col in required))
+                    inserted += 1
+
+                conn.commit()
+                conn.close()
+
+                st.success(f"🎉 Successfully imported {inserted} races into the database!")
+                st.balloons()
+
+            except Exception as e:
+                st.error(f"Import failed: {e}")
 
 # ---------------------------------------------------------
 # ICON PATHS
