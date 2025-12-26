@@ -1760,12 +1760,13 @@ with Q2:
                             for t, p in sorted_probs[:3]
                         ])
 
-                        # SAFE HANDLING OF None
-                        if expected_len is None:
+                        # SAFE HANDLING OF ANY TYPE
+                        try:
+                            expected_val = float(expected_len)
+                            expected_text = f"{expected_val:.1f}%"
+                        except Exception:
                             expected_text = "unknown"
-                        else:
-                            expected_text = f"{expected_len:.1f}%"
-
+                            
                         st.markdown(
                             f"**{label} (hidden):** expected length ≈ {expected_text}, "
                             f"top terrains → {top_str}"
