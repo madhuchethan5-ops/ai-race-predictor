@@ -83,22 +83,32 @@ def save_race_to_db(row: dict):
     conn.execute("""
         INSERT INTO races (
             timestamp, vehicle_1, vehicle_2, vehicle_3,
-            actual_winner,
+            actual_winner, predicted_winner, top_prob, was_correct, surprise_index,
             lap_1_track, lap_2_track, lap_3_track,
             lap_1_len, lap_2_len, lap_3_len,
-            lane
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            lane,
+            sim_predicted_winner, ml_predicted_winner,
+            sim_top_prob, ml_top_prob,
+            sim_was_correct, ml_was_correct,
+            hidden_track_error_l1, hidden_track_error_l2, hidden_track_error_l3,
+            hidden_len_error_l1, hidden_len_error_l2, hidden_len_error_l3
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         row_l.get("timestamp"),
         row_l.get("vehicle_1"), row_l.get("vehicle_2"), row_l.get("vehicle_3"),
-        row_l.get("actual_winner"),
+        row_l.get("actual_winner"), row_l.get("predicted_winner"),
+        row_l.get("top_prob"), row_l.get("was_correct"), row_l.get("surprise_index"),
         row_l.get("lap_1_track"), row_l.get("lap_2_track"), row_l.get("lap_3_track"),
         row_l.get("lap_1_len"), row_l.get("lap_2_len"), row_l.get("lap_3_len"),
         row_l.get("lane"),
+        row_l.get("sim_predicted_winner"), row_l.get("ml_predicted_winner"),
+        row_l.get("sim_top_prob"), row_l.get("ml_top_prob"),
+        row_l.get("sim_was_correct"), row_l.get("ml_was_correct"),
+        row_l.get("hidden_track_error_l1"), row_l.get("hidden_track_error_l2"), row_l.get("hidden_track_error_l3"),
+        row_l.get("hidden_len_error_l1"), row_l.get("hidden_len_error_l2"), row_l.get("hidden_len_error_l3"),
     ))
     conn.commit()
     conn.close()
-
 
 def load_history():
     conn = get_connection()
