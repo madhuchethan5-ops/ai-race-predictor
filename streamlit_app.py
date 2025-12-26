@@ -2240,14 +2240,13 @@ with Q4:
 
         st.caption("For full chaos, drift, and heatmap views, use the Analytics tabs below.")
 
-# ---------------------------------------------------------
-# 10. ANALYTICS TABS + WHAT‑IF SIMULATOR (FULL ORIGINAL LOGIC)
-# ---------------------------------------------------------
 st.write("DEBUG: history shape =", history.shape)
 st.write("DEBUG: history columns =", history.columns.tolist())
 st.write("DEBUG: sample =", history.head())
 
-
+# ---------------------------------------------------------
+# 10. ANALYTICS TABS + WHAT‑IF SIMULATOR (FULL ORIGINAL LOGIC)
+# ---------------------------------------------------------
 st.markdown("## 📚 Full Analytics Suite")
 
 if history is not None and not history.empty:
