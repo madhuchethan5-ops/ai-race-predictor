@@ -1866,24 +1866,24 @@ with Q3:
         ctx = res['ctx']
         predicted = res['p']
         predicted_winner = max(predicted, key=predicted.get)
-
+    
         p_sim = res.get('p_sim', None)
         p_ml = res.get('p_ml', None)
-
-        revealed_lap = ctx['idx']      # 0,1,2
-        revealed_track = ctx['t']      # terrain used in prediction
+    
+        revealed_lap = ctx['idx']
+        revealed_track = ctx['t']
         revealed_slot = ctx['slot']
-
-        # Build predicted_tracks manually: all laps default to Bumpy,
-        # only the revealed lap gets the predicted terrain
+    
         predicted_tracks = ["Bumpy", "Bumpy", "Bumpy"]
         predicted_tracks[revealed_lap] = revealed_track
-
+    
         st.caption(
             f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
         )
+    
     else:
         st.info("Run a prediction first to enable saving.")
+        predicted_tracks = ["Bumpy", "Bumpy", "Bumpy"]   # ← REQUIRED FIX
 
     # Safe index helper (robust to spacing / case)
     def safe_index(value, options):
