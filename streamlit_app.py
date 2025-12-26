@@ -940,7 +940,7 @@ def run_simulation(
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
 # ---------------------------------------------------------
-# FULL PREDICTION ENGINE (NO UI) — ALL LOGIC PRESERVED
+# FULL PREDICTION ENGINE (NO UI) — FINAL CLEAN VERSION
 # ---------------------------------------------------------
 
 def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
@@ -1006,20 +1006,20 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     # --- Winner & meta calculations ---
     predicted_winner = max(final_probs, key=final_probs.get)
     p1 = final_probs[predicted_winner]
-    
+
     expected_regret = p1 / 100.0
-    
+
     sorted_probs = sorted(final_probs.items(), key=lambda kv: kv[1], reverse=True)
     (top_vehicle, p1_sorted), (_, p2) = sorted_probs[0], sorted_probs[1]
     vol_gap = round(p1_sorted - p2, 2)
-    
+
     if vol_gap < 5:
         vol_label = "Chaos"
     elif vol_gap < 12:
         vol_label = "Shaky"
     else:
         vol_label = "Calm"
-    
+
     if p1 < 40:
         bet_safety = "AVOID"
     elif vol_gap < 5:
@@ -1030,9 +1030,9 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         bet_safety = "FAVORABLE"
     else:
         bet_safety = "CAUTION"
-    
+
     # ---------------------------------------------------------
-    # NEW: Hidden Lap Estimation (INSERT HERE)
+    # NEW: Hidden Lap Estimation
     # ---------------------------------------------------------
     hidden_stats = build_hidden_lap_stats(history)
     lap_guess = estimate_hidden_laps(
@@ -1045,32 +1045,10 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         hidden_stats,
         TRACK_OPTIONS
     )
-    
-    # --- Store in session_state ---
-    st.session_state['res'] = {
-        'p': final_probs,
-        'vpi': vpi_res,
-        'ctx': {
-            'v': [v1_sel, v2_sel, v3_sel],
-            'idx': k_idx,
-            't': k_type,
-            'slot': f"Lap {k_idx + 1}",
-        },
-        'p_sim': sim_probs,
-        'p_ml': p_ml_store,
-        'meta': {
-            'top_vehicle': top_vehicle,
-            'top_prob': p1,
-            'second_prob': p2,
-            'volatility_gap_pp': vol_gap,
-            'volatility_label': vol_label,
-            'bet_safety': bet_safety,
-            'expected_regret': expected_regret,
-        },
-        'hidden_guess': lap_guess,   # <-- NEW FIELD
-    }
 
-    # --- Store in session_state ---
+    # ---------------------------------------------------------
+    # FINAL RESULT (NO DUPLICATE OVERWRITE)
+    # ---------------------------------------------------------
     st.session_state['res'] = {
         'p': final_probs,
         'vpi': vpi_res,
@@ -1091,6 +1069,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             'bet_safety': bet_safety,
             'expected_regret': expected_regret,
         },
+        'hidden_guess': lap_guess,   # <-- stays here
     }
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
