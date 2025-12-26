@@ -298,6 +298,26 @@ def apply_tv_adjustment(final_probs: dict, ctx: dict, tv_matrix: dict, k_type: s
         adjusted = final_probs.copy()
 
     return adjusted, strengths
+# =========================================================
+# SURPRISE INDEX — How unexpected was the outcome?
+# =========================================================
+
+def compute_surprise_index(row: dict) -> float:
+    """
+    Returns a surprise score for a race:
+    - High if winner had low predicted probability
+    - Low if winner was expected
+    """
+    winner = row.get("Actual_Winner")
+    probs = row.get("Win_Probs")
+
+    if not winner or not probs or winner not in probs:
+        return 0.0
+
+    p_win = probs[winner] / 100.0
+    surprise = 1.0 - p_win  # 0.0 = expected, 1.0 = total shock
+
+    return round(surprise, 3)
 # ---------------------------------------------------------
 # CONFIDENCE BAR
 # ---------------------------------------------------------
@@ -518,7 +538,7 @@ def build_training_data(history_df: pd.DataFrame):
         "Timestamp"
     ])
     if df.empty:
-        return None, None, None
+        return None, None, None, None
 
     def winner_index(row):
         vs = [row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"]]
@@ -529,8 +549,9 @@ def build_training_data(history_df: pd.DataFrame):
     df["winner_idx"] = df.apply(winner_index, axis=1)
     df = df.dropna(subset=["winner_idx"])
     if df.empty:
-        return None, None, None
+        return None, None, None, None
 
+    # Track categories
     def is_high_speed(track):
         return track in ["Expressway", "Highway"]
 
@@ -550,6 +571,22 @@ def build_training_data(history_df: pd.DataFrame):
     ) / 3.0
 
     df = add_leakage_safe_win_rates(df)
+
+    # -----------------------------
+    # Surprise Index Calculation
+    # -----------------------------
+    def compute_surprise(row):
+        winner = row["Actual_Winner"]
+        probs = {
+            row["Vehicle_1"]: row.get("Win_Prob_1", 33.3),
+            row["Vehicle_2"]: row.get("Win_Prob_2", 33.3),
+            row["Vehicle_3"]: row.get("Win_Prob_3", 33.3),
+        }
+        p = probs.get(winner, 33.3) / 100.0
+        return 1.0 - p  # 0 = expected, 1 = shocking
+
+    df["surprise_weight"] = df.apply(compute_surprise, axis=1)
+    df["surprise_weight"] = df["surprise_weight"].clip(lower=0.05)
 
     y = df["winner_idx"].astype(int)
 
@@ -575,12 +612,14 @@ def build_training_data(history_df: pd.DataFrame):
     ]
 
     X = df[feature_cols].copy()
-    return X, y, (cat_features, num_features)
+    sample_weights = df["surprise_weight"].values
 
+    return X, y, (cat_features, num_features), sample_weights
 
 def train_ml_model(history_df: pd.DataFrame):
     df_recent = history_df.copy().tail(200)
-    X, y, feat_info = build_training_data(df_recent)
+
+    X, y, feat_info, sample_weights = build_training_data(df_recent)
     if X is None:
         return None, 0
 
@@ -607,9 +646,9 @@ def train_ml_model(history_df: pd.DataFrame):
         ("clf", clf),
     ])
 
-    model.fit(X, y)
-    return model, n_samples
+    model.fit(X, y, clf__sample_weight=sample_weights)
 
+    return model, n_samples
 
 @st.cache_resource
 def get_trained_model(history_df: pd.DataFrame):
