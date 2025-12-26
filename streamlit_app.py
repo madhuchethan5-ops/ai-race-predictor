@@ -12,7 +12,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from collections import Counter, defaultdict
 
-# --- ONE-TIME DB FIX: DROP AND RECREATE BROKEN TABLE ---
+# --- ONE-TIME FIX: DROP AND RECREATE CORRUPTED TABLE ---
 if "db_fixed" not in st.session_state:
     conn = get_connection()
     conn.execute("DROP TABLE IF EXISTS races")
