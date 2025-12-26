@@ -1233,7 +1233,7 @@ with Q1:
         st.session_state.trigger_prediction = True
         
 # ---------------------------------------------------------
-# Q2 — COMPACT PREDICTION PANEL (TOP-RIGHT) — FINAL CLEAN VERSION
+# Q2 — COMPACT PREDICTION PANEL (TOP-RIGHT) — FINAL VERSION
 # ---------------------------------------------------------
 with Q2:
     st.markdown("### 📡 Prediction & Bet Guidance")
@@ -1287,7 +1287,71 @@ with Q2:
             predicted_winner = max(probs, key=probs.get)
             st.metric("🏆 Predicted Winner", predicted_winner)
 
+        # -----------------------------------------------------
+        # 🤫 AI Guess for Hidden Laps (PLACED BELOW WINNER)
+        # -----------------------------------------------------
+        lg = res.get("hidden_guess")
+
+        if lg:
+            with st.expander("🤫 AI guess for hidden laps"):
+
+                # Terrain emoji map
+                TERRAIN_EMOJI = {
+                    "Desert": "🏜️",
+                    "Bumpy": "🪨",
+                    "Expressway": "🛣️",
+                    "Highway": "🚗",
+                    "Dirt": "🌾",
+                    "Potholes": "🕳️"
+                }
+
+                summary_lines = []
+
+                for k in (1, 2, 3):
+                    label = f"Lap {k}"
+
+                    # If this is the revealed lap, show it directly
+                    if k == res["ctx"]["idx"] + 1:
+                        st.markdown(f"**{label} (revealed):** {res['ctx']['t']}")
+                        continue
+
+                    info = lg[k]
+                    probs_k = info["track_probs"]
+                    expected_len = info["expected_len"]
+
+                    # Sort terrains by probability
+                    sorted_probs = sorted(probs_k.items(), key=lambda x: x[1], reverse=True)
+                    top_terrain, top_prob = sorted_probs[0]
+
+                    emoji = TERRAIN_EMOJI.get(top_terrain, "🌍")
+
+                    # Compact summary line
+                    summary_lines.append(
+                        f"**Lap {k}** → {emoji} **{top_terrain}‑heavy** (~{top_prob*100:.0f}%)"
+                    )
+
+                    # Full detail
+                    top_str = ", ".join([
+                        f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
+                        for t, p in sorted_probs[:3]
+                    ])
+
+                    st.markdown(
+                        f"**{label} (hidden):** expected length ≈ {expected_len:.1f}%, "
+                        f"top terrains → {top_str}"
+                    )
+
+                # Show compact summary
+                st.markdown("### 🧭 Summary")
+                for line in summary_lines:
+                    st.markdown(f"- {line}")
+
+        else:
+            st.write("Not enough history to estimate hidden laps.")
+
+        # -----------------------------------------------------
         # Probabilities
+        # -----------------------------------------------------
         st.markdown("#### 📊 Win Probabilities")
         for v in res['ctx']['v']:
             p_val = probs[v]
@@ -1341,40 +1405,6 @@ with Q2:
                 "Winner": predicted_winner,
                 "Probabilities": probs
             })
-        # -----------------------------------------------------
-        # 🤫 AI Guess for Hidden Laps (NEW PANEL)
-        # -----------------------------------------------------
-        with st.expander("🤫 AI guess for hidden laps"):
-            lg = res.get("hidden_guess")
-
-            if lg:
-                for k in (1, 2, 3):
-                    label = f"Lap {k}"
-
-                    # If this is the revealed lap, show it directly
-                    if k == res["ctx"]["idx"] + 1:
-                        st.markdown(f"**{label} (revealed):** {res['ctx']['t']}")
-                        continue
-
-                    info = lg[k]
-                    probs = info["track_probs"]
-                    expected_len = info["expected_len"]
-
-                    # Sort terrains by probability
-                    sorted_probs = sorted(
-                        probs.items(), key=lambda x: x[1], reverse=True
-                    )
-                    top_str = ", ".join(
-                        [f"{t}: {p*100:.1f}%" for t, p in sorted_probs[:3]]
-                    )
-
-                    st.markdown(
-                        f"**{label} (hidden):** "
-                        f"expected length ≈ {expected_len:.1f}%, "
-                        f"top terrains → {top_str}"
-                    )
-            else:
-                st.write("Not enough history to estimate hidden laps.")
 # ---------------------------------------------------------
 # Q3 — SAVE RACE REPORT (BOTTOM-LEFT, CLEAN & WIDGET-SAFE)
 # ---------------------------------------------------------
