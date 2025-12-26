@@ -860,16 +860,20 @@ def build_single_feature_row(v1, v2, v3, k_idx, k_type):
 def compute_basic_metrics(history: pd.DataFrame):
     if history.empty:
         return None
+
+    # history is already normalized → use lowercase column names
     df = history.dropna(subset=['actual_winner', 'predicted_winner'])
     if df.empty:
         return None
-    acc = (df['Actual_Winner'] == df['Predicted_Winner']).mean()
 
-    if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
-        cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
+    acc = (df['actual_winner'] == df['predicted_winner']).mean()
+
+    # All of these are also normalized: top_prob, was_correct
+    if 'top_prob' in df.columns and 'was_correct' in df.columns:
+        cal_df = df.dropna(subset=['top_prob', 'was_correct'])
         if not cal_df.empty:
-            mean_top_prob = cal_df['Top_Prob'].mean()
-            mean_acc = cal_df['Was_Correct'].mean()
+            mean_top_prob = cal_df['top_prob'].mean()
+            mean_acc = cal_df['was_correct'].mean()
             calib_error = abs(mean_top_prob - mean_acc)
         else:
             mean_top_prob = np.nan
@@ -878,21 +882,21 @@ def compute_basic_metrics(history: pd.DataFrame):
         mean_top_prob = np.nan
         calib_error = np.nan
 
-    if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
-        cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
+    if 'top_prob' in df.columns and 'was_correct' in df.columns:
+        cal_df = df.dropna(subset=['top_prob', 'was_correct'])
         if not cal_df.empty:
-            brier = ((cal_df['Top_Prob'] - cal_df['Was_Correct'])**2).mean()
+            brier = ((cal_df['top_prob'] - cal_df['was_correct'])**2).mean()
         else:
             brier = np.nan
     else:
         brier = np.nan
 
-    if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
-        cal_df = df.dropna(subset=['Top_Prob', 'Was_Correct'])
+    if 'top_prob' in df.columns and 'was_correct' in df.columns:
+        cal_df = df.dropna(subset=['top_prob', 'was_correct'])
         if not cal_df.empty:
             eps = 1e-8
-            p = np.clip(cal_df['Top_Prob'], eps, 1 - eps)
-            y = cal_df['Was_Correct']
+            p = np.clip(cal_df['top_prob'], eps, 1 - eps)
+            y = cal_df['was_correct']
             log_loss = -(y * np.log(p) + (1 - y) * np.log(1 - p)).mean()
         else:
             log_loss = np.nan
@@ -904,13 +908,14 @@ def compute_basic_metrics(history: pd.DataFrame):
         'mean_top_prob': mean_top_prob,
         'calib_error': calib_error,
         'brier': brier,
-        'log_loss': log_loss
+        'log_loss': log_loss,
     }
 
 
 def compute_model_skill(history: pd.DataFrame, window: int = 100):
-    cols = ['Sim_Top_Prob', 'Sim_Was_Correct',
-            'ML_Top_Prob', 'ML_Was_Correct']
+    # normalized diagnostic columns
+    cols = ['sim_top_prob', 'sim_was_correct',
+            'ml_top_prob', 'ml_was_correct']
     if not all(c in history.columns for c in cols):
         return None
 
@@ -918,33 +923,35 @@ def compute_model_skill(history: pd.DataFrame, window: int = 100):
     if df.empty:
         return None
 
-    sim_brier = ((df['Sim_Top_Prob'] - df['Sim_Was_Correct'])**2).mean()
-    ml_brier = ((df['ML_Top_Prob'] - df['ML_Was_Correct'])**2).mean()
+    sim_brier = ((df['sim_top_prob'] - df['sim_was_correct'])**2).mean()
+    ml_brier = ((df['ml_top_prob'] - df['ml_was_correct'])**2).mean()
 
     return {
         "sim_brier": float(sim_brier),
         "ml_brier": float(ml_brier),
-        "n": int(len(df))
+        "n": int(len(df)),
     }
 
 
 def compute_learning_curve(history: pd.DataFrame, window: int = 30):
     if history.empty:
         return None
-    df = history.dropna(subset=['Actual_Winner', 'Predicted_Winner']).copy()
+
+    df = history.dropna(subset=['actual_winner', 'predicted_winner']).copy()
     if df.empty:
         return None
-    df = df.reset_index(drop=True)
-    df['Correct'] = (df['Actual_Winner'] == df['Predicted_Winner']).astype(float)
 
-    if 'Top_Prob' in df.columns and 'Was_Correct' in df.columns:
-        df2 = df.dropna(subset=['Top_Prob', 'Was_Correct']).copy()
+    df = df.reset_index(drop=True)
+    df['Correct'] = (df['actual_winner'] == df['predicted_winner']).astype(float)
+
+    if 'top_prob' in df.columns and 'was_correct' in df.columns:
+        df2 = df.dropna(subset=['top_prob', 'was_correct']).copy()
         if df2.empty:
             df['Acc_Roll'] = df['Correct'].rolling(window).mean()
             df['Brier_Roll'] = np.nan
             return df
-        df2['Brier'] = (df2['Top_Prob'] - df2['Was_Correct'])**2
-        df2['Acc_Roll'] = df2['Was_Correct'].rolling(window).mean()
+        df2['Brier'] = (df2['top_prob'] - df2['was_correct'])**2
+        df2['Acc_Roll'] = df2['was_correct'].rolling(window).mean()
         df2['Brier_Roll'] = df2['Brier'].rolling(window).mean()
         return df2
     else:
@@ -956,8 +963,8 @@ def compute_learning_curve(history: pd.DataFrame, window: int = 30):
 def compute_learned_geometry(df: pd.DataFrame):
     results = []
     for lap in [1, 2, 3]:
-        t_col = f"Lap_{lap}_Track"
-        l_col = f"Lap_{lap}_Len"
+        t_col = f"lap_{lap}_track"
+        l_col = f"lap_{lap}_len"
         if t_col not in df.columns or l_col not in df.columns:
             continue
         tmp = df[[t_col, l_col]].dropna()
@@ -979,8 +986,8 @@ def compute_transition_matrices(history: pd.DataFrame):
         for j in range(1, 4):
             if i == j:
                 continue
-            c1 = f"Lap_{i}_Track"
-            c2 = f"Lap_{j}_Track"
+            c1 = f"lap_{i}_track"
+            c2 = f"lap_{j}_track"
             if c1 in history.columns and c2 in history.columns:
                 valid = history[[c1, c2]].dropna()
                 if valid.empty:
@@ -996,11 +1003,14 @@ def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
     n = len(history)
     if n < 40:
         return None
+
     split = int(n * split_ratio)
     early = history.iloc[:split]
     late = history.iloc[split:]
+
     geom_early = compute_learned_geometry(early)
     geom_late = compute_learned_geometry(late)
+
     out = {'geometry': None, 'notes': ""}
 
     if geom_early is not None and geom_late is not None:
@@ -1008,7 +1018,7 @@ def compute_drift(history: pd.DataFrame, split_ratio: float = 0.5):
             geom_early,
             geom_late,
             on=['Lap', 'Track'],
-            suffixes=('_early', '_late')
+            suffixes=('_early', '_late'),
         )
         if not merged.empty:
             merged['mean_diff'] = merged['mean_late'] - merged['mean_early']
@@ -1037,19 +1047,19 @@ def get_physics_bias(history_df: pd.DataFrame):
     if history_df.empty or len(history_df) < 20:
         return {}
 
+    # normalized names: actual_winner, sim_was_correct
     df = history_df.dropna(subset=['actual_winner', 'sim_was_correct'])
     if df.empty:
         return {}
 
-    bias = df.groupby('Actual_Winner')['Sim_Was_Correct'].mean().to_dict()
+    # groupby normalized column names
+    bias = df.groupby('actual_winner')['sim_was_correct'].mean().to_dict()
 
     corrected = {}
     for veh, score in bias.items():
         corrected[veh] = float(np.clip(1.0 + (score - 0.55) * 0.10, 0.97, 1.03))
 
     return corrected
-
-
 # ---------------------------------------------------------
 # 7. CORE SIMULATION ENGINE
 # ---------------------------------------------------------
