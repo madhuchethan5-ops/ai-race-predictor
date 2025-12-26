@@ -500,58 +500,72 @@ def auto_clean_history(df: pd.DataFrame):
     return df, issues
 
 # ---------------------------------------------------------
-# HISTORY LOAD / SAVE
+# SQLITE HISTORY SYSTEM (REPLACES CSV)
 # ---------------------------------------------------------
 
+DB_PATH = Path("race_history.db")
+
+def get_connection():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS races (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            vehicle_1 TEXT,
+            vehicle_2 TEXT,
+            vehicle_3 TEXT,
+            actual_winner TEXT,
+            lap_1_track TEXT,
+            lap_2_track TEXT,
+            lap_3_track TEXT,
+            lap_1_len REAL,
+            lap_2_len REAL,
+            lap_3_len REAL,
+            lane TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# Create DB automatically on startup
+init_db()
+
+
+def save_race_to_db(row: dict):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO races (
+            timestamp, vehicle_1, vehicle_2, vehicle_3,
+            actual_winner,
+            lap_1_track, lap_2_track, lap_3_track,
+            lap_1_len, lap_2_len, lap_3_len,
+            lane
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        row["Timestamp"],
+        row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"],
+        row["Actual_Winner"],
+        row["Lap_1_Track"], row["Lap_2_Track"], row["Lap_3_Track"],
+        row["Lap_1_Len"], row["Lap_2_Len"], row["Lap_3_Len"],
+        row["Lane"]
+    ))
+    conn.commit()
+    conn.close()
+
+
 def load_history():
-    if os.path.exists(HISTORY_FILE):
-        try:
-            df = pd.read_csv(HISTORY_FILE, encoding="utf-8", engine="python")
-            df.columns = [c.replace("\ufeff", "") for c in df.columns]
-            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-        except Exception:
-            df = pd.DataFrame()
-    else:
-        df = pd.DataFrame()
-
-    required_cols = [
-        'Vehicle_1','Vehicle_2','Vehicle_3',
-        'Lap_1_Track','Lap_1_Len',
-        'Lap_2_Track','Lap_2_Len',
-        'Lap_3_Track','Lap_3_Len',
-        'Actual_Winner','Predicted_Winner',
-        'Lane','Top_Prob','Was_Correct',
-        'Sim_Predicted_Winner','ML_Predicted_Winner',
-        'Sim_Top_Prob','ML_Top_Prob',
-        'Sim_Was_Correct','ML_Was_Correct',
-        'Timestamp'
-    ]
-    for c in required_cols:
-        if c not in df.columns:
-            df[c] = np.nan
-
-    df = df.replace("None", np.nan)
-    df, issues = auto_clean_history(df)
-    st.session_state["data_quality_issues"] = issues
-
-    numeric_cols = [
-        "Top_Prob", "Was_Correct",
-        "Sim_Top_Prob","ML_Top_Prob",
-        "Sim_Was_Correct","ML_Was_Correct"
-    ]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM races ORDER BY id ASC", conn)
+    conn.close()
     return df
 
-def save_history(df: pd.DataFrame):
-    df.to_csv(HISTORY_FILE, index=False)
 
-def add_race_result(history_df: pd.DataFrame, row_dict: dict):
-    history_df.loc[len(history_df)] = row_dict
-    return history_df
-
+# Load history at startup
 history = load_history()
 
 # ---------------------------------------------------------
@@ -2295,3 +2309,33 @@ if history is not None and not history.empty:
                 st.json(probs_rough)
 
             st.caption("Ghost scenarios approximate how outcomes shift if underlying laps skew high-speed vs rough.")
+
+def extend_schema():
+    conn = get_connection()
+    commands = [
+        "ALTER TABLE races ADD COLUMN predicted_winner TEXT;",
+        "ALTER TABLE races ADD COLUMN top_prob REAL;",
+        "ALTER TABLE races ADD COLUMN was_correct REAL;",
+        "ALTER TABLE races ADD COLUMN surprise_index REAL;",
+        "ALTER TABLE races ADD COLUMN sim_predicted_winner TEXT;",
+        "ALTER TABLE races ADD COLUMN ml_predicted_winner TEXT;",
+        "ALTER TABLE races ADD COLUMN sim_top_prob REAL;",
+        "ALTER TABLE races ADD COLUMN ml_top_prob REAL;",
+        "ALTER TABLE races ADD COLUMN sim_was_correct REAL;",
+        "ALTER TABLE races ADD COLUMN ml_was_correct REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_track_error_l1 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_track_error_l2 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_track_error_l3 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_len_error_l1 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_len_error_l2 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_len_error_l3 REAL;",
+    ]
+    for cmd in commands:
+        try:
+            conn.execute(cmd)
+        except:
+            pass
+    conn.commit()
+    conn.close()
+
+extend_schema()
