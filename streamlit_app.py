@@ -1866,6 +1866,7 @@ with Q3:
         revealed_lap = ctx['idx']      # 0,1,2
         revealed_track = ctx['t']      # terrain used in prediction
         revealed_slot = ctx['slot']
+        predicted_tracks = ctx['tracks']  # <-- ALL THREE TRACKS
 
         st.caption(
             f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
@@ -1879,6 +1880,7 @@ with Q3:
             return options.index(value)
         except Exception:
             return 0
+
     # -----------------------------
     # FORM BLOCK (ALWAYS RENDERED)
     # -----------------------------
@@ -1901,19 +1903,12 @@ with Q3:
             # LAP 1
             # -----------------------------
             with c1:
-                if prediction_available and revealed_lap == 0:
-                    s1t = st.selectbox(
-                        "Lap 1 Track",
-                        TRACK_OPTIONS,
-                        index=safe_index(revealed_track, TRACK_OPTIONS),
-                        disabled=True,
-                    )
-                else:
-                    s1t = st.selectbox(
-                        "Lap 1 Track",
-                        TRACK_OPTIONS,
-                        disabled=disabled_form,
-                    )
+                s1t = st.selectbox(
+                    "Lap 1 Track",
+                    TRACK_OPTIONS,
+                    index=safe_index(predicted_tracks[0], TRACK_OPTIONS) if prediction_available else 0,
+                    disabled=disabled_form
+                )
                 s1l = st.number_input(
                     "Lap 1 %",
                     1, 100, 33,
@@ -1924,19 +1919,12 @@ with Q3:
             # LAP 2
             # -----------------------------
             with c2:
-                if prediction_available and revealed_lap == 1:
-                    s2t = st.selectbox(
-                        "Lap 2 Track",
-                        TRACK_OPTIONS,
-                        index=safe_index(revealed_track, TRACK_OPTIONS),
-                        disabled=True,
-                    )
-                else:
-                    s2t = st.selectbox(
-                        "Lap 2 Track",
-                        TRACK_OPTIONS,
-                        disabled=disabled_form,
-                    )
+                s2t = st.selectbox(
+                    "Lap 2 Track",
+                    TRACK_OPTIONS,
+                    index=safe_index(predicted_tracks[1], TRACK_OPTIONS) if prediction_available else 0,
+                    disabled=disabled_form
+                )
                 s2l = st.number_input(
                     "Lap 2 %",
                     1, 100, 33,
@@ -1947,19 +1935,12 @@ with Q3:
             # LAP 3
             # -----------------------------
             with c3:
-                if prediction_available and revealed_lap == 2:
-                    s3t = st.selectbox(
-                        "Lap 3 Track",
-                        TRACK_OPTIONS,
-                        index=safe_index(revealed_track, TRACK_OPTIONS),
-                        disabled=True,
-                    )
-                else:
-                    s3t = st.selectbox(
-                        "Lap 3 Track",
-                        TRACK_OPTIONS,
-                        disabled=disabled_form,
-                    )
+                s3t = st.selectbox(
+                    "Lap 3 Track",
+                    TRACK_OPTIONS,
+                    index=safe_index(predicted_tracks[2], TRACK_OPTIONS) if prediction_available else 0,
+                    disabled=disabled_form
+                )
                 s3l = st.number_input(
                     "Lap 3 %",
                     1, 100, 34,
@@ -2011,19 +1992,16 @@ with Q3:
                     probs = lg[k]["track_probs"]
                     track_err[k] = 1.0 - probs.get(actual_tracks[k], 0.0)
 
-                    # SAFE conversion of expected_len
                     try:
                         exp_len = float(lg[k]["expected_len"])
                     except Exception:
                         exp_len = None
 
-                    # SAFE conversion of actual length
                     try:
                         act_len = float(actual_lens[k])
                     except Exception:
                         act_len = None
 
-                    # If either is missing, mark error as None
                     if exp_len is None or act_len is None:
                         len_err[k] = None
                     else:
@@ -2058,7 +2036,7 @@ with Q3:
                 'vehicle_2': ctx['v'][1],
                 'vehicle_3': ctx['v'][2],
 
-                # Laps (snake_case)
+                # Laps
                 'lap_1_track': s1t,
                 'lap_1_len': s1l,
                 'lap_2_track': s2t,
@@ -2092,8 +2070,9 @@ with Q3:
                 'hidden_len_error_l2': len_err[2],
                 'hidden_len_error_l3': len_err[3],
 
-                # Timestamp
+                # Timestamps
                 'timestamp': datetime.now().isoformat(timespec="seconds"),
+                'last_updated': datetime.utcnow().isoformat(timespec="seconds"),
             }
 
             # 🔵 save directly to SQLite
