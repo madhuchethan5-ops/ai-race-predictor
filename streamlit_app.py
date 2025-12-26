@@ -12,6 +12,8 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from collections import Counter, defaultdict
 
+DB_PATH = ".streamlit/race_history.db"
+
 st.write("DB exists:", os.path.exists("race_history.db"))
 # ---------------------------------------------------------
 # SQLITE DATABASE (REPLACES CSV SYSTEM)
@@ -600,11 +602,13 @@ def auto_clean_history(df: pd.DataFrame):
             )
 
     return df, issues
+
 # ---------------------------------------------------------
 # SQLITE HISTORY SYSTEM (REPLACES CSV)
 # ---------------------------------------------------------
 
-DB_PATH = Path("race_history.db")
+# Persistent DB location
+DB_PATH = Path(".streamlit/race_history.db")
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -635,7 +639,6 @@ def init_db():
 
 # Create DB automatically on startup
 init_db()
-
 
 def save_race_to_db(row: dict):
     """
@@ -2580,7 +2583,7 @@ st.subheader("🛠️ Admin Utilities")
 with st.expander("⚙️ Reset Database Schema"):
     if st.button("🧨 Drop and recreate 'races' table"):
         try:
-            conn = sqlite3.connect("race_history.db")
+            conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             cur.execute("DROP TABLE IF EXISTS races")
             conn.commit()
@@ -2595,7 +2598,7 @@ with st.expander("⚙️ Reset Database Schema"):
 with st.expander("🗑️ Delete SQLite DB File"):
     if st.button("🧨 Force delete race_history.db"):
         try:
-            os.remove("race_history.db")
+            os.remove(DB_PATH)
             st.success("DB file deleted. Reload the app to recreate a fresh one.")
         except FileNotFoundError:
             st.info("DB file not found — nothing to delete.")
