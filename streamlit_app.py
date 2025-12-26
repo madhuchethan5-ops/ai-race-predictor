@@ -73,7 +73,103 @@ def clickable_tile(label, img_path, selected=False, disabled=False, key="tile"):
     """
 
     return tile_html
+# =========================================================
+# HIDDEN LAP STATS + ESTIMATOR
+# =========================================================
+from collections import Counter, defaultdict
+import numpy as np
 
+def build_hidden_lap_stats(history: pd.DataFrame):
+    stats = {
+        "global": {1: Counter(), 2: Counter(), 3: Counter()},
+        "conditional": defaultdict(lambda: {1: Counter(), 2: Counter(), 3: Counter()}),
+        "length": {1: [], 2: [], 3: []},
+    }
+
+    if history is None or history.empty:
+        return stats
+
+    lane_to_idx = {"Lap 1": 1, "Lap 2": 2, "Lap 3": 3}
+
+    for _, row in history.iterrows():
+        winner = row.get("Actual_Winner")
+        if pd.isna(winner):
+            continue
+
+        lap_tracks = {
+            1: row.get("Lap_1_Track"),
+            2: row.get("Lap_2_Track"),
+            3: row.get("Lap_3_Track"),
+        }
+        lap_lens = {
+            1: row.get("Lap_1_Len"),
+            2: row.get("Lap_2_Len"),
+            3: row.get("Lap_3_Len"),
+        }
+
+        # global stats
+        for k in (1, 2, 3):
+            t = lap_tracks[k]
+            L = lap_lens[k]
+            if pd.isna(t) or pd.isna(L):
+                continue
+            stats["global"][k][t] += 1
+            stats["length"][k].append(L)
+
+        # conditional stats
+        revealed_idx = lane_to_idx.get(row.get("Lane"))
+        if revealed_idx in (1, 2, 3):
+            revealed_track = lap_tracks[revealed_idx]
+            key = (winner, revealed_idx, revealed_track)
+            for k in (1, 2, 3):
+                t = lap_tracks[k]
+                if pd.isna(t):
+                    continue
+                stats["conditional"][key][k][t] += 1
+
+    # convert lengths to means
+    for k in (1, 2, 3):
+        if stats["length"][k]:
+            stats["length"][k] = float(np.mean(stats["length"][k]))
+        else:
+            stats["length"][k] = 33.3 if k != 3 else 34.0
+
+    return stats
+
+
+def estimate_hidden_laps(ctx, stats, track_options):
+    lap_guess = {}
+    revealed_idx = ctx["idx"] + 1
+    revealed_track = ctx["t"]
+
+    matching_keys = [
+        k for k in stats["conditional"].keys()
+        if k[1] == revealed_idx and k[2] == revealed_track
+    ]
+
+    for k in (1, 2, 3):
+        track_counts = Counter()
+
+        for key in matching_keys:
+            track_counts.update(stats["conditional"][key][k])
+
+        if not track_counts:
+            track_counts = stats["global"][k].copy()
+
+        if not track_counts:
+            probs = {t: 1.0 / len(track_options) for t in track_options}
+        else:
+            total = sum(track_counts.values())
+            probs = {t: track_counts.get(t, 0) / total for t in track_options}
+
+        expected_len = stats["length"][k]
+
+        lap_guess[k] = {
+            "track_probs": probs,
+            "expected_len": expected_len,
+        }
+
+    return lap_guess
 # ---------------------------------------------------------
 # CONFIDENCE BAR
 # ---------------------------------------------------------
@@ -910,20 +1006,20 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     # --- Winner & meta calculations ---
     predicted_winner = max(final_probs, key=final_probs.get)
     p1 = final_probs[predicted_winner]
-
+    
     expected_regret = p1 / 100.0
-
+    
     sorted_probs = sorted(final_probs.items(), key=lambda kv: kv[1], reverse=True)
     (top_vehicle, p1_sorted), (_, p2) = sorted_probs[0], sorted_probs[1]
     vol_gap = round(p1_sorted - p2, 2)
-
+    
     if vol_gap < 5:
         vol_label = "Chaos"
     elif vol_gap < 12:
         vol_label = "Shaky"
     else:
         vol_label = "Calm"
-
+    
     if p1 < 40:
         bet_safety = "AVOID"
     elif vol_gap < 5:
@@ -934,6 +1030,45 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         bet_safety = "FAVORABLE"
     else:
         bet_safety = "CAUTION"
+    
+    # ---------------------------------------------------------
+    # NEW: Hidden Lap Estimation (INSERT HERE)
+    # ---------------------------------------------------------
+    hidden_stats = build_hidden_lap_stats(history)
+    lap_guess = estimate_hidden_laps(
+        {
+            "v": [v1_sel, v2_sel, v3_sel],
+            "idx": k_idx,
+            "t": k_type,
+            "slot": f"Lap {k_idx + 1}",
+        },
+        hidden_stats,
+        TRACK_OPTIONS
+    )
+    
+    # --- Store in session_state ---
+    st.session_state['res'] = {
+        'p': final_probs,
+        'vpi': vpi_res,
+        'ctx': {
+            'v': [v1_sel, v2_sel, v3_sel],
+            'idx': k_idx,
+            't': k_type,
+            'slot': f"Lap {k_idx + 1}",
+        },
+        'p_sim': sim_probs,
+        'p_ml': p_ml_store,
+        'meta': {
+            'top_vehicle': top_vehicle,
+            'top_prob': p1,
+            'second_prob': p2,
+            'volatility_gap_pp': vol_gap,
+            'volatility_label': vol_label,
+            'bet_safety': bet_safety,
+            'expected_regret': expected_regret,
+        },
+        'hidden_guess': lap_guess,   # <-- NEW FIELD
+    }
 
     # --- Store in session_state ---
     st.session_state['res'] = {
@@ -1227,6 +1362,40 @@ with Q2:
                 "Winner": predicted_winner,
                 "Probabilities": probs
             })
+        # -----------------------------------------------------
+        # 🤫 AI Guess for Hidden Laps (NEW PANEL)
+        # -----------------------------------------------------
+        with st.expander("🤫 AI guess for hidden laps"):
+            lg = res.get("hidden_guess")
+
+            if lg:
+                for k in (1, 2, 3):
+                    label = f"Lap {k}"
+
+                    # If this is the revealed lap, show it directly
+                    if k == res["ctx"]["idx"] + 1:
+                        st.markdown(f"**{label} (revealed):** {res['ctx']['t']}")
+                        continue
+
+                    info = lg[k]
+                    probs = info["track_probs"]
+                    expected_len = info["expected_len"]
+
+                    # Sort terrains by probability
+                    sorted_probs = sorted(
+                        probs.items(), key=lambda x: x[1], reverse=True
+                    )
+                    top_str = ", ".join(
+                        [f"{t}: {p*100:.1f}%" for t, p in sorted_probs[:3]]
+                    )
+
+                    st.markdown(
+                        f"**{label} (hidden):** "
+                        f"expected length ≈ {expected_len:.1f}%, "
+                        f"top terrains → {top_str}"
+                    )
+            else:
+                st.write("Not enough history to estimate hidden laps.")
 # ---------------------------------------------------------
 # Q3 — SAVE RACE REPORT (BOTTOM-LEFT, CLEAN & WIDGET-SAFE)
 # ---------------------------------------------------------
@@ -1376,6 +1545,36 @@ with Q3:
                 st.stop()
 
             st.session_state['last_train_probs'] = dict(predicted)
+            # ---------------------------------------------------------
+            # NEW: Hidden-lap guess error (AI learning from mistakes)
+            # ---------------------------------------------------------
+            def compute_hidden_guess_error(res, s1t, s2t, s3t, s1l, s2l, s3l):
+                lg = res.get("hidden_guess")
+                if not lg:
+                    return None
+
+                actual_tracks = {1: s1t, 2: s2t, 3: s3t}
+                actual_lens = {1: s1l, 2: s2l, 3: s3l}
+
+                track_err = {}
+                len_err = {}
+
+                for k in (1, 2, 3):
+                    probs = lg[k]["track_probs"]
+                    track_err[k] = 1.0 - probs.get(actual_tracks[k], 0.0)
+                    len_err[k] = abs(lg[k]["expected_len"] - actual_lens[k])
+
+                return track_err, len_err
+
+            guess_errors = compute_hidden_guess_error(
+                res, s1t, s2t, s3t, s1l, s2l, s3l
+            )
+
+            if guess_errors:
+                track_err, len_err = guess_errors
+            else:
+                track_err = {1: None, 2: None, 3: None}
+                len_err = {1: None, 2: None, 3: None}
 
             sim_pred_winner = max(p_sim, key=p_sim.get) if isinstance(p_sim, dict) else None
             ml_pred_winner = max(p_ml, key=p_ml.get) if isinstance(p_ml, dict) else None
@@ -1407,6 +1606,12 @@ with Q3:
                 'ML_Top_Prob': ml_top_prob,
                 'Sim_Was_Correct': sim_correct,
                 'ML_Was_Correct': ml_correct,
+                'Hidden_Track_Error_L1': track_err[1],
+                'Hidden_Track_Error_L2': track_err[2],
+                'Hidden_Track_Error_L3': track_err[3],
+                'Hidden_Len_Error_L1': len_err[1],
+                'Hidden_Len_Error_L2': len_err[2],
+                'Hidden_Len_Error_L3': len_err[3],
                 'Timestamp': pd.Timestamp.now()
             }
 
