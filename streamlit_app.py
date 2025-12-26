@@ -603,8 +603,6 @@ def load_history():
 
 
 # Load history at startup
-history = load_history()
-history = normalize_history_columns(history)
 def normalize_history_columns(df):
     rename_map = {
         # ML-required columns
@@ -646,7 +644,8 @@ def normalize_history_columns(df):
 
     df = df.rename(columns=rename_map)
     return df
-
+history = load_history()
+history = normalize_history_columns(history)
 
 # ---------------------------------------------------------
 # 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
