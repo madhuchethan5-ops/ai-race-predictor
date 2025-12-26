@@ -997,7 +997,7 @@ def get_physics_bias(history_df: pd.DataFrame):
     if history_df.empty or len(history_df) < 20:
         return {}
 
-    df = history_df.dropna(subset=['Actual_Winner', 'Sim_Was_Correct'])
+    df = history_df.dropna(subset=['actual_winner', 'sim_was_correct'])
     if df.empty:
         return {}
 
