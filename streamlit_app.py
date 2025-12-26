@@ -149,6 +149,7 @@ with st.expander("⚙️ Admin Tools"):
             st.info("DB file not found — nothing to delete.")
         except Exception as e:
             st.error(f"Could not delete DB: {e}")
+
 # ---------------------------------------------------------
 # ADMIN: IMPORT LEGACY CSV INTO SQLITE
 # ---------------------------------------------------------
