@@ -5,12 +5,12 @@ import streamlit as st
 import sqlite3
 from pathlib import Path
 from datetime import datetime
-import pandas as pd
 from streamlit_extras.grid import grid
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
+from collections import Counter, defaultdict
 
 # ---------------------------------------------------------
 # SQLITE DATABASE (REPLACES CSV SYSTEM)
@@ -50,6 +50,15 @@ init_db()
 
 
 def save_race_to_db(row: dict):
+    """
+    Save a race row to SQLite.
+
+    Accepts both legacy TitleCase keys (CSV) and new snake_case keys (current app),
+    by normalizing keys to lowercase internally.
+    """
+    # Normalize keys to lowercase for safety
+    row_l = {k.lower(): v for k, v in row.items()}
+
     conn = get_connection()
     conn.execute("""
         INSERT INTO races (
@@ -60,12 +69,12 @@ def save_race_to_db(row: dict):
             lane
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        row["Timestamp"],
-        row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"],
-        row["Actual_Winner"],
-        row["Lap_1_Track"], row["Lap_2_Track"], row["Lap_3_Track"],
-        row["Lap_1_Len"], row["Lap_2_Len"], row["Lap_3_Len"],
-        row["Lane"]
+        row_l.get("timestamp"),
+        row_l.get("vehicle_1"), row_l.get("vehicle_2"), row_l.get("vehicle_3"),
+        row_l.get("actual_winner"),
+        row_l.get("lap_1_track"), row_l.get("lap_2_track"), row_l.get("lap_3_track"),
+        row_l.get("lap_1_len"), row_l.get("lap_2_len"), row_l.get("lap_3_len"),
+        row_l.get("lane"),
     ))
     conn.commit()
     conn.close()
@@ -76,6 +85,7 @@ def load_history():
     df = pd.read_sql_query("SELECT * FROM races ORDER BY id ASC", conn)
     conn.close()
     return df
+
 # ---------------------------------------------------------
 # ONE-TIME SCHEMA EXTENSION (RUN MANUALLY)
 # ---------------------------------------------------------
@@ -103,7 +113,8 @@ def extend_schema():
     for cmd in commands:
         try:
             conn.execute(cmd)
-        except:
+        except Exception:
+            # Column already exists or other non-fatal error
             pass
     conn.commit()
     conn.close()
@@ -179,13 +190,21 @@ def clickable_tile(label, img_path, selected=False, disabled=False, key="tile"):
     """
 
     return tile_html
+
 # =========================================================
 # HIDDEN LAP STATS + ESTIMATOR
 # =========================================================
-from collections import Counter, defaultdict
-import numpy as np
 
 def build_hidden_lap_stats(history: pd.DataFrame):
+    """
+    Build stats for hidden lap estimation.
+
+    Assumes history columns are already normalized to snake_case:
+    - actual_winner
+    - lap_1_track, lap_2_track, lap_3_track
+    - lap_1_len, lap_2_len, lap_3_len
+    - lane
+    """
     stats = {
         "global": {1: Counter(), 2: Counter(), 3: Counter()},
         "conditional": defaultdict(lambda: {1: Counter(), 2: Counter(), 3: Counter()}),
@@ -198,19 +217,19 @@ def build_hidden_lap_stats(history: pd.DataFrame):
     lane_to_idx = {"Lap 1": 1, "Lap 2": 2, "Lap 3": 3}
 
     for _, row in history.iterrows():
-        winner = row.get("Actual_Winner")
+        winner = row.get("actual_winner")
         if pd.isna(winner):
             continue
 
         lap_tracks = {
-            1: row.get("Lap_1_Track"),
-            2: row.get("Lap_2_Track"),
-            3: row.get("Lap_3_Track"),
+            1: row.get("lap_1_track"),
+            2: row.get("lap_2_track"),
+            3: row.get("lap_3_track"),
         }
         lap_lens = {
-            1: row.get("Lap_1_Len"),
-            2: row.get("Lap_2_Len"),
-            3: row.get("Lap_3_Len"),
+            1: row.get("lap_1_len"),
+            2: row.get("lap_2_len"),
+            3: row.get("lap_3_len"),
         }
 
         # global stats
@@ -223,7 +242,7 @@ def build_hidden_lap_stats(history: pd.DataFrame):
             stats["length"][k].append(L)
 
         # conditional stats
-        revealed_idx = lane_to_idx.get(row.get("Lane"))
+        revealed_idx = lane_to_idx.get(row.get("lane"))
         if revealed_idx in (1, 2, 3):
             revealed_track = lap_tracks[revealed_idx]
             key = (winner, revealed_idx, revealed_track)
@@ -289,7 +308,10 @@ def estimate_hidden_laps(ctx, stats, track_options, alpha: float = 0.7):
             for t in track_options
         }
 
-        # 5) Renormalize to be safe
+        # NOTE: rest of estimate_hidden_laps (expected_len etc.) should follow below
+        # in your original code; keep or paste it as-is after this point.
+    
+# 5) Renormalize to be safe
         s = sum(probs.values())
         if s > 0:
             probs = {t: p / s for t, p in probs.items()}
@@ -304,6 +326,7 @@ def estimate_hidden_laps(ctx, stats, track_options, alpha: float = 0.7):
         }
 
     return lap_guess
+
 # =========================================================
 # TERRAIN–VEHICLE INTERACTION MATRIX
 # =========================================================
@@ -313,28 +336,32 @@ def build_tv_matrix(history: pd.DataFrame):
     Build a simple terrain–vehicle win-rate matrix from history.
     Returns:
         tv_matrix[(vehicle, terrain)] = win_rate (0–1) based on past races.
+
+    Assumes history columns are already normalized to snake_case:
+    - vehicle_1, vehicle_2, vehicle_3
+    - lap_1_track, lap_2_track, lap_3_track
+    - actual_winner
     """
     tv_counts = {}   # (vehicle, terrain) -> {"wins": x, "total": y}
 
     if history is None or history.empty:
         return {}
 
-    # We assume history has: Vehicle_1/2/3, Lap_1_Track/2/3, Actual_Winner
     for _, row in history.iterrows():
-        actual_winner = row.get("Actual_Winner")
+        actual_winner = row.get("actual_winner")
         if pd.isna(actual_winner):
             continue
 
         vehicles = [
-            row.get("Vehicle_1"),
-            row.get("Vehicle_2"),
-            row.get("Vehicle_3"),
+            row.get("vehicle_1"),
+            row.get("vehicle_2"),
+            row.get("vehicle_3"),
         ]
 
         lap_tracks = [
-            row.get("Lap_1_Track"),
-            row.get("Lap_2_Track"),
-            row.get("Lap_3_Track"),
+            row.get("lap_1_track"),
+            row.get("lap_2_track"),
+            row.get("lap_3_track"),
         ]
 
         # For each vehicle and each terrain in this race, update stats
@@ -356,9 +383,9 @@ def build_tv_matrix(history: pd.DataFrame):
 
     # Convert to win rates
     tv_matrix = {}
-    for key, stats in tv_counts.items():
-        wins = stats["wins"]
-        total = max(stats["total"], 1)
+    for key, stats_v in tv_counts.items():
+        wins = stats_v["wins"]
+        total = max(stats_v["total"], 1)
         tv_matrix[key] = wins / total
 
     return tv_matrix
@@ -398,12 +425,15 @@ def apply_tv_adjustment(final_probs: dict, ctx: dict, tv_matrix: dict, k_type: s
     # 4) Renormalize to keep total probability consistent
     total_adj = sum(adjusted.values())
     if total_adj > 0:
-        adjusted = {v: (adjusted[v] / total_adj) * sum(final_probs.values())
-                    for v in vehicles}
+        adjusted = {
+            v: (adjusted[v] / total_adj) * sum(final_probs.values())
+            for v in vehicles
+        }
     else:
         adjusted = final_probs.copy()
 
     return adjusted, strengths
+
 # =========================================================
 # SURPRISE INDEX — How unexpected was the outcome?
 # =========================================================
@@ -413,9 +443,14 @@ def compute_surprise_index(row: dict) -> float:
     Returns a surprise score for a race:
     - High if winner had low predicted probability
     - Low if winner was expected
+
+    Expects:
+        row["actual_winner"]
+        row["win_probs"]  (dict: vehicle -> probability in percent)
     """
-    winner = row.get("Actual_Winner")
-    probs = row.get("Win_Probs")
+    # Make it case-insensitive for robustness
+    winner = row.get("actual_winner") or row.get("Actual_Winner")
+    probs = row.get("win_probs") or row.get("Win_Probs")
 
     if not winner or not probs or winner not in probs:
         return 0.0
@@ -424,6 +459,7 @@ def compute_surprise_index(row: dict) -> float:
     surprise = 1.0 - p_win  # 0.0 = expected, 1.0 = total shock
 
     return round(surprise, 3)
+
 # ---------------------------------------------------------
 # CONFIDENCE BAR
 # ---------------------------------------------------------
@@ -433,6 +469,7 @@ def get_confidence_color(prob: float) -> str:
         return "#2e7d32"
     elif prob >= 40:
         return "#f9a825"
+        # amber
     else:
         return "#c62828"
 
@@ -492,6 +529,13 @@ TRACK_ALIASES = {
 # ---------------------------------------------------------
 
 def auto_clean_history(df: pd.DataFrame):
+    """
+    Clean up raw history.
+
+    NOTE: This still expects legacy TitleCase column names and is intended
+    for pre-normalization cleaning (e.g., when importing CSV). For data
+    coming from SQLite, you should be using normalized snake_case already.
+    """
     if df.empty:
         return df, []
 
@@ -535,7 +579,6 @@ def auto_clean_history(df: pd.DataFrame):
             )
 
     return df, issues
-
 # ---------------------------------------------------------
 # SQLITE HISTORY SYSTEM (REPLACES CSV)
 # ---------------------------------------------------------
@@ -574,6 +617,14 @@ init_db()
 
 
 def save_race_to_db(row: dict):
+    """
+    Save a race row to SQLite.
+
+    Accepts both legacy TitleCase keys (CSV) and new snake_case keys,
+    by normalizing keys to lowercase internally.
+    """
+    row_l = {k.lower(): v for k, v in row.items()}
+
     conn = get_connection()
     conn.execute("""
         INSERT INTO races (
@@ -584,12 +635,12 @@ def save_race_to_db(row: dict):
             lane
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        row["Timestamp"],
-        row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"],
-        row["Actual_Winner"],
-        row["Lap_1_Track"], row["Lap_2_Track"], row["Lap_3_Track"],
-        row["Lap_1_Len"], row["Lap_2_Len"], row["Lap_3_Len"],
-        row["Lane"]
+        row_l.get("timestamp"),
+        row_l.get("vehicle_1"), row_l.get("vehicle_2"), row_l.get("vehicle_3"),
+        row_l.get("actual_winner"),
+        row_l.get("lap_1_track"), row_l.get("lap_2_track"), row_l.get("lap_3_track"),
+        row_l.get("lap_1_len"), row_l.get("lap_2_len"), row_l.get("lap_3_len"),
+        row_l.get("lane"),
     ))
     conn.commit()
     conn.close()
@@ -608,7 +659,7 @@ def normalize_history_columns(df):
     df = df.copy()
     df.columns = [c.strip().lower() for c in df.columns]
 
-    # Step 2: rename known columns to canonical snake_case
+    # Step 2: rename known columns to canonical snake_case (idempotent)
     rename_map = {
         # ML-required columns
         "actual_winner": "actual_winner",
@@ -649,6 +700,7 @@ def normalize_history_columns(df):
 
     df = df.rename(columns=rename_map)
     return df
+
 history = load_history()
 history = normalize_history_columns(history)
 
@@ -657,11 +709,20 @@ history = normalize_history_columns(history)
 # ---------------------------------------------------------
 
 def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
-    if "Timestamp" not in df.columns:
-        df = df.copy()
-        df["Timestamp"] = pd.Timestamp.now()
+    """
+    Adds leak-safe per-vehicle historical win rates.
 
-    df = df.sort_values("Timestamp").reset_index(drop=True)
+    Expects df to already use snake_case columns:
+    - timestamp
+    - vehicle_1, vehicle_2, vehicle_3
+    - actual_winner
+    """
+    df = df.copy()
+
+    if "timestamp" not in df.columns:
+        df["timestamp"] = pd.Timestamp.now()
+
+    df = df.sort_values("timestamp").reset_index(drop=True)
     win_counts = {}
     race_counts = {}
 
@@ -675,20 +736,21 @@ def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
                 return wc / rc
             return 0.33
 
-        v1_rates.append(rate(row["Vehicle_1"]))
-        v2_rates.append(rate(row["Vehicle_2"]))
-        v3_rates.append(rate(row["Vehicle_3"]))
+        v1_rates.append(rate(row["vehicle_1"]))
+        v2_rates.append(rate(row["vehicle_2"]))
+        v3_rates.append(rate(row["vehicle_3"]))
 
-        for v in [row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"]]:
+        for v in [row["vehicle_1"], row["vehicle_2"], row["vehicle_3"]]:
             if pd.notna(v):
                 race_counts[v] = race_counts.get(v, 0) + 1
-        w = row["Actual_Winner"]
+        w = row["actual_winner"]
         if pd.notna(w):
             win_counts[w] = win_counts.get(w, 0) + 1
 
-    df["V1_win_rate"] = v1_rates
-    df["V2_win_rate"] = v2_rates
-    df["V3_win_rate"] = v3_rates
+    # snake_case internal feature names
+    df["v1_win_rate"] = v1_rates
+    df["v2_win_rate"] = v2_rates
+    df["v3_win_rate"] = v3_rates
     return df
 
 
@@ -701,7 +763,7 @@ def build_training_data(history_df: pd.DataFrame):
         "lap_1_track", "lap_2_track", "lap_3_track",
         "lap_1_len", "lap_2_len", "lap_3_len",
         "lane",
-        "timestamp"
+        "timestamp",
     ])
     if df.empty:
         return None, None, None, None
@@ -743,6 +805,7 @@ def build_training_data(history_df: pd.DataFrame):
     # -----------------------------
     def compute_surprise(row):
         winner = row["actual_winner"]
+        # Legacy compatibility: fall back to equal 33.3% if no stored per-vehicle probs.
         probs = {
             row["vehicle_1"]: row.get("Win_Prob_1", 33.3),
             row["vehicle_2"]: row.get("Win_Prob_2", 33.3),
@@ -762,25 +825,26 @@ def build_training_data(history_df: pd.DataFrame):
         "lap_1_len", "lap_2_len", "lap_3_len",
         "lane",
         "high_speed_share", "rough_share",
-        "V1_win_rate", "V2_win_rate", "V3_win_rate",
+        "v1_win_rate", "v2_win_rate", "v3_win_rate",
     ]
 
     cat_features = [
         "vehicle_1", "vehicle_2", "vehicle_3",
         "lap_1_track", "lap_2_track", "lap_3_track",
-        "lane"
+        "lane",
     ]
 
     num_features = [
         "lap_1_len", "lap_2_len", "lap_3_len",
         "high_speed_share", "rough_share",
-        "V1_win_rate", "V2_win_rate", "V3_win_rate",
+        "v1_win_rate", "v2_win_rate", "v3_win_rate",
     ]
 
     X = df[feature_cols].copy()
     sample_weights = df["surprise_weight"].values
 
     return X, y, (cat_features, num_features), sample_weights
+
 
 def train_ml_model(history_df: pd.DataFrame):
     df_recent = history_df.copy().tail(200)
@@ -804,7 +868,7 @@ def train_ml_model(history_df: pd.DataFrame):
 
     clf = HistGradientBoostingClassifier(
         max_depth=6,
-        learning_rate=0.1
+        learning_rate=0.1,
     )
 
     model = Pipeline(steps=[
@@ -816,20 +880,23 @@ def train_ml_model(history_df: pd.DataFrame):
 
     return model, n_samples
 
+
 @st.cache_resource
 def get_trained_model(history_df: pd.DataFrame):
     return train_ml_model(history_df)
-
 
 # ---------------------------------------------------------
 # 5. SINGLE-ROW FEATURE BUILDER FOR LIVE PREDICTIONS
 # ---------------------------------------------------------
 
 def build_single_feature_row(v1, v2, v3, k_idx, k_type):
+    # Build lap tracks with only the revealed lap filled
     lap_tracks = ["Unknown", "Unknown", "Unknown"]
     lap_tracks[k_idx] = k_type
 
+    # Default lap lengths (same as training)
     lap_lens = [33.0, 33.0, 34.0]
+
     lane = f"Lap {k_idx + 1}"
 
     high_speed_share = (
@@ -840,24 +907,34 @@ def build_single_feature_row(v1, v2, v3, k_idx, k_type):
         1 for t in lap_tracks if t in ["Dirt", "Bumpy", "Potholes"]
     ) / 3.0
 
+    # IMPORTANT: snake_case keys to match training data
     data = {
-        "Vehicle_1": v1,
-        "Vehicle_2": v2,
-        "Vehicle_3": v3,
-        "Lap_1_Track": lap_tracks[0],
-        "Lap_2_Track": lap_tracks[1],
-        "Lap_3_Track": lap_tracks[2],
-        "Lap_1_Len": lap_lens[0],
-        "Lap_2_Len": lap_lens[1],
-        "Lap_3_Len": lap_lens[2],
-        "Lane": lane,
+        "vehicle_1": v1,
+        "vehicle_2": v2,
+        "vehicle_3": v3,
+
+        "lap_1_track": lap_tracks[0],
+        "lap_2_track": lap_tracks[1],
+        "lap_3_track": lap_tracks[2],
+
+        "lap_1_len": lap_lens[0],
+        "lap_2_len": lap_lens[1],
+        "lap_3_len": lap_lens[2],
+
+        "lane": lane,
+
         "high_speed_share": float(high_speed_share),
         "rough_share": float(rough_share),
-        "V1_win_rate": 0.33,
-        "V2_win_rate": 0.33,
-        "V3_win_rate": 0.33,
+
+        # Default priors for unseen vehicles
+        "v1_win_rate": 0.33,
+        "v2_win_rate": 0.33,
+        "v3_win_rate": 0.33,
     }
+
     return pd.DataFrame([data])
+
+
 # ---------------------------------------------------------
 # 6. METRICS & MODEL SKILL
 # ---------------------------------------------------------
@@ -866,14 +943,13 @@ def compute_basic_metrics(history: pd.DataFrame):
     if history.empty:
         return None
 
-    # history is already normalized → use lowercase column names
     df = history.dropna(subset=['actual_winner', 'predicted_winner'])
     if df.empty:
         return None
 
     acc = (df['actual_winner'] == df['predicted_winner']).mean()
 
-    # All of these are also normalized: top_prob, was_correct
+    # Calibration metrics
     if 'top_prob' in df.columns and 'was_correct' in df.columns:
         cal_df = df.dropna(subset=['top_prob', 'was_correct'])
         if not cal_df.empty:
@@ -887,6 +963,7 @@ def compute_basic_metrics(history: pd.DataFrame):
         mean_top_prob = np.nan
         calib_error = np.nan
 
+    # Brier score
     if 'top_prob' in df.columns and 'was_correct' in df.columns:
         cal_df = df.dropna(subset=['top_prob', 'was_correct'])
         if not cal_df.empty:
@@ -896,6 +973,7 @@ def compute_basic_metrics(history: pd.DataFrame):
     else:
         brier = np.nan
 
+    # Log loss
     if 'top_prob' in df.columns and 'was_correct' in df.columns:
         cal_df = df.dropna(subset=['top_prob', 'was_correct'])
         if not cal_df.empty:
@@ -918,7 +996,6 @@ def compute_basic_metrics(history: pd.DataFrame):
 
 
 def compute_model_skill(history: pd.DataFrame, window: int = 100):
-    # normalized diagnostic columns
     cols = ['sim_top_prob', 'sim_was_correct',
             'ml_top_prob', 'ml_was_correct']
     if not all(c in history.columns for c in cols):
@@ -1052,12 +1129,10 @@ def get_physics_bias(history_df: pd.DataFrame):
     if history_df.empty or len(history_df) < 20:
         return {}
 
-    # normalized names: actual_winner, sim_was_correct
     df = history_df.dropna(subset=['actual_winner', 'sim_was_correct'])
     if df.empty:
         return {}
 
-    # groupby normalized column names
     bias = df.groupby('actual_winner')['sim_was_correct'].mean().to_dict()
 
     corrected = {}
@@ -1065,6 +1140,7 @@ def get_physics_bias(history_df: pd.DataFrame):
         corrected[veh] = float(np.clip(1.0 + (score - 0.55) * 0.10, 0.97, 1.03))
 
     return corrected
+
 # ---------------------------------------------------------
 # 7. CORE SIMULATION ENGINE
 # ---------------------------------------------------------
@@ -1087,13 +1163,15 @@ def run_simulation(
     # 1. BAYESIAN REINFORCEMENT
     vpi_raw = {v: 1.0 for v in vehicles}
 
-    if not history_df.empty and 'Actual_Winner' in history_df.columns:
-        winners = history_df['Actual_Winner'].dropna()
+    # history_df is normalized → use lowercase column names
+    if not history_df.empty and 'actual_winner' in history_df.columns:
+        winners = history_df['actual_winner'].dropna()
         wins = winners.value_counts()
 
-        if any(c.startswith('Vehicle_') for c in history_df.columns):
+        veh_cols = [c for c in history_df.columns if c.startswith('vehicle_')]
+        if veh_cols:
             all_veh = pd.concat(
-                [history_df[c] for c in history_df.columns if c.startswith('Vehicle_')],
+                [history_df[c] for c in veh_cols],
                 axis=0
             ).dropna()
             races = all_veh.value_counts()
@@ -1119,8 +1197,8 @@ def run_simulation(
         if history_df.empty:
             return base_len_mean, base_len_std
 
-        col_track = f"Lap_{lap_idx+1}_Track"
-        col_len   = f"Lap_{lap_idx+1}_Len"
+        col_track = f"lap_{lap_idx+1}_track"
+        col_len   = f"lap_{lap_idx+1}_len"
 
         if col_track not in history_df.columns or col_len not in history_df.columns:
             return base_len_mean, base_len_std
@@ -1129,15 +1207,22 @@ def run_simulation(
         df = df[df[col_track] == track_type]
 
         if len(df) < 5:
-            mask_l1 = history_df["Lap_1_Track"] == track_type
-            mask_l2 = history_df["Lap_2_Track"] == track_type
-            mask_l3 = history_df["Lap_3_Track"] == track_type
+            mask_l1 = history_df.get("lap_1_track") == track_type if "lap_1_track" in history_df.columns else None
+            mask_l2 = history_df.get("lap_2_track") == track_type if "lap_2_track" in history_df.columns else None
+            mask_l3 = history_df.get("lap_3_track") == track_type if "lap_3_track" in history_df.columns else None
 
-            combined = pd.concat([
-                history_df.loc[mask_l1, "Lap_1_Len"],
-                history_df.loc[mask_l2, "Lap_2_Len"],
-                history_df.loc[mask_l3, "Lap_3_Len"]
-            ]).dropna()
+            pieces = []
+            if mask_l1 is not None and "lap_1_len" in history_df.columns:
+                pieces.append(history_df.loc[mask_l1, "lap_1_len"])
+            if mask_l2 is not None and "lap_2_len" in history_df.columns:
+                pieces.append(history_df.loc[mask_l2, "lap_2_len"])
+            if mask_l3 is not None and "lap_3_len" in history_df.columns:
+                pieces.append(history_df.loc[mask_l3, "lap_3_len"])
+
+            if not pieces:
+                return base_len_mean, base_len_std
+
+            combined = pd.concat(pieces).dropna()
 
             if len(combined) < 5:
                 return base_len_mean, base_len_std
@@ -1151,15 +1236,15 @@ def run_simulation(
     # 3. MARKOV TRANSITIONS
     lap_probs = {0: None, 1: None, 2: None}
     if not history_df.empty:
-        known_col = f"Lap_{k_idx + 1}_Track"
+        known_col = f"lap_{k_idx + 1}_track"
         if known_col in history_df.columns:
             matches = history_df[history_df[known_col] == k_type].tail(200)
             global_transitions = {}
             for j in range(3):
                 if j == k_idx:
                     continue
-                from_col = f"Lap_{k_idx + 1}_Track"
-                to_col = f"Lap_{j + 1}_Track"
+                from_col = f"lap_{k_idx + 1}_track"
+                to_col = f"lap_{j + 1}_track"
                 if from_col in history_df.columns and to_col in history_df.columns:
                     valid = history_df[[from_col, to_col]].dropna()
                     if valid.empty:
@@ -1174,7 +1259,7 @@ def run_simulation(
             for j in range(3):
                 if j == k_idx:
                     continue
-                t_col = f"Lap_{j + 1}_Track"
+                t_col = f"lap_{j + 1}_track"
                 if t_col in matches.columns and not matches.empty:
                     counts = matches[t_col].value_counts()
                     arr = counts.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
@@ -1258,13 +1343,14 @@ def run_simulation(
 
     # 7. TEMPERATURE CALIBRATION
     def estimate_temperature_from_history(df):
-        if df.empty or 'Top_Prob' not in df.columns or 'Was_Correct' not in df.columns:
+        # history is normalized → use lowercase
+        if df.empty or 'top_prob' not in df.columns or 'was_correct' not in df.columns:
             return 1.0
-        recent = df.dropna(subset=['Top_Prob', 'Was_Correct']).tail(200)
+        recent = df.dropna(subset=['top_prob', 'was_correct']).tail(200)
         if len(recent) < calib_min_hist:
             return 1.0
-        avg_conf = recent['Top_Prob'].mean()
-        avg_acc = recent['Was_Correct'].mean()
+        avg_conf = recent['top_prob'].mean()
+        avg_acc = recent['was_correct'].mean()
         if avg_conf <= 0 or avg_acc <= 0:
             return 1.0
 
@@ -1282,6 +1368,7 @@ def run_simulation(
 
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
+
 # ---------------------------------------------------------
 # FULL PREDICTION ENGINE (NO UI) — FINAL CLEAN VERSION
 # ---------------------------------------------------------
@@ -1865,7 +1952,6 @@ with Q3:
             return options.index(value)
         except Exception:
             return 0
-
     # -----------------------------
     # FORM BLOCK (ALWAYS RENDERED)
     # -----------------------------
@@ -1902,7 +1988,9 @@ with Q3:
                         disabled=disabled_form,
                     )
                 s1l = st.number_input(
-                    "Lap 1 %", 1, 100, 33, disabled=disabled_form
+                    "Lap 1 %",
+                    1, 100, 33,
+                    disabled=disabled_form
                 )
 
             # -----------------------------
@@ -1923,7 +2011,9 @@ with Q3:
                         disabled=disabled_form,
                     )
                 s2l = st.number_input(
-                    "Lap 2 %", 1, 100, 33, disabled=disabled_form
+                    "Lap 2 %",
+                    1, 100, 33,
+                    disabled=disabled_form
                 )
 
             # -----------------------------
@@ -1944,7 +2034,9 @@ with Q3:
                         disabled=disabled_form,
                     )
                 s3l = st.number_input(
-                    "Lap 3 %", 1, 100, 34, disabled=disabled_form
+                    "Lap 3 %",
+                    1, 100, 34,
+                    disabled=disabled_form
                 )
 
             # Submit button
@@ -1964,7 +2056,7 @@ with Q3:
                 st.stop()
 
             s1l, s2l, s3l = float(s1l), float(s2l), float(s3l)
-            if s1l + s2l + s3l != 100:
+            if abs((s1l + s2l + s3l) - 100) > 0.001:
                 st.error("Lap lengths must total 100%.")
                 st.stop()
 
@@ -1991,18 +2083,19 @@ with Q3:
                 for k in (1, 2, 3):
                     probs = lg[k]["track_probs"]
                     track_err[k] = 1.0 - probs.get(actual_tracks[k], 0.0)
+
                     # SAFE conversion of expected_len
                     try:
                         exp_len = float(lg[k]["expected_len"])
                     except Exception:
                         exp_len = None
-                    
+
                     # SAFE conversion of actual length
                     try:
                         act_len = float(actual_lens[k])
                     except Exception:
                         act_len = None
-                    
+
                     # If either is missing, mark error as None
                     if exp_len is None or act_len is None:
                         len_err[k] = None
@@ -2032,7 +2125,7 @@ with Q3:
             p1 = predicted[predicted_winner] / 100.0
             surprise = round(1 - p1, 4) if was_correct == 1 else 1.0
 
-                row = {
+            row = {
                 # Vehicles
                 'vehicle_1': ctx['v'][0],
                 'vehicle_2': ctx['v'][1],
@@ -2075,11 +2168,13 @@ with Q3:
                 # Timestamp
                 'timestamp': datetime.now().isoformat(timespec="seconds"),
             }
-            # 🔵 NEW: save directly to SQLite instead of CSV
+
+            # 🔵 save directly to SQLite
             save_race_to_db(row)
 
             st.success("✅ Race saved to database! Model will update on next prediction.")
             st.rerun()
+
 # ---------------------------------------------------------
 # Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
 # ---------------------------------------------------------
@@ -2112,12 +2207,12 @@ with Q4:
         st.markdown("---")
 
         # 2. Recent drift snapshot (very compact)
-        if 'Was_Correct' in history.columns and 'Top_Prob' in history.columns:
-            df = history.dropna(subset=['Was_Correct', 'Top_Prob']).copy()
+        if 'was_correct' in history.columns and 'top_prob' in history.columns:
+            df = history.dropna(subset=['was_correct', 'top_prob']).copy()
             if len(df) >= 20:
                 window = min(20, len(df))
-                df["Rolling_Accuracy"] = df["Was_Correct"].rolling(window).mean()
-                df["Brier"] = (df["Top_Prob"] - df["Was_Correct"])**2
+                df["Rolling_Accuracy"] = df["was_correct"].rolling(window).mean()
+                df["Brier"] = (df["top_prob"] - df["was_correct"])**2
                 df["Rolling_Brier"] = df["Brier"].rolling(window).mean()
 
                 acc_now = df["Rolling_Accuracy"].iloc[-1]
@@ -2128,7 +2223,7 @@ with Q4:
                 c2.metric("Recent Brier (20)", f"{brier_now:.3f}")
 
         st.caption("For full chaos, drift, and heatmap views, use the Analytics tabs below.")
-        
+
 # ---------------------------------------------------------
 # 10. ANALYTICS TABS + WHAT‑IF SIMULATOR (FULL ORIGINAL LOGIC)
 # ---------------------------------------------------------
@@ -2190,84 +2285,88 @@ if history is not None and not history.empty:
             if 'Brier_Roll' in curve.columns and curve['Brier_Roll'].notna().any():
                 st.line_chart(curve[['Brier_Roll']], height=250)
                 st.caption("Top: rolling accuracy. Bottom: rolling Brier score (lower is better).")
-
     # -----------------------------------------------------
     # 3) CALIBRATION ANALYZER
     # -----------------------------------------------------
     with tabs[2]:
         st.write("### 🎯 Calibration Analyzer")
-
-        if 'Top_Prob' in history.columns and 'Was_Correct' in history.columns:
-            cal_df = history.dropna(subset=['Top_Prob', 'Was_Correct']).copy()
-
+    
+        if 'top_prob' in history.columns and 'was_correct' in history.columns:
+            cal_df = history.dropna(subset=['top_prob', 'was_correct']).copy()
+    
             if cal_df.empty:
                 st.info("Not enough calibrated predictions yet.")
             else:
-                cal_df['Bucket'] = (cal_df['Top_Prob'] * 10).astype(int) / 10.0
-
+                cal_df['Bucket'] = (cal_df['top_prob'] * 10).astype(int) / 10.0
+    
                 calib_table = cal_df.groupby('Bucket').agg(
-                    mean_prob=('Top_Prob', 'mean'),
-                    emp_acc=('Was_Correct', 'mean'),
-                    count=('Was_Correct', 'size')
+                    mean_prob=('top_prob', 'mean'),
+                    emp_acc=('was_correct', 'mean'),
+                    count=('was_correct', 'size')
                 ).reset_index()
-
+    
                 st.write("#### Reliability Table")
-                st.dataframe(calib_table.style.format({'mean_prob': '{:.2f}', 'emp_acc': '{:.2f}'}))
-
-                st.line_chart(calib_table.set_index('Bucket')[['mean_prob', 'emp_acc']], height=300)
+                st.dataframe(
+                    calib_table.style.format({'mean_prob': '{:.2f}', 'emp_acc': '{:.2f}'})
+                )
+    
+                st.line_chart(
+                    calib_table.set_index('Bucket')[['mean_prob', 'emp_acc']],
+                    height=300
+                )
                 st.caption("If the lines track each other closely, the AI is well-calibrated.")
         else:
-            st.info("Top_Prob / Was_Correct not available yet for calibration analysis.")
-
+            st.info("top_prob / was_correct not available yet for calibration analysis.")
+    
     # -----------------------------------------------------
     # 4) DRIFT DETECTOR (GEOMETRY)
     # -----------------------------------------------------
     with tabs[3]:
         st.write("### 🌊 Drift Detector (Track Geometry)")
-
+    
         drift = compute_drift(history)
-
+    
         if not drift or drift['geometry'] is None or drift['geometry'].empty:
             st.info("Not enough history or drift not detectable yet.")
         else:
             st.write(drift['notes'])
             geom_df = drift['geometry']
-
+    
             st.dataframe(
                 geom_df[['Lap', 'Track', 'mean_early', 'mean_late', 'mean_rel_change_%']],
                 use_container_width=True
             )
-
+    
             st.caption("Large relative changes in mean length indicate environment or strategy drift.")
-
+    
     # -----------------------------------------------------
     # 5) VOLATILITY & FEATURE IMPORTANCE
     # -----------------------------------------------------
     with tabs[4]:
         st.write("### ⚡ Volatility & Sensitivity")
-
+    
         if 'res' in st.session_state:
             res = st.session_state['res']
             vol = compute_volatility_from_probs(res['p'])
-
+    
             if vol:
                 st.metric("Volatility (Top - Second)", f"{vol['volatility']:.1f} pp")
-
+    
                 if vol['volatility'] < 5:
                     st.warning("Highly volatile race: outcomes are very close.")
                 elif vol['volatility'] < 15:
                     st.info("Moderately confident prediction.")
                 else:
                     st.success("High confidence prediction.")
-
+    
             st.write("#### Sensitivity: Speed Multiplier What-If")
-
+    
             v_sel = st.selectbox("Vehicle to stress-test", res['ctx']['v'])
             mult = st.slider("Speed multiplier for selected vehicle", 0.8, 1.2, 1.0, 0.02)
-
+    
             original_speed = SPEED_DATA[v_sel].copy()
             SPEED_DATA[v_sel] = {k: v * mult for k, v in original_speed.items()}
-
+    
             probs_whatif, _ = run_simulation(
                 res['ctx']['v'][0],
                 res['ctx']['v'][1],
@@ -2276,9 +2375,9 @@ if history is not None and not history.empty:
                 res['ctx']['t'],
                 history
             )
-
+    
             SPEED_DATA[v_sel] = original_speed
-
+    
             c1, c2 = st.columns(2)
             with c1:
                 st.write("Original probabilities")
@@ -2286,42 +2385,43 @@ if history is not None and not history.empty:
             with c2:
                 st.write(f"With {v_sel} speed x{mult:.2f}")
                 st.json(probs_whatif)
-
+    
             st.caption("This approximates 'feature importance' by perturbation: how much probabilities move when one vehicle changes.")
         else:
             st.info("Run a prediction first to analyze volatility and sensitivity.")
-
+    
     # -----------------------------------------------------
     # 6) ML PATTERN BRAIN
     # -----------------------------------------------------
     with tabs[5]:
         st.write("### 🧠 ML Pattern Brain (Track Transition Matrix)")
-
-        if 'Lap_1_Track' in history.columns and 'Lap_2_Track' in history.columns:
-            m = pd.crosstab(history['Lap_1_Track'], history['Lap_2_Track'], normalize='index') * 100
+    
+        if 'lap_1_track' in history.columns and 'lap_2_track' in history.columns:
+            m = pd.crosstab(history['lap_1_track'], history['lap_2_track'], normalize='index') * 100
             st.dataframe(m.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
-
+    
         mats = compute_transition_matrices(history)
-
+    
         if mats:
             st.write("#### All learned transitions")
             for (i, j), mat in mats.items():
                 st.write(f"Lap {i} → Lap {j}")
                 st.dataframe(mat.style.format("{:.0f}%").background_gradient(cmap="Blues", axis=1))
-
+    
     # -----------------------------------------------------
     # 7) LANE TRACKER
     # -----------------------------------------------------
     with tabs[6]:
         st.write("### 🚦 Win Rate by Lane Context")
-
-        if 'Lane' in history.columns and history['Lane'].notna().any():
-            lane_stats = pd.crosstab(history['Lane'], history['Actual_Winner'], normalize='index') * 100
+    
+        if 'lane' in history.columns and history['lane'].notna().any():
+            lane_stats = pd.crosstab(history['lane'], history['actual_winner'], normalize='index') * 100
             st.dataframe(lane_stats.style.format("{:.1f}%").background_gradient(cmap="YlOrRd", axis=1))
         else:
             st.info("Record more races to see Lane win rates.")
+    
     # ---------------------------------------------------------
-    # CSV HEALTH CHECK FUNCTION
+    # CSV HEALTH CHECK FUNCTION (UPDATED TO SNAKE_CASE)
     # ---------------------------------------------------------
     def csv_health_check(df: pd.DataFrame):
         issues = []
@@ -2330,10 +2430,10 @@ if history is not None and not history.empty:
             return issues
     
         required_cols = [
-            "Vehicle_1", "Vehicle_2", "Vehicle_3",
-            "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
-            "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
-            "Actual_Winner", "Predicted_Winner"
+            "vehicle_1", "vehicle_2", "vehicle_3",
+            "lap_1_track", "lap_2_track", "lap_3_track",
+            "lap_1_len", "lap_2_len", "lap_3_len",
+            "actual_winner", "predicted_winner"
         ]
     
         for col in required_cols:
@@ -2344,7 +2444,6 @@ if history is not None and not history.empty:
             issues.append("CSV contains missing values.")
     
         return issues
-    
     
     # ---------------------------------------------------------
     # TAB 7 — DATA QUALITY CHECKER
@@ -2382,8 +2481,7 @@ if history is not None and not history.empty:
         else:
             st.error("⚠️ Issues detected:")
             for i in csv_issues:
-                st.write(f"- {i}")
-
+                st.write(f"- {i}")    
     # -----------------------------------------------------
     # 9) RAW HISTORY
     # -----------------------------------------------------
