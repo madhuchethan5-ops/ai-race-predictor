@@ -1809,11 +1809,11 @@ with Q3:
         st.stop()
 
     # Check if prediction exists
-    prediction_available = 'res' in st.session_state
-    disabled_form = not prediction_available
+prediction_available = 'res' in st.session_state
+disabled_form = not prediction_available
 
-    # Extract prediction context
-    if prediction_available:
+# Extract prediction context
+if prediction_available:
     res = st.session_state['res']
     ctx = res['ctx']
     predicted = res['p']
@@ -1837,25 +1837,25 @@ with Q3:
         f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
     )
 
-    else:
-        st.info("Run a prediction first to enable saving.")
-        predicted_tracks = [
-            st.session_state.get("lap_1_track", "Bumpy"),
-            st.session_state.get("lap_2_track", "Bumpy"),
-            st.session_state.get("lap_3_track", "Bumpy"),
-        ]
-    
-    # Safe index helper (robust to spacing / case)
-    def safe_index(value, options):
-        if value is None:
-            return 0
-        val_norm = str(value).strip().lower()
-        for i, opt in enumerate(options):
-            opt_norm = str(opt).strip().lower()
-            if opt_norm == val_norm:
-                return i
-        return 0
+else:
+    st.info("Run a prediction first to enable saving.")
+    predicted_tracks = [
+        st.session_state.get("lap_1_track", "Bumpy"),
+        st.session_state.get("lap_2_track", "Bumpy"),
+        st.session_state.get("lap_3_track", "Bumpy"),
+    ]
 
+# Safe index helper (robust to spacing / case)
+def safe_index(value, options):
+    if value is None:
+        return 0
+    val_norm = str(value).strip().lower()
+    for i, opt in enumerate(options):
+        opt_norm = str(opt).strip().lower()
+        if opt_norm == val_norm:
+            return i
+    return 0
+    
     # -----------------------------
     # FORM BLOCK (ALWAYS RENDERED)
     # -----------------------------
