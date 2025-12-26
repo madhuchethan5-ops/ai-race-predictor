@@ -1336,11 +1336,16 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
 
     # --- Terrain–vehicle adjustment (gentle) ---
     tv_matrix = build_tv_matrix(history)
+
+    # For now, assume all three laps use the same track k_type
+    tracks = [k_type, k_type, k_type]
+
     ctx = {
         "v": [v1_sel, v2_sel, v3_sel],
         "idx": k_idx,
         "t": k_type,
         "slot": f"Lap {k_idx + 1}",
+        "tracks": tracks,  # <-- ADDED
     }
 
     final_probs, tv_strengths = apply_tv_adjustment(
@@ -1401,6 +1406,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             'idx': k_idx,
             't': k_type,
             'slot': f"Lap {k_idx + 1}",
+            'tracks': tracks,  # <-- ADDED HERE TOO
         },
         'p_sim': sim_probs,
         'p_ml': p_ml_store,
@@ -1418,6 +1424,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     }
 
     return res
+    
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
 # ---------------------------------------------------------
