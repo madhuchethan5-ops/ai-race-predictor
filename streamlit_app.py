@@ -1860,10 +1860,18 @@ with Q3:
 
     # Safe index helper
     def safe_index(value, options):
-        try:
-            return options.index(value)
-        except Exception:
+        if value is None:
             return 0
+    
+        # Normalize both value and options to compare safely
+        val_norm = str(value).strip().lower()
+    
+        for i, opt in enumerate(options):
+            opt_norm = str(opt).strip().lower()
+            if opt_norm == val_norm:
+                return i
+    
+        return 0
 
     # -----------------------------
     # FORM BLOCK (ALWAYS RENDERED)
