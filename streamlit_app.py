@@ -1814,29 +1814,37 @@ with Q3:
 
     # Extract prediction context
     if prediction_available:
-        res = st.session_state['res']
-        ctx = res['ctx']
-        predicted = res['p']
-        predicted_winner = max(predicted, key=predicted.get)
-    
-        p_sim = res.get('p_sim', None)
-        p_ml = res.get('p_ml', None)
-    
-        revealed_lap = ctx['idx']
-        revealed_track = ctx['t']
-        revealed_slot = ctx['slot']
-    
-        predicted_tracks = ["Bumpy", "Bumpy", "Bumpy"]
-        predicted_tracks[revealed_lap] = revealed_track
-    
-        st.caption(
-            f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
-        )
-    
+    res = st.session_state['res']
+    ctx = res['ctx']
+    predicted = res['p']
+    predicted_winner = max(predicted, key=predicted.get)
+
+    p_sim = res.get('p_sim', None)
+    p_ml = res.get('p_ml', None)
+
+    revealed_lap = ctx['idx']
+    revealed_track = ctx['t']
+    revealed_slot = ctx['slot']
+
+    # Sync Save form with terrain selected in input section
+    predicted_tracks = [
+        st.session_state.get("lap_1_track", "Bumpy"),
+        st.session_state.get("lap_2_track", "Bumpy"),
+        st.session_state.get("lap_3_track", "Bumpy"),
+    ]
+
+    st.caption(
+        f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
+    )
+
     else:
         st.info("Run a prediction first to enable saving.")
-        predicted_tracks = ["Bumpy", "Bumpy", "Bumpy"]   # ← REQUIRED FIX
-
+        predicted_tracks = [
+            st.session_state.get("lap_1_track", "Bumpy"),
+            st.session_state.get("lap_2_track", "Bumpy"),
+            st.session_state.get("lap_3_track", "Bumpy"),
+        ]
+    
     # Safe index helper (robust to spacing / case)
     def safe_index(value, options):
         if value is None:
