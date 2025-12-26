@@ -1826,12 +1826,9 @@ with Q3:
         revealed_track = ctx['t']
         revealed_slot = ctx['slot']
     
-        # Sync Save form with terrain selected in input section
-        predicted_tracks = [
-            st.session_state.get("lap_1_track", "Bumpy"),
-            st.session_state.get("lap_2_track", "Bumpy"),
-            st.session_state.get("lap_3_track", "Bumpy"),
-        ]
+        # 🔹 Use prediction context: revealed lap gets the true terrain, others default
+        predicted_tracks = ["Bumpy", "Bumpy", "Bumpy"]
+        predicted_tracks[revealed_lap] = revealed_track
     
         st.caption(
             f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
@@ -1839,11 +1836,8 @@ with Q3:
     
     else:
         st.info("Run a prediction first to enable saving.")
-        predicted_tracks = [
-            st.session_state.get("lap_1_track", "Bumpy"),
-            st.session_state.get("lap_2_track", "Bumpy"),
-            st.session_state.get("lap_3_track", "Bumpy"),
-        ]
+        # 🔹 When no prediction yet, just use neutral defaults
+        predicted_tracks = ["Bumpy", "Bumpy", "Bumpy"]
     
     # Safe index helper (robust to spacing / case)
     def safe_index(value, options):
@@ -2051,11 +2045,11 @@ with Q3:
                 'last_updated': datetime.utcnow().isoformat(timespec="seconds"),
             }
 
-            # 🔵 save directly to SQLite
             save_race_to_db(row)
 
             st.success("✅ Race saved to database! Model will update on next prediction.")
             st.rerun()
+            
 # ---------------------------------------------------------
 # Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
 # ---------------------------------------------------------
