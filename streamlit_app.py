@@ -1608,8 +1608,8 @@ with Q2:
         k_type = st.session_state.selected_terrain
         v1, v2, v3 = st.session_state.selected_vehicles
 
-        # --- Run prediction (writes st.session_state['res']) ---
-        run_full_prediction(v1, v2, v3, k_idx, k_type, history)
+        # --- Run prediction and store result in session_state ---
+        st.session_state.res = run_full_prediction(v1, v2, v3, k_idx, k_type, history)
 
         # Reset trigger
         st.session_state.trigger_prediction = False
@@ -1626,7 +1626,7 @@ with Q2:
         vpi = res['vpi']
 
         # -----------------------------------------------------
-        # 2×2 GRID LAYOUT
+        # 2×2 GRID LAYOUT (reuse same columns for stacked sections)
         # -----------------------------------------------------
         col_left, col_right = st.columns(2)
 
@@ -1636,10 +1636,11 @@ with Q2:
         with col_left:
             st.markdown("#### 🎯 Accuracy & Winner")
 
-            if not history.empty and 'Actual_Winner' in history.columns:
-                valid = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
+            # history is normalized → use lowercase column names
+            if not history.empty and 'actual_winner' in history.columns:
+                valid = history.dropna(subset=['actual_winner', 'predicted_winner'])
                 if not valid.empty:
-                    acc = (valid['Predicted_Winner'] == valid['Actual_Winner']).mean() * 100
+                    acc = (valid['predicted_winner'] == valid['actual_winner']).mean() * 100
                     st.metric("AI Accuracy", f"{acc:.1f}%")
 
             predicted_winner = max(probs, key=probs.get)
@@ -1674,7 +1675,7 @@ with Q2:
                 st.success("**FAVORABLE** — Strong, stable edge detected.")
 
         # -----------------------------------------------------
-        # MID‑RIGHT: Terrain–Vehicle Matchup (with dropdown)
+        # MID‑RIGHT: Terrain–vehicle matchup (with dropdown)
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 🧬 Terrain–vehicle matchup")
@@ -1709,77 +1710,72 @@ with Q2:
             else:
                 st.caption("Not enough history yet to learn terrain–vehicle strengths.")
 
-    
         # -----------------------------------------------------
-    # BOTTOM‑LEFT: Hidden Lap Guess
-    # -----------------------------------------------------
-    
-    # Ensure columns exist before using them
-    col_left, col_right = st.columns(2)
-    
-    with col_left:
-        lg = res.get("hidden_guess")
-        if lg:
-            with st.expander("🤫 AI guess for hidden laps"):
-    
-                TERRAIN_EMOJI = {
-                    "Desert": "🏜️",
-                    "Bumpy": "🪨",
-                    "Expressway": "🛣️",
-                    "Highway": "🚗",
-                    "Dirt": "🌾",
-                    "Potholes": "🕳️"
-                }
-    
-                summary_lines = []
-    
-                for k in (1, 2, 3):
-                    label = f"Lap {k}"
-    
-                    # Revealed lap
-                    if k == res["ctx"]["idx"] + 1:
-                        st.markdown(f"**{label} (revealed):** {res['ctx']['t']}")
-                        continue
-    
-                    # Hidden lap info
-                    info = lg[k]
-                    probs_k = info["track_probs"]
-                    expected_len = info["expected_len"]
-    
-                    # Sort terrains by probability
-                    sorted_probs = sorted(probs_k.items(), key=lambda x: x[1], reverse=True)
-                    top_terrain, top_prob = sorted_probs[0]
-    
-                    emoji = TERRAIN_EMOJI.get(top_terrain, "🌍")
-    
-                    summary_lines.append(
-                        f"**Lap {k}** → {emoji} **{top_terrain}‑heavy** (~{top_prob*100:.0f}%)"
-                    )
-    
-                    # Top 3 terrains
-                    top_str = ", ".join([
-                        f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
-                        for t, p in sorted_probs[:3]
-                    ])
-    
-                    # SAFE HANDLING OF None
-                    if expected_len is None:
-                        expected_text = "unknown"
-                    else:
-                        expected_text = f"{expected_len:.1f}%"
-    
-                    st.markdown(
-                        f"**{label} (hidden):** expected length ≈ {expected_text}, "
-                        f"top terrains → {top_str}"
-                    )
-    
-                # Summary section
-                st.markdown("### 🧭 Summary")
-                for line in summary_lines:
-                    st.markdown(f"- {line}")
-    
-        else:
-            st.write("Not enough history to estimate hidden laps.")
+        # BOTTOM‑LEFT: Hidden Lap Guess
+        # -----------------------------------------------------
+        with col_left:
+            lg = res.get("hidden_guess")
+            if lg:
+                with st.expander("🤫 AI guess for hidden laps"):
+
+                    TERRAIN_EMOJI = {
+                        "Desert": "🏜️",
+                        "Bumpy": "🪨",
+                        "Expressway": "🛣️",
+                        "Highway": "🚗",
+                        "Dirt": "🌾",
+                        "Potholes": "🕳️"
+                    }
+
+                    summary_lines = []
+
+                    for k in (1, 2, 3):
+                        label = f"Lap {k}"
+
+                        # Revealed lap
+                        if k == res["ctx"]["idx"] + 1:
+                            st.markdown(f"**{label} (revealed):** {res['ctx']['t']}")
+                            continue
+
+                        # Hidden lap info
+                        info = lg[k]
+                        probs_k = info["track_probs"]
+                        expected_len = info["expected_len"]
+
+                        # Sort terrains by probability
+                        sorted_probs = sorted(probs_k.items(), key=lambda x: x[1], reverse=True)
+                        top_terrain, top_prob = sorted_probs[0]
+
+                        emoji = TERRAIN_EMOJI.get(top_terrain, "🌍")
+
+                        summary_lines.append(
+                            f"**Lap {k}** → {emoji} **{top_terrain}‑heavy** (~{top_prob*100:.0f}%)"
+                        )
+
+                        # Top 3 terrains
+                        top_str = ", ".join([
+                            f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
+                            for t, p in sorted_probs[:3]
+                        ])
+
+                        # SAFE HANDLING OF None
+                        if expected_len is None:
+                            expected_text = "unknown"
+                        else:
+                            expected_text = f"{expected_len:.1f}%"
+
+                        st.markdown(
+                            f"**{label} (hidden):** expected length ≈ {expected_text}, "
+                            f"top terrains → {top_str}"
+                        )
+
+                    # Summary section
+                    st.markdown("### 🧭 Summary")
+                    for line in summary_lines:
+                        st.markdown(f"- {line}")
+            else:
+                st.write("Not enough history to estimate hidden laps.")
+
         # -----------------------------------------------------
         # BOTTOM‑RIGHT: Tightness + Regret
         # -----------------------------------------------------
