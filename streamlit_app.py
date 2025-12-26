@@ -1818,22 +1818,29 @@ with Q3:
         ctx = res['ctx']
         predicted = res['p']
         predicted_winner = max(predicted, key=predicted.get)
-    
+
         p_sim = res.get('p_sim', None)
         p_ml = res.get('p_ml', None)
-    
+
         revealed_lap = ctx['idx']
         revealed_track = ctx['t']
         revealed_slot = ctx['slot']
-    
+
         # 🔹 Use prediction context: revealed lap gets the true terrain, others default
         predicted_tracks = ["Bumpy", "Bumpy", "Bumpy"]
         predicted_tracks[revealed_lap] = revealed_track
-    
+
+        # 🔹 Force widget state for the revealed lap
+        if revealed_lap == 0:
+            st.session_state[f"lap1_track_{revealed_lap}_{revealed_track}"] = predicted_tracks[0]
+        elif revealed_lap == 1:
+            st.session_state[f"lap2_track_{revealed_lap}_{revealed_track}"] = predicted_tracks[1]
+        elif revealed_lap == 2:
+            st.session_state[f"lap3_track_{revealed_lap}_{revealed_track}"] = predicted_tracks[2]
+
         st.caption(
             f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
-        )
-    
+        )    
     else:
         st.info("Run a prediction first to enable saving.")
         # 🔹 When no prediction yet, just use neutral defaults
