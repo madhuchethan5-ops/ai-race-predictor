@@ -89,7 +89,7 @@ def save_race_to_db(row: dict):
             hidden_track_error_l1, hidden_track_error_l2, hidden_track_error_l3,
             hidden_len_error_l1, hidden_len_error_l2, hidden_len_error_l3,
             last_updated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         row_l.get("timestamp"),
         row_l.get("vehicle_1"), row_l.get("vehicle_2"), row_l.get("vehicle_3"),
@@ -107,7 +107,7 @@ def save_race_to_db(row: dict):
     ))
     conn.commit()
     conn.close()
-
+    
 def load_history():
     conn = get_connection()
     try:
