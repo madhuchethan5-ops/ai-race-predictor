@@ -2339,3 +2339,10 @@ def extend_schema():
     conn.close()
 
 extend_schema()
+
+def import_csv_to_sqlite(csv_path="race_history.csv"):
+    df = pd.read_csv(csv_path)
+    for _, row in df.iterrows():
+        save_race_to_db(row.to_dict())
+
+import_csv_to_sqlite()
