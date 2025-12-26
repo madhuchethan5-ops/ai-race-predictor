@@ -76,6 +76,43 @@ def load_history():
     df = pd.read_sql_query("SELECT * FROM races ORDER BY id ASC", conn)
     conn.close()
     return df
+# ---------------------------------------------------------
+# ONE-TIME SCHEMA EXTENSION (RUN MANUALLY)
+# ---------------------------------------------------------
+
+def extend_schema():
+    conn = get_connection()
+    commands = [
+        "ALTER TABLE races ADD COLUMN predicted_winner TEXT;",
+        "ALTER TABLE races ADD COLUMN top_prob REAL;",
+        "ALTER TABLE races ADD COLUMN was_correct REAL;",
+        "ALTER TABLE races ADD COLUMN surprise_index REAL;",
+        "ALTER TABLE races ADD COLUMN sim_predicted_winner TEXT;",
+        "ALTER TABLE races ADD COLUMN ml_predicted_winner TEXT;",
+        "ALTER TABLE races ADD COLUMN sim_top_prob REAL;",
+        "ALTER TABLE races ADD COLUMN ml_top_prob REAL;",
+        "ALTER TABLE races ADD COLUMN sim_was_correct REAL;",
+        "ALTER TABLE races ADD COLUMN ml_was_correct REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_track_error_l1 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_track_error_l2 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_track_error_l3 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_len_error_l1 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_len_error_l2 REAL;",
+        "ALTER TABLE races ADD COLUMN hidden_len_error_l3 REAL;",
+    ]
+    for cmd in commands:
+        try:
+            conn.execute(cmd)
+        except:
+            pass
+    conn.commit()
+    conn.close()
+
+
+def import_csv_to_sqlite(csv_path="race_history.csv"):
+    df = pd.read_csv(csv_path)
+    for _, row in df.iterrows():
+        save_race_to_db(row.to_dict())
 
 # ---------------------------------------------------------
 # PAGE CONFIG
@@ -2310,68 +2347,5 @@ if history is not None and not history.empty:
 
             st.caption("Ghost scenarios approximate how outcomes shift if underlying laps skew high-speed vs rough.")
 
-def extend_schema():
-    conn = get_connection()
-    commands = [
-        "ALTER TABLE races ADD COLUMN predicted_winner TEXT;",
-        "ALTER TABLE races ADD COLUMN top_prob REAL;",
-        "ALTER TABLE races ADD COLUMN was_correct REAL;",
-        "ALTER TABLE races ADD COLUMN surprise_index REAL;",
-        "ALTER TABLE races ADD COLUMN sim_predicted_winner TEXT;",
-        "ALTER TABLE races ADD COLUMN ml_predicted_winner TEXT;",
-        "ALTER TABLE races ADD COLUMN sim_top_prob REAL;",
-        "ALTER TABLE races ADD COLUMN ml_top_prob REAL;",
-        "ALTER TABLE races ADD COLUMN sim_was_correct REAL;",
-        "ALTER TABLE races ADD COLUMN ml_was_correct REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_track_error_l1 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_track_error_l2 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_track_error_l3 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_len_error_l1 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_len_error_l2 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_len_error_l3 REAL;",
-    ]
-    for cmd in commands:
-        try:
-            conn.execute(cmd)
-        except:
-            pass
-    conn.commit()
-    conn.close()
-
 extend_schema()
-
-def import_csv_to_sqlite(csv_path="race_history.csv"):
-    df = pd.read_csv(csv_path)
-    for _, row in df.iterrows():
-        save_race_to_db(row.to_dict())
-
 import_csv_to_sqlite()
-def extend_schema():
-    conn = get_connection()
-    commands = [
-        "ALTER TABLE races ADD COLUMN predicted_winner TEXT;",
-        "ALTER TABLE races ADD COLUMN top_prob REAL;",
-        "ALTER TABLE races ADD COLUMN was_correct REAL;",
-        "ALTER TABLE races ADD COLUMN surprise_index REAL;",
-        "ALTER TABLE races ADD COLUMN sim_predicted_winner TEXT;",
-        "ALTER TABLE races ADD COLUMN ml_predicted_winner TEXT;",
-        "ALTER TABLE races ADD COLUMN sim_top_prob REAL;",
-        "ALTER TABLE races ADD COLUMN ml_top_prob REAL;",
-        "ALTER TABLE races ADD COLUMN sim_was_correct REAL;",
-        "ALTER TABLE races ADD COLUMN ml_was_correct REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_track_error_l1 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_track_error_l2 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_track_error_l3 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_len_error_l1 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_len_error_l2 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_len_error_l3 REAL;",
-    ]
-    for cmd in commands:
-        try:
-            conn.execute(cmd)
-        except:
-            pass
-    conn.commit()
-    conn.close()
-    extend_schema()
-
