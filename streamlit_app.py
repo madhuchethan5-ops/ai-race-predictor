@@ -860,7 +860,7 @@ def build_single_feature_row(v1, v2, v3, k_idx, k_type):
 def compute_basic_metrics(history: pd.DataFrame):
     if history.empty:
         return None
-    df = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
+    df = history.dropna(subset=['actual_winner', 'predicted_winner'])
     if df.empty:
         return None
     acc = (df['Actual_Winner'] == df['Predicted_Winner']).mean()
