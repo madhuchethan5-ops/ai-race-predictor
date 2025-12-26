@@ -786,6 +786,7 @@ def normalize_history_columns(df):
 
 history = load_history()
 history = normalize_history_columns(history)
+st.write("DB Columns:", history.columns.tolist())
 
 # ---------------------------------------------------------
 # 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
