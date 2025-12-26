@@ -2473,8 +2473,16 @@ with st.expander("📥 Import Legacy Race History"):
         if st.button("📥 Import CSV into Database"):
             try:
                 df = pd.read_csv(uploaded_csv)
-                df.columns = [c.strip().lower() for c in df.columns]
 
+                # Normalize column names
+                df.columns = [str(c).strip().lower() for c in df.columns]
+
+                # 🔥 FIX 1: Drop unwanted index/id/unnamed columns
+                df = df.loc[:, ~df.columns.str.contains('^unnamed', case=False)]
+                df = df.loc[:, df.columns != ""]
+                df = df.loc[:, df.columns != "id"]
+
+                # Required columns for DB schema
                 required = [
                     "timestamp", "vehicle_1", "vehicle_2", "vehicle_3",
                     "actual_winner", "predicted_winner",
@@ -2486,16 +2494,20 @@ with st.expander("📥 Import Legacy Race History"):
                     "sim_top_prob", "ml_top_prob",
                     "sim_was_correct", "ml_was_correct",
                     "hidden_track_error_l1", "hidden_track_error_l2", "hidden_track_error_l3",
-                    "hidden_len_error_l1", "hidden_len_error_l2", "hidden_len_error_l3"
+                    "hidden_len_error_l1", "hidden_len_error_l2", "hidden_len_error_l3",
+                    "last_updated"
                 ]
 
+                # 🔥 FIX 2: Add missing columns with None
                 for col in required:
                     if col not in df.columns:
                         df[col] = None
 
-                # FIXED: use persistent DB path
-                conn = sqlite3.connect(DB_PATH)
+                # 🔥 FIX 3: Keep only columns that exist in DB schema
+                df = df[required]
 
+                # Insert into SQLite
+                conn = sqlite3.connect(DB_PATH)
                 df.to_sql("races", conn, if_exists="append", index=False)
                 conn.close()
 
