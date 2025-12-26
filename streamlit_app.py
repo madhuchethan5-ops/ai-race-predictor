@@ -134,6 +134,20 @@ st.set_page_config(
     page_title="AI Race Master Pro",
     page_icon="🏎️"
 )
+# ---------------------------------------------------------
+# ADMIN: FORCE DELETE OLD SQLITE DB (TEMPORARY TOOL)
+# ---------------------------------------------------------
+import os
+
+with st.expander("⚙️ Admin Tools"):
+    if st.button("🧨 Force delete old race_history.db"):
+        try:
+            os.remove("race_history.db")
+            st.success("Old DB deleted. Reload the app to recreate a fresh one.")
+        except FileNotFoundError:
+            st.info("DB file not found — nothing to delete.")
+        except Exception as e:
+            st.error(f"Could not delete DB: {e}")
 
 # ---------------------------------------------------------
 # ICON PATHS
