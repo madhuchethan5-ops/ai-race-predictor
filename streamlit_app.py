@@ -1375,7 +1375,7 @@ with Q1:
         st.session_state.trigger_prediction = True
         
 # ---------------------------------------------------------
-# Q2 — COMPACT PREDICTION PANEL (TOP-RIGHT) — FINAL VERSION
+# Q2 — COMPACT PREDICTION PANEL (2×2 DASHBOARD LAYOUT)
 # ---------------------------------------------------------
 with Q2:
     st.markdown("### 📡 Prediction & Bet Guidance")
@@ -1415,147 +1415,165 @@ with Q2:
         probs = res['p']
         vpi = res['vpi']
 
-        # Top row: global accuracy + winner
-        top_col1, top_col2 = st.columns(2)
+        # -----------------------------------------------------
+        # 2×2 GRID LAYOUT
+        # -----------------------------------------------------
+        col_left, col_right = st.columns(2)
 
-        with top_col1:
+        # -----------------------------------------------------
+        # TOP‑LEFT: Accuracy + Winner
+        # -----------------------------------------------------
+        with col_left:
+            st.markdown("#### 🎯 Accuracy & Winner")
+
             if not history.empty and 'Actual_Winner' in history.columns:
                 valid = history.dropna(subset=['Actual_Winner', 'Predicted_Winner'])
                 if not valid.empty:
                     acc = (valid['Predicted_Winner'] == valid['Actual_Winner']).mean() * 100
-                    st.metric("🎯 AI Accuracy", f"{acc:.1f}%")
+                    st.metric("AI Accuracy", f"{acc:.1f}%")
 
-        with top_col2:
             predicted_winner = max(probs, key=probs.get)
             st.metric("🏆 Predicted Winner", predicted_winner)
 
         # -----------------------------------------------------
-        # 🤫 AI Guess for Hidden Laps (PLACED BELOW WINNER)
+        # TOP‑RIGHT: Win Probabilities
         # -----------------------------------------------------
-        lg = res.get("hidden_guess")
+        with col_right:
+            st.markdown("#### 📊 Win Probabilities")
+            for v in res['ctx']['v']:
+                p_val = probs[v]
+                boost = (vpi[v] - 1.0) * 100
+                boost_str = f" (+{boost:.1f}% ML Boost)" if boost > 0 else ""
+                st.markdown(f"- **{v}**: {p_val:.1f}%{boost_str}")
+                confidence_bar(v, p_val)
 
-        if lg:
-            with st.expander("🤫 AI guess for hidden laps"):
+        # -----------------------------------------------------
+        # MID‑LEFT: Volatility & Safety
+        # -----------------------------------------------------
+        with col_left:
+            st.markdown("#### ⚡ Volatility & Safety")
+            st.write(f"Volatility Gap: **{meta['volatility_gap_pp']} pp**")
+            st.write(f"Market: **{meta['volatility_label']}**")
 
-                # Terrain emoji map
-                TERRAIN_EMOJI = {
-                    "Desert": "🏜️",
-                    "Bumpy": "🪨",
-                    "Expressway": "🛣️",
-                    "Highway": "🚗",
-                    "Dirt": "🌾",
-                    "Potholes": "🕳️"
-                }
+            safety = meta['bet_safety']
+            if safety == "AVOID":
+                st.error("**AVOID** — Too volatile or low-confidence.")
+            elif safety == "CAUTION":
+                st.warning("**CAUTION** — Edge exists but uncertainty is high.")
+            else:
+                st.success("**FAVORABLE** — Strong, stable edge detected.")
 
-                summary_lines = []
+        # -----------------------------------------------------
+        # MID‑RIGHT: Terrain–Vehicle Matchup (with dropdown)
+        # -----------------------------------------------------
+        with col_right:
+            st.markdown("#### 🧬 Terrain–vehicle matchup")
 
-                for k in (1, 2, 3):
-                    label = f"Lap {k}"
+            tv_strengths = res.get("tv_strengths", {})
+            terrain_options = ["Desert", "Expressway", "Bumpy", "Dirt", "Highway", "Potholes"]
+            selected_terrain = st.selectbox("Inspect tendencies for:", terrain_options)
 
-                    # If this is the revealed lap, show it directly
-                    if k == res["ctx"]["idx"] + 1:
-                        st.markdown(f"**{label} (revealed):** {res['ctx']['t']}")
-                        continue
+            if tv_strengths:
+                selected_keys = [(v, selected_terrain) for v in res['ctx']['v']]
+                total = sum([tv_strengths.get(k, 0.5) for k in selected_keys])
 
-                    info = lg[k]
-                    probs_k = info["track_probs"]
-                    expected_len = info["expected_len"]
+                for v in res['ctx']['v']:
+                    key = (v, selected_terrain)
+                    raw_strength = tv_strengths.get(key, 0.5)
+                    norm_strength = raw_strength / total if total > 0 else 1.0 / len(selected_keys)
 
-                    # Sort terrains by probability
-                    sorted_probs = sorted(probs_k.items(), key=lambda x: x[1], reverse=True)
-                    top_terrain, top_prob = sorted_probs[0]
-
-                    emoji = TERRAIN_EMOJI.get(top_terrain, "🌍")
-
-                    # Compact summary line
-                    summary_lines.append(
-                        f"**Lap {k}** → {emoji} **{top_terrain}‑heavy** (~{top_prob*100:.0f}%)"
-                    )
-
-                    # Full detail
-                    top_str = ", ".join([
-                        f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
-                        for t, p in sorted_probs[:3]
-                    ])
+                    if norm_strength > 0.45:
+                        flavor = "favored"
+                        icon = "🟢"
+                    elif norm_strength < 0.30:
+                        flavor = "penalized"
+                        icon = "🔴"
+                    else:
+                        flavor = "neutral"
+                        icon = "⚪"
 
                     st.markdown(
-                        f"**{label} (hidden):** expected length ≈ {expected_len:.1f}%, "
-                        f"top terrains → {top_str}"
+                        f"- {icon} **{v}** on **{selected_terrain}** → "
+                        f"{flavor} (tendency ~{norm_strength*100:.0f}%)"
                     )
+            else:
+                st.caption("Not enough history yet to learn terrain–vehicle strengths.")
 
-                # Show compact summary
-                st.markdown("### 🧭 Summary")
-                for line in summary_lines:
-                    st.markdown(f"- {line}")
-
-        else:
-            st.write("Not enough history to estimate hidden laps.")
-            
         # -----------------------------------------------------
-        # Probabilities
+        # BOTTOM‑LEFT: Hidden Lap Guess
         # -----------------------------------------------------
-        st.markdown("#### 📊 Win Probabilities")
-        for v in res['ctx']['v']:
-            p_val = probs[v]
-            boost = (vpi[v] - 1.0) * 100
-            boost_str = f" (+{boost:.1f}% ML Boost)" if boost > 0 else ""
-            st.markdown(f"- **{v}**: {p_val:.1f}%{boost_str}")
-            confidence_bar(v, p_val)
+        with col_left:
+            lg = res.get("hidden_guess")
+            if lg:
+                with st.expander("🤫 AI guess for hidden laps"):
 
-        # Volatility + bet safety
-        st.markdown("#### ⚡ Volatility & Safety")
-        st.write(f"Volatility Gap: **{meta['volatility_gap_pp']} pp**")
-        st.write(f"Market: **{meta['volatility_label']}**")
+                    TERRAIN_EMOJI = {
+                        "Desert": "🏜️",
+                        "Bumpy": "🪨",
+                        "Expressway": "🛣️",
+                        "Highway": "🚗",
+                        "Dirt": "🌾",
+                        "Potholes": "🕳️"
+                    }
 
-        safety = meta['bet_safety']
-        if safety == "AVOID":
-            st.error("**AVOID** — Too volatile or low-confidence.")
-        elif safety == "CAUTION":
-            st.warning("**CAUTION** — Edge exists but uncertainty is high.")
-        else:
-            st.success("**FAVORABLE** — Strong, stable edge detected.")
-       
+                    summary_lines = []
+
+                    for k in (1, 2, 3):
+                        label = f"Lap {k}"
+
+                        if k == res["ctx"]["idx"] + 1:
+                            st.markdown(f"**{label} (revealed):** {res['ctx']['t']}")
+                            continue
+
+                        info = lg[k]
+                        probs_k = info["track_probs"]
+                        expected_len = info["expected_len"]
+
+                        sorted_probs = sorted(probs_k.items(), key=lambda x: x[1], reverse=True)
+                        top_terrain, top_prob = sorted_probs[0]
+
+                        emoji = TERRAIN_EMOJI.get(top_terrain, "🌍")
+
+                        summary_lines.append(
+                            f"**Lap {k}** → {emoji} **{top_terrain}‑heavy** (~{top_prob*100:.0f}%)"
+                        )
+
+                        top_str = ", ".join([
+                            f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
+                            for t, p in sorted_probs[:3]
+                        ])
+
+                        st.markdown(
+                            f"**{label} (hidden):** expected length ≈ {expected_len:.1f}%, "
+                            f"top terrains → {top_str}"
+                        )
+
+                    st.markdown("### 🧭 Summary")
+                    for line in summary_lines:
+                        st.markdown(f"- {line}")
+            else:
+                st.write("Not enough history to estimate hidden laps.")
+
         # -----------------------------------------------------
-        # 🧬 Terrain–vehicle matchup (today's terrain)
+        # BOTTOM‑RIGHT: Tightness + Regret
         # -----------------------------------------------------
-        tv_strengths = res.get("tv_strengths", {})
+        with col_right:
+            st.markdown("#### 📈 Race Metrics")
 
-        if tv_strengths:
-            st.markdown("#### 🧬 Terrain–vehicle matchup (win tendency)")
-            terrain = res['ctx']['t']
-            lines = []
-            for v in res['ctx']['v']:
-                s = tv_strengths.get(v, 0.33)  # now it's normalized
-                if s > 0.45:
-                    flavor = "favored"
-                    icon = "🟢"
-                elif s < 0.30:
-                    flavor = "penalized"
-                    icon = "🔴"
-                else:
-                    flavor = "neutral"
-                    icon = "⚪"
-                
-                lines.append(f"- {icon} **{v}** on **{terrain}** → {flavor} (tendency ~{s*100:.0f}%)")
-            for line in lines:
-                st.markdown(line)
-        else:
-            st.markdown("#### 🧬 Terrain–vehicle matchup")
-            st.caption("Not enough history yet to learn terrain–vehicle strengths.")
+            sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+            (_, p1), (_, p2) = sorted_probs[0], sorted_probs[1]
+            margin = p1 - p2
+            tightness = max(0, 100 - margin)
 
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Race Tightness", f"{tightness:.1f}")
+            c2.metric("Top‑2 Margin", f"{margin:.1f} pts")
+            c3.metric("Expected Regret", f"{meta['expected_regret']:.2f}")
 
-        # Tightness + regret
-        sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-        (_, p1), (_, p2) = sorted_probs[0], sorted_probs[1]
-        margin = p1 - p2
-        tightness = max(0, 100 - margin)
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Race Tightness", f"{tightness:.1f}")
-        c2.metric("Top‑2 Margin", f"{margin:.1f} pts")
-        c3.metric("Expected Regret", f"{meta['expected_regret']:.2f}")
-
-        # Diagnostics
+        # -----------------------------------------------------
+        # DIAGNOSTICS (full width)
+        # -----------------------------------------------------
+        st.markdown("---")
         with st.expander("🔍 Detailed diagnostics"):
             if res.get('p_sim') and res.get('p_ml'):
                 sim_winner = max(res['p_sim'], key=res['p_sim'].get)
