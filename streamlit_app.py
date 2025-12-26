@@ -62,6 +62,7 @@ def init_db():
             hidden_len_error_l1 REAL,
             hidden_len_error_l2 REAL,
             hidden_len_error_l3 REAL
+            last_updated TEXT
         )
     """)
     conn.commit()
@@ -147,6 +148,8 @@ def import_csv_to_sqlite(uploaded_csv):
 
     conn.commit()
     conn.close()
+
+history = load_history()
 # ---------------------------------------------------------
 # PAGE CONFIG
 # ---------------------------------------------------------
