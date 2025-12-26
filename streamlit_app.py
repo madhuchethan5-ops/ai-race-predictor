@@ -604,6 +604,7 @@ def load_history():
 
 # Load history at startup
 history = load_history()
+st.write("COLUMNS IN SQLITE:", history.columns.tolist())
 
 # ---------------------------------------------------------
 # 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
