@@ -105,7 +105,7 @@ def load_history():
     df = pd.read_sql_query("SELECT * FROM races ORDER BY id ASC", conn)
     conn.close()
     return df
-
+history = load_history()
 
 # ---------------------------------------------------------
 # ONE-TIME SCHEMA EXTENSION (RUN MANUALLY IF NEEDED)
