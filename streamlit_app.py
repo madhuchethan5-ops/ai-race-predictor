@@ -277,9 +277,7 @@ def apply_tv_adjustment(final_probs: dict, ctx: dict, tv_matrix: dict, k_type: s
     # 2) Normalize strengths to sum to 1.0 (relative tendency)
     total_strength = sum(strengths.values())
     norm_strengths = {v: strengths[v] / total_strength for v in vehicles} if total_strength > 0 else {v: 1.0 / len(vehicles) for v in vehicles}
-    if avg_strength <= 0:
-        return final_probs, strengths  # safety
-
+    
     norm_strengths = {v: strengths[v] / avg_strength for v in vehicles}
 
     # 3) Apply a small multiplicative adjustment to probabilities
