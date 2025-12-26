@@ -28,8 +28,11 @@ def get_connection():
 # ONE-TIME FIX: DROP AND RECREATE CORRUPTED TABLE
 # ---------------------------------------------------------
 if "db_fixed" not in st.session_state:
+    # DELETE THE FILE ITSELF
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+
     conn = get_connection()
-    conn.execute("DROP TABLE IF EXISTS races")
     conn.execute("""
         CREATE TABLE races (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +72,7 @@ if "db_fixed" not in st.session_state:
     st.session_state["db_fixed"] = True
 
 # ---------------------------------------------------------
-# NORMAL INIT_DB (SAFE AFTER FIX)
+# NORMAL INIT_DB
 # ---------------------------------------------------------
 def init_db():
     conn = get_connection()
@@ -110,7 +113,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Create DB automatically on startup
 init_db()
 
 # ---------------------------------------------------------
