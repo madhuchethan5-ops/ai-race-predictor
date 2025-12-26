@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 # ---------------------------------------------------------
 
 DB_PATH = Path(".streamlit/race_history.db")
+DB_PATH.parent.mkdir(exist_ok=True)
 
 # Debug
 st.write("DB exists:", os.path.exists(DB_PATH))
@@ -624,128 +625,6 @@ def auto_clean_history(df: pd.DataFrame):
             )
 
     return df, issues
-
-# ---------------------------------------------------------
-# SQLITE HISTORY SYSTEM (REPLACES CSV)
-# ---------------------------------------------------------
-
-def get_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    conn = get_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS races (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            vehicle_1 TEXT,
-            vehicle_2 TEXT,
-            vehicle_3 TEXT,
-            actual_winner TEXT,
-            lap_1_track TEXT,
-            lap_2_track TEXT,
-            lap_3_track TEXT,
-            lap_1_len REAL,
-            lap_2_len REAL,
-            lap_3_len REAL,
-            lane TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-# Create DB automatically on startup
-init_db()
-
-def save_race_to_db(row: dict):
-    """
-    Save a race row to SQLite.
-
-    Accepts both legacy TitleCase keys (CSV) and new snake_case keys,
-    by normalizing keys to lowercase internally.
-    """
-    row_l = {k.lower(): v for k, v in row.items()}
-
-    conn = get_connection()
-    conn.execute("""
-        INSERT INTO races (
-            timestamp, vehicle_1, vehicle_2, vehicle_3,
-            actual_winner,
-            lap_1_track, lap_2_track, lap_3_track,
-            lap_1_len, lap_2_len, lap_3_len,
-            lane
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        row_l.get("timestamp"),
-        row_l.get("vehicle_1"), row_l.get("vehicle_2"), row_l.get("vehicle_3"),
-        row_l.get("actual_winner"),
-        row_l.get("lap_1_track"), row_l.get("lap_2_track"), row_l.get("lap_3_track"),
-        row_l.get("lap_1_len"), row_l.get("lap_2_len"), row_l.get("lap_3_len"),
-        row_l.get("lane"),
-    ))
-    conn.commit()
-    conn.close()
-
-
-def load_history():
-    conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM races ORDER BY id ASC", conn)
-    conn.close()
-    return df
-
-
-# Load history at startup
-def normalize_history_columns(df):
-    # Step 1: lowercase everything
-    df = df.copy()
-    df.columns = [c.strip().lower() for c in df.columns]
-
-    # Step 2: rename known columns to canonical snake_case (idempotent)
-    rename_map = {
-        # ML-required columns
-        "actual_winner": "actual_winner",
-        "vehicle_1": "vehicle_1",
-        "vehicle_2": "vehicle_2",
-        "vehicle_3": "vehicle_3",
-        "lap_1_track": "lap_1_track",
-        "lap_2_track": "lap_2_track",
-        "lap_3_track": "lap_3_track",
-        "lap_1_len": "lap_1_len",
-        "lap_2_len": "lap_2_len",
-        "lap_3_len": "lap_3_len",
-        "lane": "lane",
-        "timestamp": "timestamp",
-
-        # Prediction metadata
-        "predicted_winner": "predicted_winner",
-        "top_prob": "top_prob",
-        "was_correct": "was_correct",
-        "surprise_index": "surprise_index",
-
-        # Simulation + ML diagnostics
-        "sim_predicted_winner": "sim_predicted_winner",
-        "ml_predicted_winner": "ml_predicted_winner",
-        "sim_top_prob": "sim_top_prob",
-        "ml_top_prob": "ml_top_prob",
-        "sim_was_correct": "sim_was_correct",
-        "ml_was_correct": "ml_was_correct",
-
-        # Hidden lap guess errors
-        "hidden_track_error_l1": "hidden_track_error_l1",
-        "hidden_track_error_l2": "hidden_track_error_l2",
-        "hidden_track_error_l3": "hidden_track_error_l3",
-        "hidden_len_error_l1": "hidden_len_error_l1",
-        "hidden_len_error_l2": "hidden_len_error_l2",
-        "hidden_len_error_l3": "hidden_len_error_l3",
-    }
-
-    df = df.rename(columns=rename_map)
-    return df
-
-history = load_history()
-history = normalize_history_columns(history)
 
 # ---------------------------------------------------------
 # 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
