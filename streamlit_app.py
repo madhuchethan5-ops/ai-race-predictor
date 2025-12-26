@@ -12,19 +12,21 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from collections import Counter, defaultdict
 
-DB_PATH = ".streamlit/race_history.db"
-
-st.write("DB exists:", os.path.exists("race_history.db"))
 # ---------------------------------------------------------
-# SQLITE DATABASE (REPLACES CSV SYSTEM)
+# SQLITE DATABASE (PERSISTENT — STORED IN .streamlit/)
 # ---------------------------------------------------------
 
-DB_PATH = Path("race_history.db")
+DB_PATH = Path(".streamlit/race_history.db")
+
+# Debug
+st.write("DB exists:", os.path.exists(DB_PATH))
+
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db():
     conn = get_connection()
@@ -64,6 +66,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 # Create DB automatically on startup
 init_db()
 
@@ -71,11 +74,8 @@ init_db()
 def save_race_to_db(row: dict):
     """
     Save a race row to SQLite.
-
-    Accepts both legacy TitleCase keys (CSV) and new snake_case keys (current app),
-    by normalizing keys to lowercase internally.
+    Accepts both legacy TitleCase keys (CSV) and new snake_case keys.
     """
-    # Normalize keys to lowercase for safety
     row_l = {k.lower(): v for k, v in row.items()}
 
     conn = get_connection()
@@ -105,8 +105,9 @@ def load_history():
     conn.close()
     return df
 
+
 # ---------------------------------------------------------
-# ONE-TIME SCHEMA EXTENSION (RUN MANUALLY)
+# ONE-TIME SCHEMA EXTENSION (RUN MANUALLY IF NEEDED)
 # ---------------------------------------------------------
 
 def extend_schema():
@@ -133,21 +134,42 @@ def extend_schema():
         try:
             conn.execute(cmd)
         except Exception:
-            # Column already exists or other non-fatal error
             pass
     conn.commit()
     conn.close()
 
 
-def import_csv_to_sqlite(csv_path="race_history.csv"):
+def import_csv_to_sqlite(uploaded_csv):
     df = pd.read_csv(uploaded_csv)
-    
+
     # Remove unnamed index column
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    
+
     # Normalize column names
     df.columns = [c.strip().lower() for c in df.columns]
 
+    conn = get_connection()
+
+    for _, row in df.iterrows():
+        conn.execute("""
+            INSERT INTO races (
+                timestamp, vehicle_1, vehicle_2, vehicle_3,
+                actual_winner,
+                lap_1_track, lap_2_track, lap_3_track,
+                lap_1_len, lap_2_len, lap_3_len,
+                lane
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            row.get("timestamp"),
+            row.get("vehicle_1"), row.get("vehicle_2"), row.get("vehicle_3"),
+            row.get("actual_winner"),
+            row.get("lap_1_track"), row.get("lap_2_track"), row.get("lap_3_track"),
+            row.get("lap_1_len"), row.get("lap_2_len"), row.get("lap_3_len"),
+            row.get("lane"),
+        ))
+
+    conn.commit()
+    conn.close()
 # ---------------------------------------------------------
 # PAGE CONFIG
 # ---------------------------------------------------------
