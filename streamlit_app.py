@@ -629,9 +629,6 @@ def auto_clean_history(df: pd.DataFrame):
 # SQLITE HISTORY SYSTEM (REPLACES CSV)
 # ---------------------------------------------------------
 
-# Persistent DB location
-DB_PATH = Path(".streamlit/race_history.db")
-
 def get_connection():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -2621,11 +2618,11 @@ with st.expander("🗑️ Delete SQLite DB File"):
     if st.button("🧨 Force delete race_history.db"):
         try:
             os.remove(DB_PATH)
-            st.success("DB file deleted. Reload the app to recreate a fresh one.")
+            st.success("Deleted persistent DB file.")
         except FileNotFoundError:
-            st.info("DB file not found — nothing to delete.")
+            st.warning("DB file not found.")
         except Exception as e:
-            st.error(f"Could not delete DB: {e}")
+            st.error(f"Error deleting DB: {e}")
 
 # ---------------------------------------------------------
 # IMPORT LEGACY CSV
@@ -2657,33 +2654,13 @@ with st.expander("📥 Import Legacy Race History"):
                     if col not in df.columns:
                         df[col] = None
 
-                conn = sqlite3.connect("race_history.db")
-                cursor = conn.cursor()
+                # FIXED: use persistent DB path
+                conn = sqlite3.connect(DB_PATH)
 
-                inserted = 0
-                for _, row in df.iterrows():
-                    cursor.execute("""
-                        INSERT INTO races (
-                            timestamp, vehicle_1, vehicle_2, vehicle_3,
-                            actual_winner, predicted_winner, top_prob, was_correct, surprise_index,
-                            lap_1_track, lap_2_track, lap_3_track,
-                            lap_1_len, lap_2_len, lap_3_len,
-                            lane,
-                            sim_predicted_winner, ml_predicted_winner,
-                            sim_top_prob, ml_top_prob,
-                            sim_was_correct, ml_was_correct,
-                            hidden_track_error_l1, hidden_track_error_l2, hidden_track_error_l3,
-                            hidden_len_error_l1, hidden_len_error_l2, hidden_len_error_l3
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, tuple(row[col] for col in required))
-                    inserted += 1
-
-                conn.commit()
+                df.to_sql("races", conn, if_exists="append", index=False)
                 conn.close()
 
-                st.success(f"🎉 Successfully imported {inserted} races into the database!")
-                st.balloons()
+                st.success("CSV imported into persistent SQLite DB.")
 
             except Exception as e:
                 st.error(f"Import failed: {e}")
