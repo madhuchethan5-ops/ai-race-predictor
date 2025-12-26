@@ -691,21 +691,21 @@ def build_training_data(history_df: pd.DataFrame):
     df = history_df.copy()
 
     df = df.dropna(subset=[
-        "Actual_Winner",
-        "Vehicle_1", "Vehicle_2", "Vehicle_3",
-        "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
-        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
-        "Lane",
-        "Timestamp"
+        "actual_winner",
+        "vehicle_1", "vehicle_2", "vehicle_3",
+        "lap_1_track", "lap_2_track", "lap_3_track",
+        "lap_1_len", "lap_2_len", "lap_3_len",
+        "lane",
+        "timestamp"
     ])
     if df.empty:
         return None, None, None, None
 
     def winner_index(row):
-        vs = [row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"]]
-        if row["Actual_Winner"] not in vs:
+        vs = [row["vehicle_1"], row["vehicle_2"], row["vehicle_3"]]
+        if row["actual_winner"] not in vs:
             return None
-        return vs.index(row["Actual_Winner"])
+        return vs.index(row["actual_winner"])
 
     df["winner_idx"] = df.apply(winner_index, axis=1)
     df = df.dropna(subset=["winner_idx"])
@@ -720,15 +720,15 @@ def build_training_data(history_df: pd.DataFrame):
         return track in ["Dirt", "Bumpy", "Potholes"]
 
     df["high_speed_share"] = (
-        df["Lap_1_Track"].apply(is_high_speed).astype(int) +
-        df["Lap_2_Track"].apply(is_high_speed).astype(int) +
-        df["Lap_3_Track"].apply(is_high_speed).astype(int)
+        df["lap_1_track"].apply(is_high_speed).astype(int) +
+        df["lap_2_track"].apply(is_high_speed).astype(int) +
+        df["lap_3_track"].apply(is_high_speed).astype(int)
     ) / 3.0
 
     df["rough_share"] = (
-        df["Lap_1_Track"].apply(is_rough).astype(int) +
-        df["Lap_2_Track"].apply(is_rough).astype(int) +
-        df["Lap_3_Track"].apply(is_rough).astype(int)
+        df["lap_1_track"].apply(is_rough).astype(int) +
+        df["lap_2_track"].apply(is_rough).astype(int) +
+        df["lap_3_track"].apply(is_rough).astype(int)
     ) / 3.0
 
     df = add_leakage_safe_win_rates(df)
@@ -737,11 +737,11 @@ def build_training_data(history_df: pd.DataFrame):
     # Surprise Index Calculation
     # -----------------------------
     def compute_surprise(row):
-        winner = row["Actual_Winner"]
+        winner = row["actual_winner"]
         probs = {
-            row["Vehicle_1"]: row.get("Win_Prob_1", 33.3),
-            row["Vehicle_2"]: row.get("Win_Prob_2", 33.3),
-            row["Vehicle_3"]: row.get("Win_Prob_3", 33.3),
+            row["vehicle_1"]: row.get("Win_Prob_1", 33.3),
+            row["vehicle_2"]: row.get("Win_Prob_2", 33.3),
+            row["vehicle_3"]: row.get("Win_Prob_3", 33.3),
         }
         p = probs.get(winner, 33.3) / 100.0
         return 1.0 - p  # 0 = expected, 1 = shocking
@@ -752,22 +752,22 @@ def build_training_data(history_df: pd.DataFrame):
     y = df["winner_idx"].astype(int)
 
     feature_cols = [
-        "Vehicle_1", "Vehicle_2", "Vehicle_3",
-        "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
-        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
-        "Lane",
+        "vehicle_1", "vehicle_2", "vehicle_3",
+        "lap_1_track", "lap_2_track", "lap_3_track",
+        "lap_1_len", "lap_2_len", "lap_3_len",
+        "lane",
         "high_speed_share", "rough_share",
         "V1_win_rate", "V2_win_rate", "V3_win_rate",
     ]
 
     cat_features = [
-        "Vehicle_1", "Vehicle_2", "Vehicle_3",
-        "Lap_1_Track", "Lap_2_Track", "Lap_3_Track",
-        "Lane"
+        "vehicle_1", "vehicle_2", "vehicle_3",
+        "lap_1_track", "lap_2_track", "lap_3_track",
+        "lane"
     ]
 
     num_features = [
-        "Lap_1_Len", "Lap_2_Len", "Lap_3_Len",
+        "lap_1_len", "lap_2_len", "lap_3_len",
         "high_speed_share", "rough_share",
         "V1_win_rate", "V2_win_rate", "V3_win_rate",
     ]
