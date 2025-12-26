@@ -1492,6 +1492,30 @@ with Q2:
             st.write("Not enough history to estimate hidden laps.")
             
         # -----------------------------------------------------
+        # Probabilities
+        # -----------------------------------------------------
+        st.markdown("#### 📊 Win Probabilities")
+        for v in res['ctx']['v']:
+            p_val = probs[v]
+            boost = (vpi[v] - 1.0) * 100
+            boost_str = f" (+{boost:.1f}% ML Boost)" if boost > 0 else ""
+            st.markdown(f"- **{v}**: {p_val:.1f}%{boost_str}")
+            confidence_bar(v, p_val)
+
+        # Volatility + bet safety
+        st.markdown("#### ⚡ Volatility & Safety")
+        st.write(f"Volatility Gap: **{meta['volatility_gap_pp']} pp**")
+        st.write(f"Market: **{meta['volatility_label']}**")
+
+        safety = meta['bet_safety']
+        if safety == "AVOID":
+            st.error("**AVOID** — Too volatile or low-confidence.")
+        elif safety == "CAUTION":
+            st.warning("**CAUTION** — Edge exists but uncertainty is high.")
+        else:
+            st.success("**FAVORABLE** — Strong, stable edge detected.")
+       
+        # -----------------------------------------------------
         # 🧬 Terrain–vehicle matchup (today's terrain)
         # -----------------------------------------------------
         tv_strengths = res.get("tv_strengths", {})
@@ -1519,29 +1543,6 @@ with Q2:
             st.markdown("#### 🧬 Terrain–vehicle matchup")
             st.caption("Not enough history yet to learn terrain–vehicle strengths.")
 
-        # -----------------------------------------------------
-        # Probabilities
-        # -----------------------------------------------------
-        st.markdown("#### 📊 Win Probabilities")
-        for v in res['ctx']['v']:
-            p_val = probs[v]
-            boost = (vpi[v] - 1.0) * 100
-            boost_str = f" (+{boost:.1f}% ML Boost)" if boost > 0 else ""
-            st.markdown(f"- **{v}**: {p_val:.1f}%{boost_str}")
-            confidence_bar(v, p_val)
-
-        # Volatility + bet safety
-        st.markdown("#### ⚡ Volatility & Safety")
-        st.write(f"Volatility Gap: **{meta['volatility_gap_pp']} pp**")
-        st.write(f"Market: **{meta['volatility_label']}**")
-
-        safety = meta['bet_safety']
-        if safety == "AVOID":
-            st.error("**AVOID** — Too volatile or low-confidence.")
-        elif safety == "CAUTION":
-            st.warning("**CAUTION** — Edge exists but uncertainty is high.")
-        else:
-            st.success("**FAVORABLE** — Strong, stable edge detected.")
 
         # Tightness + regret
         sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
