@@ -167,6 +167,13 @@ def load_history():
     return df
 
 history = load_history()
+# Ignore imported CSV rows (they have no track data)
+valid_history = history.dropna(subset=["lap_1_track", "lap_2_track", "lap_3_track"])
+
+if len(valid_history) > 0:
+    last_race = valid_history.iloc[-1]
+else:
+    last_race = None
 
 # ---------------------------------------------------------
 # PAGE CONFIG
