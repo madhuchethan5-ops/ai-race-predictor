@@ -13,6 +13,71 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 
 # ---------------------------------------------------------
+# SQLITE DATABASE (REPLACES CSV SYSTEM)
+# ---------------------------------------------------------
+
+DB_PATH = Path("race_history.db")
+
+def get_connection():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS races (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            vehicle_1 TEXT,
+            vehicle_2 TEXT,
+            vehicle_3 TEXT,
+            actual_winner TEXT,
+            lap_1_track TEXT,
+            lap_2_track TEXT,
+            lap_3_track TEXT,
+            lap_1_len REAL,
+            lap_2_len REAL,
+            lap_3_len REAL,
+            lane TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# Create DB automatically on startup
+init_db()
+
+
+def save_race_to_db(row: dict):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO races (
+            timestamp, vehicle_1, vehicle_2, vehicle_3,
+            actual_winner,
+            lap_1_track, lap_2_track, lap_3_track,
+            lap_1_len, lap_2_len, lap_3_len,
+            lane
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        row["Timestamp"],
+        row["Vehicle_1"], row["Vehicle_2"], row["Vehicle_3"],
+        row["Actual_Winner"],
+        row["Lap_1_Track"], row["Lap_2_Track"], row["Lap_3_Track"],
+        row["Lap_1_Len"], row["Lap_2_Len"], row["Lap_3_Len"],
+        row["Lane"]
+    ))
+    conn.commit()
+    conn.close()
+
+
+def load_history():
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM races ORDER BY id ASC", conn)
+    conn.close()
+    return df
+
+# ---------------------------------------------------------
 # PAGE CONFIG
 # ---------------------------------------------------------
 
@@ -1764,7 +1829,7 @@ with Q3:
             save_clicked = st.form_submit_button("💾 Save & Train")
 
         # -----------------------------
-        # SAVE LOGIC
+        # SAVE LOGIC (SQLITE VERSION)
         # -----------------------------
         if save_clicked:
 
@@ -1786,8 +1851,9 @@ with Q3:
                 st.stop()
 
             st.session_state['last_train_probs'] = dict(predicted)
+
             # ---------------------------------------------------------
-            # NEW: Hidden-lap guess error (AI learning from mistakes)
+            # Hidden-lap guess error (AI learning from mistakes)
             # ---------------------------------------------------------
             def compute_hidden_guess_error(res, s1t, s2t, s3t, s1l, s2l, s3l):
                 lg = res.get("hidden_guess")
@@ -1853,16 +1919,14 @@ with Q3:
                 'Hidden_Len_Error_L1': len_err[1],
                 'Hidden_Len_Error_L2': len_err[2],
                 'Hidden_Len_Error_L3': len_err[3],
-                'Timestamp': pd.Timestamp.now()
+                'Timestamp': datetime.now().isoformat(timespec="seconds"),
             }
 
-            if history is None or history.empty:
-                st.error("History failed to load — not saving to avoid data loss.")
-            else:
-                history = add_race_result(history, row)
-                save_history(history)
-                st.success("✅ Race saved! Model will update on next prediction.")
-                st.rerun()
+            # 🔵 NEW: save directly to SQLite instead of CSV
+            save_race_to_db(row)
+
+            st.success("✅ Race saved to database! Model will update on next prediction.")
+            st.rerun()
 # ---------------------------------------------------------
 # Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
 # ---------------------------------------------------------
