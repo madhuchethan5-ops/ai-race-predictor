@@ -276,23 +276,23 @@ def apply_tv_adjustment(final_probs: dict, ctx: dict, tv_matrix: dict, k_type: s
 
     # 2) Normalize strengths to sum to 1.0 (relative tendency)
     total_strength = sum(strengths.values())
-    norm_strengths = {v: strengths[v] / total_strength for v in vehicles} if total_strength > 0 else {v: 1.0 / len(vehicles) for v in vehicles}
-    
-    norm_strengths = {v: strengths[v] / avg_strength for v in vehicles}
+    if total_strength > 0:
+        norm_strengths = {v: strengths[v] / total_strength for v in vehicles}
+    else:
+        norm_strengths = {v: 1.0 / len(vehicles) for v in vehicles}
 
     # 3) Apply a small multiplicative adjustment to probabilities
-    #    adjusted_p = p * (1 + alpha*(s - 1))
     adjusted = {}
     for v in vehicles:
         base_p = final_probs[v]
         s = norm_strengths[v]
-        factor = 1.0 + strength_alpha * (s - 1.0)
+        factor = 1.0 + strength_alpha * (s - (1.0 / len(vehicles)))
         adjusted[v] = base_p * factor
 
-    # 4) Renormalize to keep sum around the same scale
-    total = sum(adjusted.values())
-    if total > 0:
-        adjusted = {v: (adjusted[v] / total) * sum(final_probs.values())
+    # 4) Renormalize to keep total probability consistent
+    total_adj = sum(adjusted.values())
+    if total_adj > 0:
+        adjusted = {v: (adjusted[v] / total_adj) * sum(final_probs.values())
                     for v in vehicles}
     else:
         adjusted = final_probs.copy()
