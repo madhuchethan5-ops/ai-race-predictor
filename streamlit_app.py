@@ -12,7 +12,21 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from collections import Counter, defaultdict
 
-# --- ONE-TIME FIX: DROP AND RECREATE CORRUPTED TABLE ---
+# ---------------------------------------------------------
+# SQLITE DATABASE (PERSISTENT — STORED IN .streamlit/)
+# ---------------------------------------------------------
+
+DB_PATH = Path(".streamlit/race_history.db")
+DB_PATH.parent.mkdir(exist_ok=True)
+
+def get_connection():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# ---------------------------------------------------------
+# ONE-TIME FIX: DROP AND RECREATE CORRUPTED TABLE
+# ---------------------------------------------------------
 if "db_fixed" not in st.session_state:
     conn = get_connection()
     conn.execute("DROP TABLE IF EXISTS races")
@@ -55,22 +69,8 @@ if "db_fixed" not in st.session_state:
     st.session_state["db_fixed"] = True
 
 # ---------------------------------------------------------
-# SQLITE DATABASE (PERSISTENT — STORED IN .streamlit/)
+# NORMAL INIT_DB (SAFE AFTER FIX)
 # ---------------------------------------------------------
-
-DB_PATH = Path(".streamlit/race_history.db")
-DB_PATH.parent.mkdir(exist_ok=True)
-
-# Debug
-st.write("DB exists:", os.path.exists(DB_PATH))
-
-
-def get_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def init_db():
     conn = get_connection()
     conn.execute("""
@@ -110,10 +110,12 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 # Create DB automatically on startup
 init_db()
 
+# ---------------------------------------------------------
+# SAVE RACE
+# ---------------------------------------------------------
 def save_race_to_db(row: dict):
     row_l = {k.lower(): v for k, v in row.items()}
 
@@ -149,7 +151,10 @@ def save_race_to_db(row: dict):
     ))
     conn.commit()
     conn.close()
-    
+
+# ---------------------------------------------------------
+# LOAD HISTORY
+# ---------------------------------------------------------
 def load_history():
     conn = get_connection()
     try:
@@ -159,39 +164,8 @@ def load_history():
     conn.close()
     return df
 
-def import_csv_to_sqlite(uploaded_csv):
-    df = pd.read_csv(uploaded_csv)
-
-    # Remove unnamed index column
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-
-    # Normalize column names
-    df.columns = [c.strip().lower() for c in df.columns]
-
-    conn = get_connection()
-
-    for _, row in df.iterrows():
-        conn.execute("""
-            INSERT INTO races (
-                timestamp, vehicle_1, vehicle_2, vehicle_3,
-                actual_winner,
-                lap_1_track, lap_2_track, lap_3_track,
-                lap_1_len, lap_2_len, lap_3_len,
-                lane
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            row.get("timestamp"),
-            row.get("vehicle_1"), row.get("vehicle_2"), row.get("vehicle_3"),
-            row.get("actual_winner"),
-            row.get("lap_1_track"), row.get("lap_2_track"), row.get("lap_3_track"),
-            row.get("lap_1_len"), row.get("lap_2_len"), row.get("lap_3_len"),
-            row.get("lane"),
-        ))
-
-    conn.commit()
-    conn.close()
-
 history = load_history()
+
 # ---------------------------------------------------------
 # PAGE CONFIG
 # ---------------------------------------------------------
