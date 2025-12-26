@@ -1,6 +1,4 @@
 import os
-st.write("DB exists:", os.path.exists("race_history.db"))
-import os
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -14,6 +12,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from collections import Counter, defaultdict
 
+st.write("DB exists:", os.path.exists("race_history.db"))
 # ---------------------------------------------------------
 # SQLITE DATABASE (REPLACES CSV SYSTEM)
 # ---------------------------------------------------------
