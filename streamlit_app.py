@@ -1986,7 +1986,23 @@ with Q3:
                 for k in (1, 2, 3):
                     probs = lg[k]["track_probs"]
                     track_err[k] = 1.0 - probs.get(actual_tracks[k], 0.0)
-                    len_err[k] = abs(lg[k]["expected_len"] - actual_lens[k])
+                    # SAFE conversion of expected_len
+                    try:
+                        exp_len = float(lg[k]["expected_len"])
+                    except Exception:
+                        exp_len = None
+                    
+                    # SAFE conversion of actual length
+                    try:
+                        act_len = float(actual_lens[k])
+                    except Exception:
+                        act_len = None
+                    
+                    # If either is missing, mark error as None
+                    if exp_len is None or act_len is None:
+                        len_err[k] = None
+                    else:
+                        len_err[k] = abs(exp_len - act_len)
 
                 return track_err, len_err
 
