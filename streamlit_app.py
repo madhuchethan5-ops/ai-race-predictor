@@ -1340,7 +1340,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         }
     else:
         final_probs = sim_probs
-    
+
     # --- Terrain–vehicle adjustment (gentle) ---
     tv_matrix = build_tv_matrix(history)
     ctx = {
@@ -1383,7 +1383,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         bet_safety = "CAUTION"
 
     # ---------------------------------------------------------
-    # NEW: Hidden Lap Estimation
+    # Hidden Lap Estimation
     # ---------------------------------------------------------
     hidden_stats = build_hidden_lap_stats(history)
     lap_guess = estimate_hidden_laps(
@@ -1394,13 +1394,13 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             "slot": f"Lap {k_idx + 1}",
         },
         hidden_stats,
-        TRACK_OPTIONS
+        TRACK_OPTIONS,
     )
 
     # ---------------------------------------------------------
-    # FINAL RESULT (NO DUPLICATE OVERWRITE)
+    # FINAL RESULT (PURE RETURN, NO SESSION MUTATION)
     # ---------------------------------------------------------
-    st.session_state['res'] = {
+    res = {
         'p': final_probs,
         'vpi': vpi_res,
         'ctx': {
@@ -1420,9 +1420,11 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             'bet_safety': bet_safety,
             'expected_regret': expected_regret,
         },
-        'hidden_guess': lap_guess,   # <-- stays here
+        'hidden_guess': lap_guess,
         'tv_strengths': tv_strengths,
     }
+
+    return res
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
 # ---------------------------------------------------------
