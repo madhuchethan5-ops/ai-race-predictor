@@ -138,9 +138,13 @@ def extend_schema():
 
 
 def import_csv_to_sqlite(csv_path="race_history.csv"):
-    df = pd.read_csv(csv_path)
-    for _, row in df.iterrows():
-        save_race_to_db(row.to_dict())
+    df = pd.read_csv(uploaded_csv)
+    
+    # Remove unnamed index column
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    
+    # Normalize column names
+    df.columns = [c.strip().lower() for c in df.columns]
 
 # ---------------------------------------------------------
 # PAGE CONFIG
