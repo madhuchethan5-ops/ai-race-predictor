@@ -73,10 +73,6 @@ init_db()
 
 
 def save_race_to_db(row: dict):
-    """
-    Save a race row to SQLite.
-    Accepts both legacy TitleCase keys (CSV) and new snake_case keys.
-    """
     row_l = {k.lower(): v for k, v in row.items()}
 
     conn = get_connection()
@@ -109,7 +105,6 @@ def save_race_to_db(row: dict):
     ))
     conn.commit()
     conn.close()
-
 def load_history():
     conn = get_connection()
     df = pd.read_sql_query("SELECT * FROM races ORDER BY id ASC", conn)
