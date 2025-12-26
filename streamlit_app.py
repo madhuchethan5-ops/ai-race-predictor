@@ -137,30 +137,58 @@ def build_hidden_lap_stats(history: pd.DataFrame):
     return stats
 
 
-def estimate_hidden_laps(ctx, stats, track_options):
+def estimate_hidden_laps(ctx, stats, track_options, alpha: float = 0.7):
+    """
+    Estimate hidden lap track distributions and expected lengths.
+
+    alpha: how much weight to give to history vs uniform prior.
+           0.7 = mostly data-driven but not allowed to collapse to a single terrain.
+    """
     lap_guess = {}
     revealed_idx = ctx["idx"] + 1
     revealed_track = ctx["t"]
 
+    # Build list of conditional keys that match the revealed lap/track
     matching_keys = [
         k for k in stats["conditional"].keys()
         if k[1] == revealed_idx and k[2] == revealed_track
     ]
 
+    n_tracks = len(track_options)
+    uniform_prior = {t: 1.0 / n_tracks for t in track_options}
+
     for k in (1, 2, 3):
         track_counts = Counter()
 
+        # 1) Use conditional stats if available
         for key in matching_keys:
             track_counts.update(stats["conditional"][key][k])
 
+        # 2) Fallback to global if conditional empty
         if not track_counts:
             track_counts = stats["global"][k].copy()
 
+        # 3) Convert counts to probabilities
         if not track_counts:
-            probs = {t: 1.0 / len(track_options) for t in track_options}
+            # No data at all → pure uniform
+            data_probs = {t: 1.0 / n_tracks for t in track_options}
         else:
             total = sum(track_counts.values())
-            probs = {t: track_counts.get(t, 0) / total for t in track_options}
+            data_probs = {t: track_counts.get(t, 0) / total for t in track_options}
+
+        # 4) Blend with uniform prior to avoid Desert domination
+        #    p_final = alpha * data_probs + (1 - alpha) * uniform
+        probs = {
+            t: alpha * data_probs[t] + (1.0 - alpha) * uniform_prior[t]
+            for t in track_options
+        }
+
+        # 5) Renormalize to be safe
+        s = sum(probs.values())
+        if s > 0:
+            probs = {t: p / s for t, p in probs.items()}
+        else:
+            probs = uniform_prior.copy()
 
         expected_len = stats["length"][k]
 
