@@ -1,4 +1,5 @@
 import os
+st.write("DB exists:", os.path.exists("race_history.db"))
 import numpy as np
 import pandas as pd
 import streamlit as st
