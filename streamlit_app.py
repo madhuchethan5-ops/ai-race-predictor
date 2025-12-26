@@ -604,8 +604,41 @@ def load_history():
 
 # Load history at startup
 history = load_history()
-st.write("COLUMNS IN SQLITE:", history.columns.tolist())
-st.stop()
+def normalize_history_columns(df):
+    rename_map = {
+        "Actual_Winner": "actual_winner",
+        "Predicted_Winner": "predicted_winner",
+        "Top_Prob": "top_prob",
+        "Was_Correct": "was_correct",
+        "Surprise_Index": "surprise_index",
+        "Sim_Predicted_Winner": "sim_predicted_winner",
+        "ML_Predicted_Winner": "ml_predicted_winner",
+        "Sim_Top_Prob": "sim_top_prob",
+        "ML_Top_Prob": "ml_top_prob",
+        "Sim_Was_Correct": "sim_was_correct",
+        "ML_Was_Correct": "ml_was_correct",
+        "Hidden_Track_Error_L1": "hidden_track_error_l1",
+        "Hidden_Track_Error_L2": "hidden_track_error_l2",
+        "Hidden_Track_Error_L3": "hidden_track_error_l3",
+        "Hidden_Len_Error_L1": "hidden_len_error_l1",
+        "Hidden_Len_Error_L2": "hidden_len_error_l2",
+        "Hidden_Len_Error_L3": "hidden_len_error_l3",
+        "Vehicle_1": "vehicle_1",
+        "Vehicle_2": "vehicle_2",
+        "Vehicle_3": "vehicle_3",
+        "Lap_1_Track": "lap_1_track",
+        "Lap_2_Track": "lap_2_track",
+        "Lap_3_Track": "lap_3_track",
+        "Lap_1_Len": "lap_1_len",
+        "Lap_2_Len": "lap_2_len",
+        "Lap_3_Len": "lap_3_len",
+        "Lane": "lane",
+        "Timestamp": "timestamp",
+    }
+
+    df = df.rename(columns=rename_map)
+    return df
+history = normalize_history_columns(history)
 
 # ---------------------------------------------------------
 # 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
@@ -2348,6 +2381,3 @@ if history is not None and not history.empty:
                 st.json(probs_rough)
 
             st.caption("Ghost scenarios approximate how outcomes shift if underlying laps skew high-speed vs rough.")
-
-extend_schema()
-import_csv_to_sqlite()
