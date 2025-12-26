@@ -1847,10 +1847,11 @@ with Q3:
         revealed_lap = ctx['idx']      # 0,1,2
         revealed_track = ctx['t']      # terrain used in prediction
         revealed_slot = ctx['slot']
-        # Build predicted_tracks manually: all laps default to Bumpy
+
+        # Build predicted_tracks manually: all laps default to Bumpy,
+        # only the revealed lap gets the predicted terrain
         predicted_tracks = ["Bumpy", "Bumpy", "Bumpy"]
-        if prediction_available:
-            predicted_tracks[revealed_lap] = revealed_track
+        predicted_tracks[revealed_lap] = revealed_track
 
         st.caption(
             f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
@@ -1858,19 +1859,15 @@ with Q3:
     else:
         st.info("Run a prediction first to enable saving.")
 
-    # Safe index helper
+    # Safe index helper (robust to spacing / case)
     def safe_index(value, options):
         if value is None:
             return 0
-    
-        # Normalize both value and options to compare safely
         val_norm = str(value).strip().lower()
-    
         for i, opt in enumerate(options):
             opt_norm = str(opt).strip().lower()
             if opt_norm == val_norm:
                 return i
-    
         return 0
 
     # -----------------------------
@@ -1888,14 +1885,19 @@ with Q3:
                 disabled=disabled_form,
             )
 
-        # Lap inputs
+            # Lap inputs
             c1, c2, c3 = st.columns(3)
-            
+
             # Lock only the revealed lap
             disabled_1 = disabled_form or (prediction_available and revealed_lap == 0)
             disabled_2 = disabled_form or (prediction_available and revealed_lap == 1)
             disabled_3 = disabled_form or (prediction_available and revealed_lap == 2)
-            
+
+            # Use dynamic keys so Streamlit actually applies new defaults when prediction changes
+            lap1_key = f"lap1_track_{revealed_lap}_{revealed_track}" if prediction_available else "lap1_track"
+            lap2_key = f"lap2_track_{revealed_lap}_{revealed_track}" if prediction_available else "lap2_track"
+            lap3_key = f"lap3_track_{revealed_lap}_{revealed_track}" if prediction_available else "lap3_track"
+
             # -----------------------------
             # LAP 1
             # -----------------------------
@@ -1904,10 +1906,11 @@ with Q3:
                     "Lap 1 Track",
                     TRACK_OPTIONS,
                     index=safe_index(predicted_tracks[0], TRACK_OPTIONS),
-                    disabled=disabled_1
+                    disabled=disabled_1,
+                    key=lap1_key,
                 )
                 s1l = st.number_input("Lap 1 %", 1, 100, 33, disabled=disabled_form)
-            
+
             # -----------------------------
             # LAP 2
             # -----------------------------
@@ -1916,10 +1919,11 @@ with Q3:
                     "Lap 2 Track",
                     TRACK_OPTIONS,
                     index=safe_index(predicted_tracks[1], TRACK_OPTIONS),
-                    disabled=disabled_2
+                    disabled=disabled_2,
+                    key=lap2_key,
                 )
                 s2l = st.number_input("Lap 2 %", 1, 100, 33, disabled=disabled_form)
-            
+
             # -----------------------------
             # LAP 3
             # -----------------------------
@@ -1928,7 +1932,8 @@ with Q3:
                     "Lap 3 Track",
                     TRACK_OPTIONS,
                     index=safe_index(predicted_tracks[2], TRACK_OPTIONS),
-                    disabled=disabled_3
+                    disabled=disabled_3,
+                    key=lap3_key,
                 )
                 s3l = st.number_input("Lap 3 %", 1, 100, 34, disabled=disabled_form)
 
@@ -2065,7 +2070,6 @@ with Q3:
 
             st.success("✅ Race saved to database! Model will update on next prediction.")
             st.rerun()
-
 # ---------------------------------------------------------
 # Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
 # ---------------------------------------------------------
