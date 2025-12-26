@@ -1503,19 +1503,18 @@ with Q2:
             terrain = res['ctx']['t']
             lines = []
             for v in res['ctx']['v']:
-                s = tv_strengths.get(v, 0.5)
-                if s > 0.55:
+                s = tv_strengths.get(v, 0.33)  # now it's normalized
+                if s > 0.45:
                     flavor = "favored"
                     icon = "🟢"
-                elif s < 0.45:
+                elif s < 0.30:
                     flavor = "penalized"
                     icon = "🔴"
                 else:
                     flavor = "neutral"
                     icon = "⚪"
-
-                lines.append(f"- {icon} **{v}** on **{terrain}** → {flavor} (win‑rate ~{s*100:.0f}%)")
-
+                
+                lines.append(f"- {icon} **{v}** on **{terrain}** → {flavor} (tendency ~{s*100:.0f}%)")
             for line in lines:
                 st.markdown(line)
         else:
