@@ -1709,61 +1709,66 @@ with Q2:
             else:
                 st.caption("Not enough history yet to learn terrain–vehicle strengths.")
 
-        # -----------------------------------------------------
-        # BOTTOM‑LEFT: Hidden Lap Guess
-        # -----------------------------------------------------
-        with col_left:
-            lg = res.get("hidden_guess")
-            if lg:
-                with st.expander("🤫 AI guess for hidden laps"):
-
-                    TERRAIN_EMOJI = {
-                        "Desert": "🏜️",
-                        "Bumpy": "🪨",
-                        "Expressway": "🛣️",
-                        "Highway": "🚗",
-                        "Dirt": "🌾",
-                        "Potholes": "🕳️"
-                    }
-
-                    summary_lines = []
-
-                    for k in (1, 2, 3):
-                        label = f"Lap {k}"
-
-                        if k == res["ctx"]["idx"] + 1:
-                            st.markdown(f"**{label} (revealed):** {res['ctx']['t']}")
-                            continue
-
-                        info = lg[k]
-                        probs_k = info["track_probs"]
-                        expected_len = info["expected_len"]
-
-                        sorted_probs = sorted(probs_k.items(), key=lambda x: x[1], reverse=True)
-                        top_terrain, top_prob = sorted_probs[0]
-
-                        emoji = TERRAIN_EMOJI.get(top_terrain, "🌍")
-
-                        summary_lines.append(
-                            f"**Lap {k}** → {emoji} **{top_terrain}‑heavy** (~{top_prob*100:.0f}%)"
-                        )
-
-                        top_str = ", ".join([
-                            f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
-                            for t, p in sorted_probs[:3]
-                        ])
-
-                        st.markdown(
-                            f"**{label} (hidden):** expected length ≈ {expected_len:.1f}%, "
-                            f"top terrains → {top_str}"
-                        )
-
-                    st.markdown("### 🧭 Summary")
-                    for line in summary_lines:
-                        st.markdown(f"- {line}")
-            else:
-                st.write("Not enough history to estimate hidden laps.")
-
+    # -----------------------------------------------------
+    # BOTTOM‑LEFT: Hidden Lap Guess
+    # -----------------------------------------------------
+    with col_left:
+        lg = res.get("hidden_guess")
+        if lg:
+            with st.expander("🤫 AI guess for hidden laps"):
+    
+                TERRAIN_EMOJI = {
+                    "Desert": "🏜️",
+                    "Bumpy": "🪨",
+                    "Expressway": "🛣️",
+                    "Highway": "🚗",
+                    "Dirt": "🌾",
+                    "Potholes": "🕳️"
+                }
+    
+                summary_lines = []
+    
+                for k in (1, 2, 3):
+                    label = f"Lap {k}"
+    
+                    if k == res["ctx"]["idx"] + 1:
+                        st.markdown(f"**{label} (revealed):** {res['ctx']['t']}")
+                        continue
+    
+                    info = lg[k]
+                    probs_k = info["track_probs"]
+                    expected_len = info["expected_len"]
+    
+                    sorted_probs = sorted(probs_k.items(), key=lambda x: x[1], reverse=True)
+                    top_terrain, top_prob = sorted_probs[0]
+    
+                    emoji = TERRAIN_EMOJI.get(top_terrain, "🌍")
+    
+                    summary_lines.append(
+                        f"**Lap {k}** → {emoji} **{top_terrain}‑heavy** (~{top_prob*100:.0f}%)"
+                    )
+    
+                    top_str = ", ".join([
+                        f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
+                        for t, p in sorted_probs[:3]
+                    ])
+    
+                    # SAFE HANDLING OF None
+                    if expected_len is None:
+                        expected_text = "unknown"
+                    else:
+                        expected_text = f"{expected_len:.1f}%"
+    
+                    st.markdown(
+                        f"**{label} (hidden):** expected length ≈ {expected_text}, "
+                        f"top terrains → {top_str}"
+                    )
+    
+                st.markdown("### 🧭 Summary")
+                for line in summary_lines:
+                    st.markdown(f"- {line}")
+        else:
+            st.write("Not enough history to estimate hidden laps.")
         # -----------------------------------------------------
         # BOTTOM‑RIGHT: Tightness + Regret
         # -----------------------------------------------------
