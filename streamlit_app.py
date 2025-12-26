@@ -604,42 +604,47 @@ def load_history():
 
 # Load history at startup
 def normalize_history_columns(df):
+    # Step 1: lowercase everything
+    df = df.copy()
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    # Step 2: rename known columns to canonical snake_case
     rename_map = {
         # ML-required columns
-        "Actual_Winner": "actual_winner",
-        "Vehicle_1": "vehicle_1",
-        "Vehicle_2": "vehicle_2",
-        "Vehicle_3": "vehicle_3",
-        "Lap_1_Track": "lap_1_track",
-        "Lap_2_Track": "lap_2_track",
-        "Lap_3_Track": "lap_3_track",
-        "Lap_1_Len": "lap_1_len",
-        "Lap_2_Len": "lap_2_len",
-        "Lap_3_Len": "lap_3_len",
-        "Lane": "lane",
-        "Timestamp": "timestamp",
+        "actual_winner": "actual_winner",
+        "vehicle_1": "vehicle_1",
+        "vehicle_2": "vehicle_2",
+        "vehicle_3": "vehicle_3",
+        "lap_1_track": "lap_1_track",
+        "lap_2_track": "lap_2_track",
+        "lap_3_track": "lap_3_track",
+        "lap_1_len": "lap_1_len",
+        "lap_2_len": "lap_2_len",
+        "lap_3_len": "lap_3_len",
+        "lane": "lane",
+        "timestamp": "timestamp",
 
         # Prediction metadata
-        "Predicted_Winner": "predicted_winner",
-        "Top_Prob": "top_prob",
-        "Was_Correct": "was_correct",
-        "Surprise_Index": "surprise_index",
+        "predicted_winner": "predicted_winner",
+        "top_prob": "top_prob",
+        "was_correct": "was_correct",
+        "surprise_index": "surprise_index",
 
         # Simulation + ML diagnostics
-        "Sim_Predicted_Winner": "sim_predicted_winner",
-        "ML_Predicted_Winner": "ml_predicted_winner",
-        "Sim_Top_Prob": "sim_top_prob",
-        "ML_Top_Prob": "ml_top_prob",
-        "Sim_Was_Correct": "sim_was_correct",
-        "ML_Was_Correct": "ml_was_correct",
+        "sim_predicted_winner": "sim_predicted_winner",
+        "ml_predicted_winner": "ml_predicted_winner",
+        "sim_top_prob": "sim_top_prob",
+        "ml_top_prob": "ml_top_prob",
+        "sim_was_correct": "sim_was_correct",
+        "ml_was_correct": "ml_was_correct",
 
         # Hidden lap guess errors
-        "Hidden_Track_Error_L1": "hidden_track_error_l1",
-        "Hidden_Track_Error_L2": "hidden_track_error_l2",
-        "Hidden_Track_Error_L3": "hidden_track_error_l3",
-        "Hidden_Len_Error_L1": "hidden_len_error_l1",
-        "Hidden_Len_Error_L2": "hidden_len_error_l2",
-        "Hidden_Len_Error_L3": "hidden_len_error_l3",
+        "hidden_track_error_l1": "hidden_track_error_l1",
+        "hidden_track_error_l2": "hidden_track_error_l2",
+        "hidden_track_error_l3": "hidden_track_error_l3",
+        "hidden_len_error_l1": "hidden_len_error_l1",
+        "hidden_len_error_l2": "hidden_len_error_l2",
+        "hidden_len_error_l3": "hidden_len_error_l3",
     }
 
     df = df.rename(columns=rename_map)
@@ -2027,34 +2032,49 @@ with Q3:
             p1 = predicted[predicted_winner] / 100.0
             surprise = round(1 - p1, 4) if was_correct == 1 else 1.0
 
-            row = {
-                'Vehicle_1': ctx['v'][0],
-                'Vehicle_2': ctx['v'][1],
-                'Vehicle_3': ctx['v'][2],
-                'Lap_1_Track': s1t, 'Lap_1_Len': s1l,
-                'Lap_2_Track': s2t, 'Lap_2_Len': s2l,
-                'Lap_3_Track': s3t, 'Lap_3_Len': s3l,
-                'Predicted_Winner': predicted_winner,
-                'Actual_Winner': winner,
-                'Lane': revealed_slot,
-                'Top_Prob': p1,
-                'Was_Correct': was_correct,
-                'Surprise_Index': surprise,
-                'Sim_Predicted_Winner': sim_pred_winner,
-                'ML_Predicted_Winner': ml_pred_winner,
-                'Sim_Top_Prob': sim_top_prob,
-                'ML_Top_Prob': ml_top_prob,
-                'Sim_Was_Correct': sim_correct,
-                'ML_Was_Correct': ml_correct,
-                'Hidden_Track_Error_L1': track_err[1],
-                'Hidden_Track_Error_L2': track_err[2],
-                'Hidden_Track_Error_L3': track_err[3],
-                'Hidden_Len_Error_L1': len_err[1],
-                'Hidden_Len_Error_L2': len_err[2],
-                'Hidden_Len_Error_L3': len_err[3],
-                'Timestamp': datetime.now().isoformat(timespec="seconds"),
-            }
+                row = {
+                # Vehicles
+                'vehicle_1': ctx['v'][0],
+                'vehicle_2': ctx['v'][1],
+                'vehicle_3': ctx['v'][2],
 
+                # Laps (snake_case)
+                'lap_1_track': s1t,
+                'lap_1_len': s1l,
+                'lap_2_track': s2t,
+                'lap_2_len': s2l,
+                'lap_3_track': s3t,
+                'lap_3_len': s3l,
+
+                # Core outcome
+                'predicted_winner': predicted_winner,
+                'actual_winner': winner,
+                'lane': revealed_slot,
+
+                # Overall prob & correctness
+                'top_prob': p1,
+                'was_correct': was_correct,
+                'surprise_index': surprise,
+
+                # Physics vs ML diagnostics
+                'sim_predicted_winner': sim_pred_winner,
+                'ml_predicted_winner': ml_pred_winner,
+                'sim_top_prob': sim_top_prob,
+                'ml_top_prob': ml_top_prob,
+                'sim_was_correct': sim_correct,
+                'ml_was_correct': ml_correct,
+
+                # Hidden-lap errors
+                'hidden_track_error_l1': track_err[1],
+                'hidden_track_error_l2': track_err[2],
+                'hidden_track_error_l3': track_err[3],
+                'hidden_len_error_l1': len_err[1],
+                'hidden_len_error_l2': len_err[2],
+                'hidden_len_error_l3': len_err[3],
+
+                # Timestamp
+                'timestamp': datetime.now().isoformat(timespec="seconds"),
+            }
             # 🔵 NEW: save directly to SQLite instead of CSV
             save_race_to_db(row)
 
