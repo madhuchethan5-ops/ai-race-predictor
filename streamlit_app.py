@@ -1847,7 +1847,10 @@ with Q3:
         revealed_lap = ctx['idx']      # 0,1,2
         revealed_track = ctx['t']      # terrain used in prediction
         revealed_slot = ctx['slot']
-        predicted_tracks = ctx['tracks']  # <-- ALL THREE TRACKS
+        # Build predicted_tracks manually: all laps default to Bumpy
+        predicted_tracks = ["Bumpy", "Bumpy", "Bumpy"]
+        if prediction_available:
+            predicted_tracks[revealed_lap] = revealed_track
 
         st.caption(
             f"Last prediction: **{predicted_winner}** on {revealed_slot} ({revealed_track})"
@@ -1878,60 +1881,49 @@ with Q3:
             )
 
         # Lap inputs
-        c1, c2, c3 = st.columns(3)
-        
-        # Per-lap disabling: lock only the revealed lap
-        disabled_1 = disabled_form or (prediction_available and revealed_lap == 0)
-        disabled_2 = disabled_form or (prediction_available and revealed_lap == 1)
-        disabled_3 = disabled_form or (prediction_available and revealed_lap == 2)
-        
-        # -----------------------------
-        # LAP 1
-        # -----------------------------
-        with c1:
-            s1t = st.selectbox(
-                "Lap 1 Track",
-                TRACK_OPTIONS,
-                index=safe_index(predicted_tracks[0], TRACK_OPTIONS) if prediction_available else 0,
-                disabled=disabled_1
-            )
-            s1l = st.number_input(
-                "Lap 1 %",
-                1, 100, 33,
-                disabled=disabled_form
-            )
-        
-        # -----------------------------
-        # LAP 2
-        # -----------------------------
-        with c2:
-            s2t = st.selectbox(
-                "Lap 2 Track",
-                TRACK_OPTIONS,
-                index=safe_index(predicted_tracks[1], TRACK_OPTIONS) if prediction_available else 0,
-                disabled=disabled_2
-            )
-            s2l = st.number_input(
-                "Lap 2 %",
-                1, 100, 33,
-                disabled=disabled_form
-            )
-        
-        # -----------------------------
-        # LAP 3
-        # -----------------------------
-        with c3:
-            s3t = st.selectbox(
-                "Lap 3 Track",
-                TRACK_OPTIONS,
-                index=safe_index(predicted_tracks[2], TRACK_OPTIONS) if prediction_available else 0,
-                disabled=disabled_3
-            )
-            s3l = st.number_input(
-                "Lap 3 %",
-                1, 100, 34,
-                disabled=disabled_form
-            )
+            c1, c2, c3 = st.columns(3)
+            
+            # Lock only the revealed lap
+            disabled_1 = disabled_form or (prediction_available and revealed_lap == 0)
+            disabled_2 = disabled_form or (prediction_available and revealed_lap == 1)
+            disabled_3 = disabled_form or (prediction_available and revealed_lap == 2)
+            
+            # -----------------------------
+            # LAP 1
+            # -----------------------------
+            with c1:
+                s1t = st.selectbox(
+                    "Lap 1 Track",
+                    TRACK_OPTIONS,
+                    index=safe_index(predicted_tracks[0], TRACK_OPTIONS),
+                    disabled=disabled_1
+                )
+                s1l = st.number_input("Lap 1 %", 1, 100, 33, disabled=disabled_form)
+            
+            # -----------------------------
+            # LAP 2
+            # -----------------------------
+            with c2:
+                s2t = st.selectbox(
+                    "Lap 2 Track",
+                    TRACK_OPTIONS,
+                    index=safe_index(predicted_tracks[1], TRACK_OPTIONS),
+                    disabled=disabled_2
+                )
+                s2l = st.number_input("Lap 2 %", 1, 100, 33, disabled=disabled_form)
+            
+            # -----------------------------
+            # LAP 3
+            # -----------------------------
+            with c3:
+                s3t = st.selectbox(
+                    "Lap 3 Track",
+                    TRACK_OPTIONS,
+                    index=safe_index(predicted_tracks[2], TRACK_OPTIONS),
+                    disabled=disabled_3
+                )
+                s3l = st.number_input("Lap 3 %", 1, 100, 34, disabled=disabled_form)
+
             # Submit button
             save_clicked = st.form_submit_button("💾 Save & Train")
 
