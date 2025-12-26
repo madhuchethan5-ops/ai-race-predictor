@@ -33,13 +33,29 @@ def init_db():
             vehicle_2 TEXT,
             vehicle_3 TEXT,
             actual_winner TEXT,
+            predicted_winner TEXT,
+            top_prob REAL,
+            was_correct REAL,
+            surprise_index REAL,
             lap_1_track TEXT,
             lap_2_track TEXT,
             lap_3_track TEXT,
             lap_1_len REAL,
             lap_2_len REAL,
             lap_3_len REAL,
-            lane TEXT
+            lane TEXT,
+            sim_predicted_winner TEXT,
+            ml_predicted_winner TEXT,
+            sim_top_prob REAL,
+            ml_top_prob REAL,
+            sim_was_correct REAL,
+            ml_was_correct REAL,
+            hidden_track_error_l1 REAL,
+            hidden_track_error_l2 REAL,
+            hidden_track_error_l3 REAL,
+            hidden_len_error_l1 REAL,
+            hidden_len_error_l2 REAL,
+            hidden_len_error_l3 REAL
         )
     """)
     conn.commit()
