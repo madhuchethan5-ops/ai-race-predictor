@@ -71,7 +71,6 @@ def init_db():
 # Create DB automatically on startup
 init_db()
 
-
 def save_race_to_db(row: dict):
     row_l = {k.lower(): v for k, v in row.items()}
 
@@ -87,8 +86,9 @@ def save_race_to_db(row: dict):
             sim_top_prob, ml_top_prob,
             sim_was_correct, ml_was_correct,
             hidden_track_error_l1, hidden_track_error_l2, hidden_track_error_l3,
-            hidden_len_error_l1, hidden_len_error_l2, hidden_len_error_l3
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            hidden_len_error_l1, hidden_len_error_l2, hidden_len_error_l3,
+            last_updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         row_l.get("timestamp"),
         row_l.get("vehicle_1"), row_l.get("vehicle_2"), row_l.get("vehicle_3"),
@@ -102,48 +102,10 @@ def save_race_to_db(row: dict):
         row_l.get("sim_was_correct"), row_l.get("ml_was_correct"),
         row_l.get("hidden_track_error_l1"), row_l.get("hidden_track_error_l2"), row_l.get("hidden_track_error_l3"),
         row_l.get("hidden_len_error_l1"), row_l.get("hidden_len_error_l2"), row_l.get("hidden_len_error_l3"),
+        row_l.get("last_updated")
     ))
     conn.commit()
     conn.close()
-def load_history():
-    conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM races ORDER BY id ASC", conn)
-    conn.close()
-    return df
-history = load_history()
-
-# ---------------------------------------------------------
-# ONE-TIME SCHEMA EXTENSION (RUN MANUALLY IF NEEDED)
-# ---------------------------------------------------------
-
-def extend_schema():
-    conn = get_connection()
-    commands = [
-        "ALTER TABLE races ADD COLUMN predicted_winner TEXT;",
-        "ALTER TABLE races ADD COLUMN top_prob REAL;",
-        "ALTER TABLE races ADD COLUMN was_correct REAL;",
-        "ALTER TABLE races ADD COLUMN surprise_index REAL;",
-        "ALTER TABLE races ADD COLUMN sim_predicted_winner TEXT;",
-        "ALTER TABLE races ADD COLUMN ml_predicted_winner TEXT;",
-        "ALTER TABLE races ADD COLUMN sim_top_prob REAL;",
-        "ALTER TABLE races ADD COLUMN ml_top_prob REAL;",
-        "ALTER TABLE races ADD COLUMN sim_was_correct REAL;",
-        "ALTER TABLE races ADD COLUMN ml_was_correct REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_track_error_l1 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_track_error_l2 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_track_error_l3 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_len_error_l1 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_len_error_l2 REAL;",
-        "ALTER TABLE races ADD COLUMN hidden_len_error_l3 REAL;",
-    ]
-    for cmd in commands:
-        try:
-            conn.execute(cmd)
-        except Exception:
-            pass
-    conn.commit()
-    conn.close()
-
 
 def import_csv_to_sqlite(uploaded_csv):
     df = pd.read_csv(uploaded_csv)
