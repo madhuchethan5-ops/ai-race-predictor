@@ -441,7 +441,6 @@ ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
 TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
 VALID_TRACKS = set(TRACK_OPTIONS)
 
-HISTORY_FILE = "race_history.csv"
 
 TRACK_ALIASES = {
     "Road": "Highway",
