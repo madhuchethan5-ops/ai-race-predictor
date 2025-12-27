@@ -835,7 +835,7 @@ def build_single_feature_row(
 
     lane = f"Lap {k_idx + 1}"
     # 🔥 TEMP DEBUG — REMOVE AFTER TESTING
-    print("DEBUG ML EXPECTED LENGTHS:", lap_lens, "TRACKS:", lap_tracks, "LANE:", lane)
+    st.write("DEBUG ML EXPECTED LENGTHS:", lap_lens, lap_tracks, lane)
     
     high_speed_share = (
         lap_tracks.count("Expressway") + lap_tracks.count("Highway")
