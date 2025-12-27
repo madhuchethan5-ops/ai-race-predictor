@@ -764,19 +764,79 @@ def get_trained_model(history_df: pd.DataFrame):
     return train_ml_model(history_df)
 
 # ---------------------------------------------------------
+# EXPECTED LENGTH ESTIMATOR (NEW)
+# ---------------------------------------------------------
+
+def expected_length(history_df: pd.DataFrame, lap_idx: int, track_type: str) -> float:
+    """
+    Returns the expected lap length for (lap_idx, track_type)
+    based on historical geometry.
+    - history_df: full normalized history (same as passed into run_full_prediction)
+    - lap_idx: 0, 1, or 2 (for Lap 1/2/3)
+    - track_type: specific track name (e.g. 'Desert') or 'Unknown'
+    """
+    # Safe fallback if no history
+    if history_df is None or history_df.empty:
+        return 33.3
+
+    col_track = f"lap_{lap_idx + 1}_track"
+    col_len = f"lap_{lap_idx + 1}_len"
+
+    # If geometry columns aren't present, fallback
+    if col_track not in history_df.columns or col_len not in history_df.columns:
+        return 33.3
+
+    df = history_df[[col_track, col_len]].dropna()
+
+    # If we know the track, filter to that track
+    if track_type is not None and track_type != "Unknown":
+        df = df[df[col_track] == track_type]
+
+    # If still empty (very low data), fallback to lap-wise mean across all tracks
+    if df.empty:
+        df_all = history_df[[col_len]].dropna()
+        if df_all.empty:
+            return 33.3
+        return float(df_all[col_len].mean())
+
+    return float(df[col_len].mean())
+    
+# ---------------------------------------------------------
 # 5. SINGLE-ROW FEATURE BUILDER FOR LIVE PREDICTIONS
 # ---------------------------------------------------------
 
-def build_single_feature_row(v1, v2, v3, k_idx, k_type):
+def build_single_feature_row(
+    v1: str,
+    v2: str,
+    v3: str,
+    k_idx: int,
+    k_type: str,
+    history_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Build a single feature row for live ML prediction.
+
+    v1, v2, v3   : vehicle names
+    k_idx        : known lap index (0, 1, 2)
+    k_type       : known lap track type (e.g. 'Desert', 'Expressway')
+    history_df   : full normalized history, used to infer expected lap lengths
+    """
+
     # Build lap tracks with only the revealed lap filled
     lap_tracks = ["Unknown", "Unknown", "Unknown"]
     lap_tracks[k_idx] = k_type
 
-    # Default lap lengths (same as training)
-    lap_lens = [33.0, 33.0, 34.0]
+    # EXPECTED lap lengths based on history (no more hard-coded 33/33/34)
+    lap_lens = [
+        expected_length(history_df, 0, lap_tracks[0]),
+        expected_length(history_df, 1, lap_tracks[1]),
+        expected_length(history_df, 2, lap_tracks[2]),
+    ]
 
     lane = f"Lap {k_idx + 1}"
-
+    # 🔥 TEMP DEBUG — REMOVE AFTER TESTING
+    print("DEBUG ML EXPECTED LENGTHS:", lap_lens, "TRACKS:", lap_tracks, "LANE:", lane)
+    
     high_speed_share = (
         lap_tracks.count("Expressway") + lap_tracks.count("Highway")
     ) / 3.0
@@ -795,9 +855,9 @@ def build_single_feature_row(v1, v2, v3, k_idx, k_type):
         "lap_2_track": lap_tracks[1],
         "lap_3_track": lap_tracks[2],
 
-        "lap_1_len": lap_lens[0],
-        "lap_2_len": lap_lens[1],
-        "lap_3_len": lap_lens[2],
+        "lap_1_len": float(lap_lens[0]),
+        "lap_2_len": float(lap_lens[1]),
+        "lap_3_len": float(lap_lens[2]),
 
         "lane": lane,
 
@@ -811,7 +871,6 @@ def build_single_feature_row(v1, v2, v3, k_idx, k_type):
     }
 
     return pd.DataFrame([data])
-
 
 # ---------------------------------------------------------
 # 6. METRICS & MODEL SKILL
@@ -1265,14 +1324,15 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     ml_model, n_samples = get_trained_model(history)
 
     if ml_model is not None:
-        X_curr = build_single_feature_row(v1_sel, v2_sel, v3_sel, k_idx, k_type)
+        X_curr = build_single_feature_row(
+            v1_sel, v2_sel, v3_sel, k_idx, k_type, history
+        )
         proba = ml_model.predict_proba(X_curr)[0]
         ml_probs = {
             v1_sel: float(proba[0] * 100.0),
             v2_sel: float(proba[1] * 100.0),
             v3_sel: float(proba[2] * 100.0),
         }
-
     final_probs = sim_probs
     p_ml_store = ml_probs
 
