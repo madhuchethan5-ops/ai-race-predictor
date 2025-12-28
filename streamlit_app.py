@@ -1491,29 +1491,39 @@ def run_simulation(
 
     # 7. TEMPERATURE CALIBRATION
     def estimate_temperature_from_history(df):
-        # history is normalized → use lowercase
-        if df.empty or 'top_prob' not in df.columns or 'was_correct' not in df.columns:
-            return 1.0
-        recent = df.dropna(subset=['top_prob', 'was_correct']).tail(200)
+        # SIM-only calibration
+        if df.empty or 'sim_top_prob' not in df.columns or 'sim_was_correct' not in df.columns:
+            return 1.2
+    
+        recent = df.dropna(subset=['sim_top_prob', 'sim_was_correct']).tail(200)
         if len(recent) < calib_min_hist:
-            return 1.0
-        avg_conf = recent['top_prob'].mean()
-        avg_acc = recent['was_correct'].mean()
-        if avg_conf <= 0 or avg_acc <= 0:
-            return 1.0
-
+            return 1.2
+    
+        avg_conf = float(recent['sim_top_prob'].mean())
+        avg_acc  = float(recent['sim_was_correct'].mean())
+    
+        if not (0.0 < avg_conf < 1.0) or not (0.0 <= avg_acc <= 1.0):
+            return 1.2
+    
         calib_error = abs(avg_conf - avg_acc)
-        temp = float(np.clip(1.0 + calib_error * 2.0, 0.8, 2.0))
-
-        return float(temp)
-
+        base_temp   = 1.0 + 2.0 * calib_error
+    
+        # Never sharpen (<1.0). Only soften.
+        temp = float(np.clip(base_temp, 1.0, 2.0))
+        return temp
+    
+    
     temp = estimate_temperature_from_history(history_df)
-
+    
     logits = np.log(raw_probs)
     calibrated_logits = logits / temp
     calibrated_probs = np.exp(calibrated_logits)
     calibrated_probs /= calibrated_probs.sum()
-
+    
+    # Clamp SIM confidence
+    calibrated_probs = np.clip(calibrated_probs, 0.05, 0.90)
+    calibrated_probs /= calibrated_probs.sum()
+    
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
 
