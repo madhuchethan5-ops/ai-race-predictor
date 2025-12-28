@@ -1341,46 +1341,34 @@ def run_simulation(
     vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
 
     # 2. GEOMETRY
-    def learned_length_dist(track_type, lap_idx):
-        if history_df.empty:
-            return base_len_mean, base_len_std
+    track_means = compute_track_means(history_df)
 
-        col_track = f"lap_{lap_idx+1}_track"
-        col_len   = f"lap_{lap_idx+1}_len"
+    # 4. SAMPLE TERRAIN PER LAP (keep your existing logic, just ensure sim_terrains is built)
+    sim_terrains = []
+    for i in range(3):
+        if i == k_idx:
+            sim_terrains.append(np.full(iterations, k_type, dtype=object))
+        else:
+            p = lap_probs[i]
+            if p is not None and np.isfinite(p).all() and p.sum() > 0:
+                sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations, p=p))
+            else:
+                sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations))
 
-        if col_track not in history_df.columns or col_len not in history_df.columns:
-            return base_len_mean, base_len_std
+    terrain_matrix = np.column_stack(sim_terrains)
 
-        df = history_df[[col_track, col_len]].dropna()
-        df = df[df[col_track] == track_type]
+    # 4.1 BUILD DETERMINISTIC LENGTH MATRIX (VECTORIZED)
+    len_matrix_raw = np.full(terrain_matrix.shape, 33.3, dtype=float)  # default
 
-        if len(df) < 5:
-            mask_l1 = history_df.get("lap_1_track") == track_type if "lap_1_track" in history_df.columns else None
-            mask_l2 = history_df.get("lap_2_track") == track_type if "lap_2_track" in history_df.columns else None
-            mask_l3 = history_df.get("lap_3_track") == track_type if "lap_3_track" in history_df.columns else None
+    for t, mu in track_means.items():
+        len_matrix_raw[terrain_matrix == t] = mu
 
-            pieces = []
-            if mask_l1 is not None and "lap_1_len" in history_df.columns:
-                pieces.append(history_df.loc[mask_l1, "lap_1_len"])
-            if mask_l2 is not None and "lap_2_len" in history_df.columns:
-                pieces.append(history_df.loc[mask_l2, "lap_2_len"])
-            if mask_l3 is not None and "lap_3_len" in history_df.columns:
-                pieces.append(history_df.loc[mask_l3, "lap_3_len"])
+    # Normalize row-wise to get geometry shares (e.g., 10-10-80)
+    len_sums = len_matrix_raw.sum(axis=1, keepdims=True)
+    len_sums[len_sums == 0] = 1.0
+    len_matrix = len_matrix_raw / len_sums
 
-            if not pieces:
-                return base_len_mean, base_len_std
-
-            combined = pd.concat(pieces).dropna()
-
-            if len(combined) < 5:
-                return base_len_mean, base_len_std
-
-            return float(combined.mean()), float(max(combined.std(), 1.0))
-
-        mu = float(df[col_len].mean())
-        sigma = float(max(df[col_len].std(), 1.0))
-        return mu, sigma
-
+    
     # 3. MARKOV TRANSITIONS
     lap_probs = {0: None, 1: None, 2: None}
     if not history_df.empty:
