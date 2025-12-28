@@ -1453,6 +1453,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             'volatility_label': vol_label,
             'bet_safety': bet_safety,
             'expected_regret': expected_regret,
+            'blend_weight_ml': blend_weight if ml_probs is not None else 0.0,
         },
         'hidden_guess': lap_guess,
         'tv_strengths': tv_strengths,
