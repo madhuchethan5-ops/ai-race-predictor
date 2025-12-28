@@ -1686,13 +1686,25 @@ with Q2:
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 📊 Win Probabilities")
+        
+            p_sim = res.get('p_sim')
+            p_ml = res.get('p_ml')
+            blend_w = res.get('meta', {}).get('blend_weight_ml')
+        
             for v in res['ctx']['v']:
-                p_val = probs[v]
-                boost = (vpi[v] - 1.0) * 100
-                boost_str = f" (+{boost:.1f}% ML Boost)" if boost > 0 else ""
-                st.markdown(f"- **{v}**: {p_val:.1f}%{boost_str}")
-                confidence_bar(v, p_val)
-
+                p_final = probs[v]
+                line = f"**{v}**: {p_final:.1f}%"
+        
+                if p_sim and p_ml:
+                    line += f" (SIM {p_sim[v]:.1f}%, ML {p_ml[v]:.1f}%)"
+        
+                st.markdown(f"- {line}")
+                confidence_bar(v, p_final)
+        
+            if p_sim and p_ml and blend_w is not None:
+                st.caption(
+                    f"Blend weight → ML: {blend_w:.2f}, SIM: {1 - blend_w:.2f}"
+                )
         # -----------------------------------------------------
         # MID‑LEFT: Volatility & Safety
         # -----------------------------------------------------
