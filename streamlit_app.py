@@ -1277,7 +1277,7 @@ def get_physics_bias(history_df: pd.DataFrame):
     return corrected
 
 # ---------------------------------------------------------
-# 7. CORE SIMULATION ENGINE
+# 7. CORE SIMULATION ENGINE (CLEAN VERSION)
 # ---------------------------------------------------------
 
 def run_simulation(
@@ -1295,20 +1295,17 @@ def run_simulation(
 ):
     vehicles = [v1, v2, v3]
 
-    # 1. BAYESIAN REINFORCEMENT
+    # 1. BAYESIAN REINFORCEMENT (VPI)
     vpi_raw = {v: 1.0 for v in vehicles}
 
     # history_df is normalized → use lowercase column names
-    if not history_df.empty and 'actual_winner' in history_df.columns:
+    if history_df is not None and not history_df.empty and 'actual_winner' in history_df.columns:
         winners = history_df['actual_winner'].dropna()
         wins = winners.value_counts()
 
         veh_cols = [c for c in history_df.columns if c.startswith('vehicle_')]
         if veh_cols:
-            all_veh = pd.concat(
-                [history_df[c] for c in veh_cols],
-                axis=0
-            ).dropna()
+            all_veh = pd.concat([history_df[c] for c in veh_cols], axis=0).dropna()
             races = all_veh.value_counts()
         else:
             races = wins
@@ -1327,51 +1324,24 @@ def run_simulation(
 
     vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
 
-    # 2. GEOMETRY
-    track_means = compute_track_means(history_df)
-
-    # 4. SAMPLE TERRAIN PER LAP (keep your existing logic, just ensure sim_terrains is built)
-    sim_terrains = []
-    for i in range(3):
-        if i == k_idx:
-            sim_terrains.append(np.full(iterations, k_type, dtype=object))
-        else:
-            p = lap_probs[i]
-            if p is not None and np.isfinite(p).all() and p.sum() > 0:
-                sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations, p=p))
-            else:
-                sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations))
-
-    terrain_matrix = np.column_stack(sim_terrains)
-
-    # 4.1 BUILD DETERMINISTIC LENGTH MATRIX (VECTORIZED)
-    len_matrix_raw = np.full(terrain_matrix.shape, 33.3, dtype=float)  # default
-
-    for t, mu in track_means.items():
-        len_matrix_raw[terrain_matrix == t] = mu
-
-    # Normalize row-wise to get geometry shares (e.g., 10-10-80)
-    len_sums = len_matrix_raw.sum(axis=1, keepdims=True)
-    len_sums[len_sums == 0] = 1.0
-    len_matrix = len_matrix_raw / len_sums
-
-    
-    # 3. MARKOV TRANSITIONS
+    # -----------------------------------------------------
+    # 2. MARKOV TRANSITIONS → lap_probs
+    # -----------------------------------------------------
     lap_probs = {0: None, 1: None, 2: None}
-    
-    if not history_df.empty:
+
+    if history_df is not None and not history_df.empty:
         known_col = f"lap_{k_idx + 1}_track"
         if known_col in history_df.columns:
             matches = history_df[history_df[known_col] == k_type].tail(200)
             global_transitions = {}
-    
+
             # GLOBAL TRANSITIONS
             for j in range(3):
                 if j == k_idx:
                     continue
                 from_col = f"lap_{k_idx + 1}_track"
                 to_col   = f"lap_{j + 1}_track"
-    
+
                 if from_col in history_df.columns and to_col in history_df.columns:
                     valid = history_df[[from_col, to_col]].dropna()
                     if not valid.empty:
@@ -1381,36 +1351,32 @@ def run_simulation(
                             arr = row.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
                             arr = arr + smoothing
                             global_transitions[j] = arr / arr.sum()
-    
+
             # MATCH-SPECIFIC TRANSITIONS
             for j in range(3):
                 if j == k_idx:
                     continue
-    
+
                 t_col = f"lap_{j + 1}_track"
                 if t_col in matches.columns and not matches.empty:
                     counts = matches[t_col].value_counts()
                     arr = counts.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
                     arr = arr + smoothing
                     lap_probs[j] = (arr / arr.sum()).values
-    
+
                 # fallback to global transitions
                 if lap_probs[j] is None and j in global_transitions:
                     lap_probs[j] = global_transitions[j].values
-    
-    # FINAL FALLBACK: uniform distribution
+
+    # FINAL FALLBACK: uniform distribution for any missing lap
     for j in range(3):
         if lap_probs[j] is None:
             lap_probs[j] = np.ones(len(TRACK_OPTIONS)) / len(TRACK_OPTIONS)
-        
-        # FINAL FALLBACK: uniform distribution
-        for j in range(3):
-            if lap_probs[j] is None:
-                lap_probs[j] = np.ones(len(TRACK_OPTIONS)) / len(TRACK_OPTIONS)
-            
-    # 4. SAMPLE TERRAIN & LENGTHS
+
+    # -----------------------------------------------------
+    # 3. SAMPLE TERRAIN PER LAP
+    # -----------------------------------------------------
     sim_terrains = []
-    sim_lengths = []
     for i in range(3):
         if i == k_idx:
             sim_terrains.append(np.full(iterations, k_type, dtype=object))
@@ -1421,28 +1387,24 @@ def run_simulation(
             else:
                 sim_terrains.append(np.random.choice(TRACK_OPTIONS, size=iterations))
 
-        terrain_i = sim_terrains[-1]
-        lengths_i = np.empty(iterations, dtype=float)
+    terrain_matrix = np.column_stack(sim_terrains)
 
-        for t in np.unique(terrain_i):
-            mu, sigma = learned_length_dist(t, i)
-            sigma = max(sigma, 1e-3)
-            mask = (terrain_i == t)
-            n = mask.sum()
-            if n > 0:
-                lengths_i[mask] = np.random.normal(mu, sigma, size=n)
+    # -----------------------------------------------------
+    # 4. GEOMETRY (DETERMINISTIC LENGTH MATRIX)
+    # -----------------------------------------------------
+    track_means = compute_track_means(history_df)
 
-        lengths_i = np.clip(lengths_i, 1.0, None)
-        sim_lengths.append(lengths_i)
+    len_matrix_raw = np.full(terrain_matrix.shape, 33.3, dtype=float)
+    for t, mu in track_means.items():
+        len_matrix_raw[terrain_matrix == t] = mu
 
-    len_matrix_raw = np.column_stack(sim_lengths)
     len_sums = len_matrix_raw.sum(axis=1, keepdims=True)
     len_sums[len_sums == 0] = 1.0
     len_matrix = len_matrix_raw / len_sums
 
-    terrain_matrix = np.column_stack(sim_terrains)
-
-    # PHYSICS BIAS APPLIED TO SPEED DATA
+    # -----------------------------------------------------
+    # 5. PHYSICS BIAS + TIME SAMPLING
+    # -----------------------------------------------------
     bias_table = get_physics_bias(history_df)
 
     adjusted_speed_data = {}
@@ -1471,7 +1433,9 @@ def run_simulation(
 
     results = {v: sample_vehicle_times(v, vpi) for v in vehicles}
 
+    # -----------------------------------------------------
     # 6. RAW WIN PROBABILITIES
+    # -----------------------------------------------------
     total_times = np.vstack([results[v] for v in vehicles])
     winners = np.argmin(total_times, axis=0)
 
@@ -1480,61 +1444,42 @@ def run_simulation(
     raw_probs = np.clip(raw_probs, 1e-6, 1.0)
     raw_probs /= raw_probs.sum()
 
-    # 7. TEMPERATURE CALIBRATION
+    # -----------------------------------------------------
+    # 7. TEMPERATURE CALIBRATION + CLAMP (SIM-ONLY)
+    # -----------------------------------------------------
     def estimate_temperature_from_history(df):
-        if df.empty or 'sim_top_prob' not in df.columns or 'sim_was_correct' not in df.columns:
+        if df is None or df.empty or 'sim_top_prob' not in df.columns or 'sim_was_correct' not in df.columns:
             return 1.2
-    
+
         recent = df.dropna(subset=['sim_top_prob', 'sim_was_correct']).tail(200)
         if len(recent) < calib_min_hist:
             return 1.2
-    
+
         avg_conf = float(recent['sim_top_prob'].mean())
         avg_acc  = float(recent['sim_was_correct'].mean())
-    
+
         if not (0.0 < avg_conf < 1.0) or not (0.0 <= avg_acc <= 1.0):
             return 1.2
-    
+
         calib_error = abs(avg_conf - avg_acc)
         base_temp   = 1.0 + 2.0 * calib_error
-    
-        temp = float(np.clip(base_temp, 1.0, 2.0))
-        return temp
-    
+
+        # Never sharpen (<1.0). Only soften.
+        return float(np.clip(base_temp, 1.0, 2.0))
+
+    temp = estimate_temperature_from_history(history_df)
+
     logits = np.log(raw_probs)
     calibrated_logits = logits / temp
     calibrated_probs = np.exp(calibrated_logits)
     calibrated_probs /= calibrated_probs.sum()
-    
+
     # Clamp SIM confidence
     calibrated_probs = np.clip(calibrated_probs, 0.05, 0.90)
     calibrated_probs /= calibrated_probs.sum()
-    
+
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
-
-def estimate_ml_temperature(history_df: pd.DataFrame, calib_min_hist: int = 50) -> float:
-    """
-    Estimate ML temperature based on calibration error using ml_top_prob/ml_was_correct.
-    Returns a scaling factor: >1 = overconfident, <1 = underconfident.
-    """
-    cols = ["ml_top_prob", "ml_was_correct"]
-    if history_df is None or history_df.empty or not all(c in history_df.columns for c in cols):
-        return 1.0
-
-    recent = history_df.dropna(subset=cols).tail(200)
-    if len(recent) < calib_min_hist:
-        return 1.0
-
-    avg_conf = recent["ml_top_prob"].mean()
-    avg_acc = recent["ml_was_correct"].mean()
-    if avg_conf <= 0 or avg_acc <= 0:
-        return 1.0
-
-    calib_error = abs(avg_conf - avg_acc)
-    temp = float(np.clip(1.0 + calib_error * 2.0, 0.8, 2.0))
-    return temp
-
 # ---------------------------------------------------------
 # FULL PREDICTION ENGINE (NO UI) — FINAL CLEAN VERSION
 # ---------------------------------------------------------
