@@ -631,6 +631,24 @@ def auto_clean_history(df: pd.DataFrame):
 # 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
 # ---------------------------------------------------------
 
+def estimate_ml_temperature(history_df: pd.DataFrame, calib_min_hist: int = 50) -> float:
+    cols = ["ml_top_prob", "ml_was_correct"]
+    if history_df is None or history_df.empty or not all(c in history_df.columns for c in cols):
+        return 1.0
+
+    recent = history_df.dropna(subset=cols).tail(200)
+    if len(recent) < calib_min_hist:
+        return 1.0
+
+    avg_conf = recent["ml_top_prob"].mean()
+    avg_acc = recent["ml_was_correct"].mean()
+    if avg_conf <= 0 or avg_acc <= 0:
+        return 1.0
+
+    calib_error = abs(avg_conf - avg_acc)
+    temp = float(np.clip(1.0 + calib_error * 2.0, 0.8, 2.0))
+    return temp
+
 def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
     """
     Adds leak-safe per-vehicle historical win rates.
