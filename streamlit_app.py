@@ -1727,20 +1727,22 @@ with Q1:
     with lap_col:
         st.caption("Lap")
         st.session_state.selected_lap = st.radio(
-            label="",
+            label="Select Lap",                      # <-- FIXED
             options=["Lap 1", "Lap 2", "Lap 3"],
             index=["Lap 1", "Lap 2", "Lap 3"].index(st.session_state.selected_lap)
             if st.session_state.selected_lap else 0,
-            horizontal=True
+            horizontal=True,
+            label_visibility="collapsed"             # <-- FIXED
         )
 
     with terrain_col:
         st.caption("Terrain")
         terrain = st.selectbox(
-            label="",
+            label="Select Terrain",                  # <-- FIXED
             options=list(TERRAIN_ICONS.keys()),
             index=list(TERRAIN_ICONS.keys()).index(st.session_state.selected_terrain)
             if st.session_state.selected_terrain else 0,
+            label_visibility="collapsed"             # <-- FIXED
         )
         st.session_state.selected_terrain = terrain
 
