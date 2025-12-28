@@ -1528,32 +1528,22 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     final_probs = sim_probs
     p_ml_store = ml_probs
 
-    # --- Blending weight ---
-    blend_weight = 0.0
-
-    if ml_probs is not None:
-        blend_weight = 0.45
-
-        if model_skill is not None:
-            sim_brier = model_skill["sim_brier"]
-            ml_brier = model_skill["ml_brier"]
-            n_skill = model_skill["n"]
-
-            if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
-                improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-
-                if improvement > 0:
-                    blend_weight = float(np.clip(
-                        0.45 + improvement * 0.8, 0.45, 0.95
-                    ))
-                else:
-                    degradation = abs(improvement)
-                    blend_weight = float(np.clip(
-                        0.45 - degradation * 0.4, 0.20, 0.45
-                    ))
-
-    blend_weight = float(np.clip(blend_weight, 0.20, 0.95))
-
+    # --- Conservative hybrid blending ---
+    blend_weight = 0.45  # stable center
+    
+    if ml_probs is not None and model_skill is not None:
+        sim_brier = model_skill["sim_brier"]
+        ml_brier = model_skill["ml_brier"]
+        n_skill = model_skill["n"]
+    
+        if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
+            improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
+            # Very gentle adjustment
+            blend_weight += 0.10 * np.clip(improvement, -0.5, 0.5)
+    
+    # Final safety clamp
+    blend_weight = float(np.clip(blend_weight, 0.35, 0.60))
+        
     # --- Final blended probabilities ---
     if ml_probs is not None:
         final_probs = {
