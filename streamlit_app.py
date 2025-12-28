@@ -1402,6 +1402,11 @@ def run_simulation(
     for j in range(3):
         if lap_probs[j] is None:
             lap_probs[j] = np.ones(len(TRACK_OPTIONS)) / len(TRACK_OPTIONS)
+        
+        # FINAL FALLBACK: uniform distribution
+        for j in range(3):
+            if lap_probs[j] is None:
+                lap_probs[j] = np.ones(len(TRACK_OPTIONS)) / len(TRACK_OPTIONS)
             
     # 4. SAMPLE TERRAIN & LENGTHS
     sim_terrains = []
