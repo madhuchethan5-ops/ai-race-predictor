@@ -335,19 +335,16 @@ def estimate_hidden_laps(ctx, stats, track_options, alpha: float = 0.7):
 
 def build_tv_matrix(history: pd.DataFrame):
     """
-    Build a simple terrain–vehicle win-rate matrix from history.
-    Returns:
-        tv_matrix[(vehicle, terrain)] = win_rate (0–1) based on past races.
+    Build a terrain–vehicle win-rate matrix from history.
 
-    Assumes history columns are already normalized to snake_case:
-    - vehicle_1, vehicle_2, vehicle_3
-    - lap_1_track, lap_2_track, lap_3_track
-    - actual_winner
+    Returns:
+        tv_matrix[(vehicle, terrain)] = win_rate (0–1)
+        tv_samples[(vehicle, terrain)] = sample count
     """
     tv_counts = {}   # (vehicle, terrain) -> {"wins": x, "total": y}
 
     if history is None or history.empty:
-        return {}
+        return {}, {}
 
     for _, row in history.iterrows():
         actual_winner = row.get("actual_winner")
@@ -366,11 +363,9 @@ def build_tv_matrix(history: pd.DataFrame):
             row.get("lap_3_track"),
         ]
 
-        # For each vehicle and each terrain in this race, update stats
         for v in vehicles:
             if not isinstance(v, str):
                 continue
-
             for t in lap_tracks:
                 if not isinstance(t, str):
                     continue
@@ -383,14 +378,15 @@ def build_tv_matrix(history: pd.DataFrame):
                 if v == actual_winner:
                     tv_counts[key]["wins"] += 1
 
-    # Convert to win rates
     tv_matrix = {}
+    tv_samples = {}
     for key, stats_v in tv_counts.items():
         wins = stats_v["wins"]
         total = max(stats_v["total"], 1)
         tv_matrix[key] = wins / total
+        tv_samples[key] = total
 
-    return tv_matrix
+    return tv_matrix, tv_samples
 
 
 def apply_tv_adjustment(final_probs: dict, ctx: dict, tv_matrix: dict, k_type: str,
@@ -1370,7 +1366,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         final_probs = sim_probs
 
     # --- Terrain–vehicle adjustment (gentle) ---
-    tv_matrix = build_tv_matrix(history)
+    tv_matrix, tv_samples = build_tv_matrix(history)
 
     # For now, assume all three laps use the same track k_type
     tracks = [k_type, k_type, k_type]
@@ -1380,13 +1376,13 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         "idx": k_idx,
         "t": k_type,
         "slot": f"Lap {k_idx + 1}",
-        "tracks": tracks,  # <-- ADDED
+        "tracks": tracks,
     }
 
     final_probs, tv_strengths = apply_tv_adjustment(
         final_probs, ctx, tv_matrix, k_type, strength_alpha=0.15
     )
-
+   
     # --- Winner & meta calculations ---
     predicted_winner = max(final_probs, key=final_probs.get)
     p1 = final_probs[predicted_winner]
@@ -1457,8 +1453,9 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         },
         'hidden_guess': lap_guess,
         'tv_strengths': tv_strengths,
+        'tv_matrix': tv_matrix,
+        'tv_samples': tv_samples,
     }
-
     return res
     
 # ---------------------------------------------------------
@@ -1717,33 +1714,34 @@ with Q2:
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 🧬 Terrain–vehicle matchup")
-
-            tv_strengths = res.get("tv_strengths", {})
+        
+            tv_matrix = res.get("tv_matrix", {})
+            tv_samples = res.get("tv_samples", {})
             terrain_options = ["Desert", "Expressway", "Bumpy", "Dirt", "Highway", "Potholes"]
             selected_terrain = st.selectbox("Inspect tendencies for:", terrain_options)
-
-            if tv_strengths:
-                selected_keys = [(v, selected_terrain) for v in res['ctx']['v']]
-                total = sum([tv_strengths.get(k, 0.5) for k in selected_keys])
-
+        
+            if tv_matrix:
                 for v in res['ctx']['v']:
                     key = (v, selected_terrain)
-                    raw_strength = tv_strengths.get(key, 0.5)
-                    norm_strength = raw_strength / total if total > 0 else 1.0 / len(selected_keys)
-
-                    if norm_strength > 0.45:
-                        flavor = "favored"
+                    win_rate = tv_matrix.get(key, 0.5)
+                    count = tv_samples.get(key, 0)
+        
+                    if count < 10:
+                        flavor = "insufficient data"
+                        icon = "⚪"
+                    elif win_rate >= 0.60:
+                        flavor = "favorable"
                         icon = "🟢"
-                    elif norm_strength < 0.30:
-                        flavor = "penalized"
+                    elif win_rate <= 0.40:
+                        flavor = "unfavorable"
                         icon = "🔴"
                     else:
                         flavor = "neutral"
-                        icon = "⚪"
-
+                        icon = "🟡"
+        
                     st.markdown(
                         f"- {icon} **{v}** on **{selected_terrain}** → "
-                        f"{flavor} (tendency ~{norm_strength*100:.0f}%)"
+                        f"{flavor} (win rate {win_rate*100:.1f}%, n={count})"
                     )
             else:
                 st.caption("Not enough history yet to learn terrain–vehicle strengths.")
