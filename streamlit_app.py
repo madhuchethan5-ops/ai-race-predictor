@@ -1502,6 +1502,28 @@ def run_simulation(
 # FULL PREDICTION ENGINE (NO UI) — FINAL CLEAN VERSION
 # ---------------------------------------------------------
 
+def is_hard_regime(tracks, lengths):
+    terrains = set(tracks)
+    mixed_terrain = (len(terrains) == 3)
+
+    skewed_lengths = (min(lengths) < 20) or (max(lengths) > 60)
+
+    return mixed_terrain or skewed_lengths
+
+
+def cap_ml_confidence(ml_probs, hard_regime, cap_value=65.0):
+    """
+    ml_probs is a dict {vehicle: prob_in_percent}
+    cap_value is in percent (e.g., 65.0)
+    """
+    if not hard_regime:
+        return ml_probs
+
+    capped = {}
+    for v, p in ml_probs.items():
+        capped[v] = min(p, cap_value)
+    return capped
+    
 def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
 
     model_skill = compute_model_skill(history)
@@ -1533,9 +1555,19 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             v2_sel: float(calib_proba[1] * 100.0),
             v3_sel: float(calib_proba[2] * 100.0),
         }
+        # -----------------------------------------
+        # CONFIDENCE CAPPING (AFTER ML PROBS)
+        # -----------------------------------------
+        tracks_for_regime = [k_type, k_type, k_type]  # your current assumption
+        lengths_for_regime = [30, 30, 30]             # placeholder until real lengths exist
+        
+        hard_regime = is_hard_regime(tracks_for_regime, lengths_for_regime)
+        
+        ml_probs = cap_ml_confidence(ml_probs, hard_regime, cap_value=65.0)
+    
     final_probs = sim_probs
     p_ml_store = ml_probs
-
+    
     # --- Hybrid blending: ML dominant, SIM stabilizer ---
     blend_weight = 0.70  # base: 70% ML, 30% SIM
 
