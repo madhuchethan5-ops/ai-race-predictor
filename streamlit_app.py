@@ -1553,7 +1553,10 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
 
     # final blended probabilities
     if ml_probs is not None and sim_probs is not None:
-        final_probs = blend_weight * ml_probs + (1.0 - blend_weight) * sim_probs
+        final_probs = {
+            v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
+            for v in [v1_sel, v2_sel, v3_sel]
+        }
     elif ml_probs is not None:
         final_probs = ml_probs
     else:
