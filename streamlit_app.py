@@ -1358,40 +1358,51 @@ def run_simulation(
     
     # 3. MARKOV TRANSITIONS
     lap_probs = {0: None, 1: None, 2: None}
+    
     if not history_df.empty:
         known_col = f"lap_{k_idx + 1}_track"
         if known_col in history_df.columns:
             matches = history_df[history_df[known_col] == k_type].tail(200)
             global_transitions = {}
+    
+            # GLOBAL TRANSITIONS
             for j in range(3):
                 if j == k_idx:
                     continue
                 from_col = f"lap_{k_idx + 1}_track"
-                to_col = f"lap_{j + 1}_track"
+                to_col   = f"lap_{j + 1}_track"
+    
                 if from_col in history_df.columns and to_col in history_df.columns:
                     valid = history_df[[from_col, to_col]].dropna()
-                    if valid.empty:
-                        continue
-                    counts = valid.groupby([from_col, to_col]).size().unstack(fill_value=0)
-                    if k_type in counts.index:
-                        row = counts.loc[k_type]
-                        arr = row.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
-                        arr = arr + smoothing
-                        global_transitions[j] = arr / arr.sum()
-
+                    if not valid.empty:
+                        counts = valid.groupby([from_col, to_col]).size().unstack(fill_value=0)
+                        if k_type in counts.index:
+                            row = counts.loc[k_type]
+                            arr = row.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
+                            arr = arr + smoothing
+                            global_transitions[j] = arr / arr.sum()
+    
+            # MATCH-SPECIFIC TRANSITIONS
             for j in range(3):
                 if j == k_idx:
                     continue
+    
                 t_col = f"lap_{j + 1}_track"
                 if t_col in matches.columns and not matches.empty:
                     counts = matches[t_col].value_counts()
                     arr = counts.reindex(TRACK_OPTIONS, fill_value=0).astype(float)
                     arr = arr + smoothing
-                    probs = arr / arr.sum()
-                    lap_probs[j] = probs.values
+                    lap_probs[j] = (arr / arr.sum()).values
+    
+                # fallback to global transitions
                 if lap_probs[j] is None and j in global_transitions:
                     lap_probs[j] = global_transitions[j].values
-
+    
+    # FINAL FALLBACK: uniform distribution
+    for j in range(3):
+        if lap_probs[j] is None:
+            lap_probs[j] = np.ones(len(TRACK_OPTIONS)) / len(TRACK_OPTIONS)
+            
     # 4. SAMPLE TERRAIN & LENGTHS
     sim_terrains = []
     sim_lengths = []
