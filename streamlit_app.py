@@ -691,6 +691,90 @@ def build_training_data(history_df: pd.DataFrame):
     df["surprise_weight"] = df.apply(compute_surprise, axis=1)
     df["surprise_weight"] = df["surprise_weight"].clip(lower=0.05)
 
+    # ---------------------------------------------------------
+    # GEOMETRY REGIME FEATURES
+    # ---------------------------------------------------------
+    # Lap-wise means and stds
+    geom_means = [
+        df["lap_1_len"].mean(),
+        df["lap_2_len"].mean(),
+        df["lap_3_len"].mean(),
+    ]
+    geom_stds = [
+        df["lap_1_len"].std(),
+        df["lap_2_len"].std(),
+        df["lap_3_len"].std(),
+    ]
+
+    df["geom_lap1_mean"] = geom_means[0]
+    df["geom_lap2_mean"] = geom_means[1]
+    df["geom_lap3_mean"] = geom_means[2]
+
+    df["geom_lap1_std"] = geom_stds[0]
+    df["geom_lap2_std"] = geom_stds[1]
+    df["geom_lap3_std"] = geom_stds[2]
+
+    geom_range = max(geom_means) - min(geom_means)
+    df["geom_range"] = geom_range
+    df["geom_split_flag"] = 1 if geom_range >= 20 else 0
+
+    # ---------------------------------------------------------
+    # SIM META-FEATURES (from stored Win_Prob columns)
+    # ---------------------------------------------------------
+    def sim_meta(row):
+        p1 = row.get("Win_Prob_1", 33.3)
+        p2 = row.get("Win_Prob_2", 33.3)
+        p3 = row.get("Win_Prob_3", 33.3)
+        arr = np.array([p1, p2, p3], dtype=float)
+        arr = np.clip(arr, 1e-6, None)
+        arr_norm = arr / arr.sum()
+
+        top = float(arr_norm.max())
+        second = float(np.partition(arr_norm, -2)[-2])
+        margin = top - second
+        entropy = float(-(arr_norm * np.log(arr_norm)).sum())
+        volatility = float(arr_norm.std())
+
+        return pd.Series([top, second, margin, entropy, volatility])
+
+    df[["sim_top_prob", "sim_second_prob", "sim_margin",
+        "sim_entropy", "sim_volatility"]] = df.apply(sim_meta, axis=1)
+
+    # ---------------------------------------------------------
+    # TRANSITION ENTROPY FEATURES
+    # ---------------------------------------------------------
+    mats = compute_transition_matrices(df)
+
+    def entropy_from_mat(mat):
+        # mat is a DataFrame row-normalized to 100
+        arr = (mat.values / 100.0).astype(float)
+        arr = np.clip(arr, 1e-12, None)
+        return float(-(arr * np.log(arr)).sum())
+
+    ent_l1 = ent_l2 = ent_l3 = 0.0
+
+    # transitions FROM lap 1
+    if (1, 2) in mats:
+        ent_l1 += entropy_from_mat(mats[(1, 2)])
+    if (1, 3) in mats:
+        ent_l1 += entropy_from_mat(mats[(1, 3)])
+
+    # transitions FROM lap 2
+    if (2, 1) in mats:
+        ent_l2 += entropy_from_mat(mats[(2, 1)])
+    if (2, 3) in mats:
+        ent_l2 += entropy_from_mat(mats[(2, 3)])
+
+    # transitions FROM lap 3
+    if (3, 1) in mats:
+        ent_l3 += entropy_from_mat(mats[(3, 1)])
+    if (3, 2) in mats:
+        ent_l3 += entropy_from_mat(mats[(3, 2)])
+
+    df["trans_entropy_l1"] = ent_l1
+    df["trans_entropy_l2"] = ent_l2
+    df["trans_entropy_l3"] = ent_l3
+
     y = df["winner_idx"].astype(int)
 
     feature_cols = [
@@ -700,6 +784,12 @@ def build_training_data(history_df: pd.DataFrame):
         "lane",
         "high_speed_share", "rough_share",
         "v1_win_rate", "v2_win_rate", "v3_win_rate",
+        "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
+        "geom_lap1_std", "geom_lap2_std", "geom_lap3_std",
+        "geom_range", "geom_split_flag",
+        "sim_top_prob", "sim_second_prob", "sim_margin",
+        "sim_entropy", "sim_volatility",
+        "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
     ]
 
     cat_features = [
@@ -712,6 +802,12 @@ def build_training_data(history_df: pd.DataFrame):
         "lap_1_len", "lap_2_len", "lap_3_len",
         "high_speed_share", "rough_share",
         "v1_win_rate", "v2_win_rate", "v3_win_rate",
+        "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
+        "geom_lap1_std", "geom_lap2_std", "geom_lap3_std",
+        "geom_range", "geom_split_flag",
+        "sim_top_prob", "sim_second_prob", "sim_margin",
+        "sim_entropy", "sim_volatility",
+        "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
     ]
 
     X = df[feature_cols].copy()
@@ -864,6 +960,78 @@ def build_single_feature_row(
         "v3_win_rate": 0.33,
     }
 
+    # ---------------------------------------------------------
+    # GEOMETRY REGIME FEATURES (LIVE)
+    # ---------------------------------------------------------
+    # Compute historical geometry stats
+    if history_df is not None and not history_df.empty:
+        geom_means = [
+            history_df["lap_1_len"].mean(),
+            history_df["lap_2_len"].mean(),
+            history_df["lap_3_len"].mean(),
+        ]
+        geom_stds = [
+            history_df["lap_1_len"].std(),
+            history_df["lap_2_len"].std(),
+            history_df["lap_3_len"].std(),
+        ]
+    else:
+        geom_means = [33.3, 33.3, 33.3]
+        geom_stds = [5.0, 5.0, 5.0]
+
+    data["geom_lap1_mean"] = geom_means[0]
+    data["geom_lap2_mean"] = geom_means[1]
+    data["geom_lap3_mean"] = geom_means[2]
+
+    data["geom_lap1_std"] = geom_stds[0]
+    data["geom_lap2_std"] = geom_stds[1]
+    data["geom_lap3_std"] = geom_stds[2]
+
+    geom_range = max(geom_means) - min(geom_means)
+    data["geom_range"] = geom_range
+    data["geom_split_flag"] = 1 if geom_range >= 20 else 0
+
+    # ---------------------------------------------------------
+    # SIM META-FEATURES (LIVE)
+    # ---------------------------------------------------------
+    # Default neutral priors
+    data["sim_top_prob"] = 0.33
+    data["sim_second_prob"] = 0.33
+    data["sim_margin"] = 0.0
+    data["sim_entropy"] = 1.10
+    data["sim_volatility"] = 0.0
+
+    # ---------------------------------------------------------
+    # TRANSITION ENTROPY (LIVE)
+    # ---------------------------------------------------------
+    mats = compute_transition_matrices(history_df) if history_df is not None else {}
+
+    def entropy_from_mat(mat):
+        arr = (mat.values / 100.0).astype(float)
+        arr = np.clip(arr, 1e-12, None)
+        return float(-(arr * np.log(arr)).sum())
+
+    ent_l1 = ent_l2 = ent_l3 = 0.0
+
+    if (1, 2) in mats:
+        ent_l1 += entropy_from_mat(mats[(1, 2)])
+    if (1, 3) in mats:
+        ent_l1 += entropy_from_mat(mats[(1, 3)])
+
+    if (2, 1) in mats:
+        ent_l2 += entropy_from_mat(mats[(2, 1)])
+    if (2, 3) in mats:
+        ent_l2 += entropy_from_mat(mats[(2, 3)])
+
+    if (3, 1) in mats:
+        ent_l3 += entropy_from_mat(mats[(3, 1)])
+    if (3, 2) in mats:
+        ent_l3 += entropy_from_mat(mats[(3, 2)])
+
+    data["trans_entropy_l1"] = ent_l1
+    data["trans_entropy_l2"] = ent_l2
+    data["trans_entropy_l3"] = ent_l3
+    
     return pd.DataFrame([data])
 
 # ---------------------------------------------------------
