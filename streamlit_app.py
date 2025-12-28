@@ -1300,6 +1300,28 @@ def run_simulation(
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
 
+    def estimate_ml_temperature(history_df: pd.DataFrame, calib_min_hist: int = 50) -> float:
+        """
+        Estimate ML temperature based on calibration error using ml_top_prob/ml_was_correct.
+        Returns a scaling factor: >1 = overconfident, <1 = underconfident.
+        """
+        cols = ["ml_top_prob", "ml_was_correct"]
+        if history_df is None or history_df.empty or not all(c in history_df.columns for c in cols):
+            return 1.0
+    
+        recent = history_df.dropna(subset=cols).tail(200)
+        if len(recent) < calib_min_hist:
+            return 1.0
+    
+        avg_conf = recent["ml_top_prob"].mean()
+        avg_acc = recent["ml_was_correct"].mean()
+        if avg_conf <= 0 or avg_acc <= 0:
+            return 1.0
+    
+        calib_error = abs(avg_conf - avg_acc)
+        temp = float(np.clip(1.0 + calib_error * 2.0, 0.8, 2.0))
+        return temp
+
 # ---------------------------------------------------------
 # FULL PREDICTION ENGINE (NO UI) — FINAL CLEAN VERSION
 # ---------------------------------------------------------
@@ -1316,16 +1338,24 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     # --- ML-based probabilities ---
     ml_probs = None
     ml_model, n_samples = get_trained_model(history)
-
+    
     if ml_model is not None:
         X_curr = build_single_feature_row(
             v1_sel, v2_sel, v3_sel, k_idx, k_type, history
         )
-        proba = ml_model.predict_proba(X_curr)[0]
+        raw_proba = ml_model.predict_proba(X_curr)[0]
+    
+        # --- Temperature scaling for ML calibration ---
+        ml_temp = estimate_ml_temperature(history)
+        logits = np.log(np.clip(raw_proba, 1e-12, 1.0))
+        scaled_logits = logits / ml_temp
+        calib_proba = np.exp(scaled_logits)
+        calib_proba /= calib_proba.sum()
+    
         ml_probs = {
-            v1_sel: float(proba[0] * 100.0),
-            v2_sel: float(proba[1] * 100.0),
-            v3_sel: float(proba[2] * 100.0),
+            v1_sel: float(calib_proba[0] * 100.0),
+            v2_sel: float(calib_proba[1] * 100.0),
+            v3_sel: float(calib_proba[2] * 100.0),
         }
     final_probs = sim_probs
     p_ml_store = ml_probs
