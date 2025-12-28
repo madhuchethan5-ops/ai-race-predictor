@@ -192,6 +192,85 @@ def clickable_tile(label, img_path, selected=False, disabled=False, key="tile"):
     """
 
     return tile_html
+# ---------------------------------------------------------
+# SPEED DATA + CONSTANTS
+# ---------------------------------------------------------
+
+SPEED_DATA = {
+    "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
+    "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
+    "Motorcycle":    {"Expressway": 94,  "Desert": 45, "Dirt": 76, "Potholes": 36, "Bumpy": 66, "Highway": 89},
+    "Stock Car":     {"Expressway": 100, "Desert": 50, "Dirt": 80, "Potholes": 45, "Bumpy": 72, "Highway": 99},
+    "SUV":           {"Expressway": 180, "Desert": 63, "Dirt": 100, "Pothholes": 60, "Bumpy": 80, "Highway": 143},
+    "Car":           {"Expressway": 235, "Desert": 70, "Dirt": 120, "Pothholes": 68, "Bumpy": 81, "Highway": 180},
+    "ATV":           {"Expressway": 80,  "Desert": 40, "Dirt": 66, "Pothholes": 32, "Bumpy": 60, "Highway": 80},
+    "Sports Car":    {"Expressway": 300, "Desert": 72, "Dirt": 130, "Pothholes": 72, "Bumpy": 91, "Highway": 240},
+    "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134, "Pothholes": 77, "Bumpy": 99, "Highway": 320},
+}
+
+ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
+TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
+VALID_TRACKS = set(TRACK_OPTIONS)
+
+
+TRACK_ALIASES = {
+    "Road": "Highway",
+    "road": "Highway",
+    "Normal road": "Highway",
+    "normal road": "Highway",
+    "Normal": "Highway",
+}
+
+# GLOBAL PRIORS - derived from historical analysis (adjust values as per your CSV)
+PRIORS_TRACK_LEN = {
+    "Expressway": 37.0,
+    "Highway":    35.0,
+    "Dirt":       30.0,
+    "Desert":     28.0,
+    "Bumpy":      26.0,
+    "Potholes":   24.0,
+    "Pothholes":  24.0,  # typo catcher, same as Potholes
+}
+
+PRIOR_STRENGTH = 5  # "virtual" sample count for Bayesian shrinkage
+
+def compute_track_means(history_df: pd.DataFrame) -> dict:
+    """
+    Compute smoothed per-terrain mean lengths using all laps:
+    mu_t = (n_t * empirical_mean_t + k * prior_t) / (n_t + k)
+    """
+    track_means = {}
+
+    if history_df is not None and not history_df.empty:
+        pieces = []
+        for li in range(1, 4):
+            col_track = f"lap_{li}_track"
+            col_len   = f"lap_{li}_len"
+            if col_track in history_df.columns and col_len in history_df.columns:
+                tmp = history_df[[col_track, col_len]].dropna()
+                tmp.columns = ["track", "len"]
+                pieces.append(tmp)
+
+        if pieces:
+            all_laps = pd.concat(pieces, axis=0, ignore_index=True)
+            stats = all_laps.groupby("track")["len"].agg(["mean", "count"])
+            emp_stats = stats.to_dict(orient="index")
+        else:
+            emp_stats = {}
+    else:
+        emp_stats = {}
+
+    for t in TRACK_OPTIONS:
+        prior_mu = PRIORS_TRACK_LEN.get(t, 33.3)
+        if t in emp_stats:
+            emp_mu = float(emp_stats[t]["mean"])
+            n     = float(emp_stats[t]["count"])
+            mu = (n * emp_mu + PRIOR_STRENGTH * prior_mu) / (n + PRIOR_STRENGTH)
+        else:
+            mu = prior_mu
+        track_means[t] = mu
+
+    return track_means
 
 # =========================================================
 # HIDDEN LAP STATS + ESTIMATOR
@@ -262,7 +341,6 @@ def build_hidden_lap_stats(history: pd.DataFrame):
             stats["length"][k] = 33.3 if k != 3 else 34.0
 
     return stats
-
 
 def estimate_hidden_laps(ctx, stats, track_options, alpha: float = 0.7):
     """
@@ -492,35 +570,6 @@ def confidence_bar(vehicle: str, prob: float):
         """,
         unsafe_allow_html=True
     )
-
-# ---------------------------------------------------------
-# SPEED DATA + CONSTANTS
-# ---------------------------------------------------------
-
-SPEED_DATA = {
-    "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
-    "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
-    "Motorcycle":    {"Expressway": 94,  "Desert": 45, "Dirt": 76, "Potholes": 36, "Bumpy": 66, "Highway": 89},
-    "Stock Car":     {"Expressway": 100, "Desert": 50, "Dirt": 80, "Potholes": 45, "Bumpy": 72, "Highway": 99},
-    "SUV":           {"Expressway": 180, "Desert": 63, "Dirt": 100, "Pothholes": 60, "Bumpy": 80, "Highway": 143},
-    "Car":           {"Expressway": 235, "Desert": 70, "Dirt": 120, "Pothholes": 68, "Bumpy": 81, "Highway": 180},
-    "ATV":           {"Expressway": 80,  "Desert": 40, "Dirt": 66, "Pothholes": 32, "Bumpy": 60, "Highway": 80},
-    "Sports Car":    {"Expressway": 300, "Desert": 72, "Dirt": 130, "Pothholes": 72, "Bumpy": 91, "Highway": 240},
-    "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134, "Pothholes": 77, "Bumpy": 99, "Highway": 320},
-}
-
-ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
-TRACK_OPTIONS = sorted(list(SPEED_DATA["Car"].keys()))
-VALID_TRACKS = set(TRACK_OPTIONS)
-
-
-TRACK_ALIASES = {
-    "Road": "Highway",
-    "road": "Highway",
-    "Normal road": "Highway",
-    "normal road": "Highway",
-    "Normal": "Highway",
-}
 
 # ---------------------------------------------------------
 # AUTO CLEANER
