@@ -905,42 +905,29 @@ def get_trained_model(history_df: pd.DataFrame):
     return train_ml_model(history_df)
 
 # ---------------------------------------------------------
-# EXPECTED LENGTH ESTIMATOR (NEW)
+# EXPECTED LENGTH ESTIMATOR (NEW, CORRECT)
 # ---------------------------------------------------------
 
 def expected_length(history_df: pd.DataFrame, lap_idx: int, track_type: str) -> float:
     """
-    Returns the expected lap length for (lap_idx, track_type)
-    based on historical geometry.
-    - history_df: full normalized history (same as passed into run_full_prediction)
-    - lap_idx: 0, 1, or 2 (for Lap 1/2/3)
-    - track_type: specific track name (e.g. 'Desert') or 'Unknown'
+    Returns expected lap length for ML features.
+    Uses the SAME priors + Bayesian smoothing as SIM.
+    Prevents split-brain between ML and SIM.
     """
-    # Safe fallback if no history
+
+    # If track is unknown, fallback to neutral prior
+    if track_type is None or track_type == "Unknown":
+        return 33.3
+
+    # If no history, return prior directly
     if history_df is None or history_df.empty:
-        return 33.3
+        return float(PRIORS_TRACK_LEN.get(track_type, 33.3))
 
-    col_track = f"lap_{lap_idx + 1}_track"
-    col_len = f"lap_{lap_idx + 1}_len"
+    # Compute smoothed per-terrain means (same as SIM)
+    track_means = compute_track_means(history_df)
 
-    # If geometry columns aren't present, fallback
-    if col_track not in history_df.columns or col_len not in history_df.columns:
-        return 33.3
-
-    df = history_df[[col_track, col_len]].dropna()
-
-    # If we know the track, filter to that track
-    if track_type is not None and track_type != "Unknown":
-        df = df[df[col_track] == track_type]
-
-    # If still empty (very low data), fallback to lap-wise mean across all tracks
-    if df.empty:
-        df_all = history_df[[col_len]].dropna()
-        if df_all.empty:
-            return 33.3
-        return float(df_all[col_len].mean())
-
-    return float(df[col_len].mean())
+    # Return the smoothed mean for this track
+    return float(track_means.get(track_type, 33.3))
     
 # ---------------------------------------------------------
 # 5. SINGLE-ROW FEATURE BUILDER FOR LIVE PREDICTIONS
@@ -1479,7 +1466,6 @@ def run_simulation(
 
     # 7. TEMPERATURE CALIBRATION
     def estimate_temperature_from_history(df):
-        # SIM-only calibration
         if df.empty or 'sim_top_prob' not in df.columns or 'sim_was_correct' not in df.columns:
             return 1.2
     
@@ -1496,12 +1482,8 @@ def run_simulation(
         calib_error = abs(avg_conf - avg_acc)
         base_temp   = 1.0 + 2.0 * calib_error
     
-        # Never sharpen (<1.0). Only soften.
         temp = float(np.clip(base_temp, 1.0, 2.0))
         return temp
-    
-    
-    temp = estimate_temperature_from_history(history_df)
     
     logits = np.log(raw_probs)
     calibrated_logits = logits / temp
@@ -1575,28 +1557,26 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     final_probs = sim_probs
     p_ml_store = ml_probs
 
-    # --- Conservative hybrid blending ---
-    blend_weight = 0.45  # stable center
-    
+    # --- Hybrid blending: ML dominant, SIM stabilizer ---
+    blend_weight = 0.70  # base: 70% ML, 30% SIM
+
     if ml_probs is not None and model_skill is not None:
         sim_brier = model_skill["sim_brier"]
-        ml_brier = model_skill["ml_brier"]
-        n_skill = model_skill["n"]
-    
+        ml_brier  = model_skill["ml_brier"]
+        n_skill   = model_skill["n"]
+
         if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
             improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-            # Very gentle adjustment
-            blend_weight += 0.10 * np.clip(improvement, -0.5, 0.5)
-    
-    # Final safety clamp
-    blend_weight = float(np.clip(blend_weight, 0.35, 0.60))
-        
-    # --- Final blended probabilities ---
-    if ml_probs is not None:
-        final_probs = {
-            v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
-            for v in [v1_sel, v2_sel, v3_sel]
-        }
+            # very gentle adjustment
+            blend_weight += 0.05 * np.clip(improvement, -0.5, 0.5)
+
+    blend_weight = float(np.clip(blend_weight, 0.60, 0.80))
+
+    # final blended probabilities
+    if ml_probs is not None and sim_probs is not None:
+        final_probs = blend_weight * ml_probs + (1.0 - blend_weight) * sim_probs
+    elif ml_probs is not None:
+        final_probs = ml_probs
     else:
         final_probs = sim_probs
 
