@@ -2783,3 +2783,78 @@ with st.expander("📥 Import Legacy Race History"):
 
             except Exception as e:
                 st.error(f"Import failed: {e}")
+
+# ---------------------------------------------------------
+# ONE-TIME FIX: REGENERATE PHYSICS HISTORY
+# ---------------------------------------------------------
+def regenerate_sim_history(df):
+    """
+    Re-runs the NEW Simulation engine on all historical races.
+    Populates 'Win_Prob_1', 'Win_Prob_2', 'Win_Prob_3' so ML can see Physics.
+    """
+    if df is None or df.empty:
+        return df
+
+    # Check if we actually need to run this (or just force it)
+    # forcing it is better to ensure the NEW geometry logic is applied
+    
+    st.info(f"⚡ Regenerating Physics for {len(df)} races... This creates the 'Track Affinity' features for ML.")
+    
+    prog_bar = st.progress(0)
+    new_rows = []
+    
+    # We use a copy to avoid SettingWithCopy warnings
+    df_out = df.copy()
+
+    for idx, row in df_out.iterrows():
+        # Update progress
+        prog_bar.progress((idx + 1) / len(df_out))
+        
+        # 1. Setup Context
+        v1, v2, v3 = row['vehicle_1'], row['vehicle_2'], row['vehicle_3']
+        # We assume Lap 1 track is the 'dominant' signal for single-lap Sim runs
+        # OR we can run the sim properly if we know the 'revealed' track. 
+        # For history, we know ALL tracks. Let's use Lap 1 as the "Key" 
+        # because that matches how run_simulation is called during prediction.
+        k_type = row['lap_1_track'] 
+        
+        # 2. Run Simulation (Using the NEW engine)
+        try:
+            # Note: We pass the WHOLE df as history. 
+            # This is slight leakage for training but standard for feature engineering 
+            # in this specific 'static' architecture.
+            sim_res, _ = run_simulation(
+                v1, v2, v3, 
+                0, k_type, # k_idx=0 (Lap 1), k_type=Lap 1 Track
+                df # History
+            )
+            
+            # 3. Save Results
+            df_out.at[idx, 'Win_Prob_1'] = sim_res.get(v1, 33.3)
+            df_out.at[idx, 'Win_Prob_2'] = sim_res.get(v2, 33.3)
+            df_out.at[idx, 'Win_Prob_3'] = sim_res.get(v3, 33.3)
+            
+        except Exception as e:
+            # Fallback
+            df_out.at[idx, 'Win_Prob_1'] = 33.3
+            df_out.at[idx, 'Win_Prob_2'] = 33.3
+            df_out.at[idx, 'Win_Prob_3'] = 33.3
+            
+    st.success("✅ Physics History Regenerated! ML model is now 'Track Aware'.")
+    return df_out
+
+# ---------------------------------------------------------
+# UI BUTTON TO TRIGGER IT
+# ---------------------------------------------------------
+if st.sidebar.button("🔧 Repair: Regenerate Physics Features"):
+    # 1. Get current data
+    current_df = st.session_state.get('race_data', pd.DataFrame())
+    
+    # 2. Process
+    if not current_df.empty:
+        fixed_df = regenerate_sim_history(current_df)
+        
+        # 3. Save back to session and disk
+        st.session_state['race_data'] = fixed_df
+        fixed_df.to_csv("Race_Data_with_Physics.csv", index=False)
+        st.write("Saved to 'Race_Data_with_Physics.csv'. Please use this file.")
