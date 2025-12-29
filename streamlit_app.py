@@ -1629,37 +1629,26 @@ def run_full_prediction(
 
     # --- Hybrid blending: ML dominant, SIM stabilizer ---
     blend_weight = 0.70  # base: 70% ML, 30% SIM
-
+    
     if ml_probs is not None and model_skill is not None:
         sim_brier = model_skill["sim_brier"]
         ml_brier  = model_skill["ml_brier"]
         n_skill   = model_skill["n"]
-
+    
         if n_skill >= 50 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
             improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-
+    
             if improvement > 0.10:
-                # ML clearly better -> allow up to ~0.80
-                blend_weight = 0.75 + 0.05 * np.clip(improvement, 0.10, 0.30)
+                # ML clearly better -> push toward ML ceiling (0.75)
+                blend_weight = 0.75
             elif improvement < -0.10:
-                # SIM clearly better -> pull toward SIM
-                blend_weight = 0.45  # 45% ML, 55% SIM
+                # SIM clearly better -> soften to 0.50 instead of a hard 0.45
+                blend_weight = 0.50  # 50% ML, 50% SIM
             else:
-                # Rough tie
+                # Rough tie -> modest ML edge
                 blend_weight = 0.60
-
+    
     blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
-
-    # --- Normal blended probabilities (before disagreement override) ---
-    if ml_probs is not None and sim_probs is not None:
-        blended_probs = {
-            v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
-            for v in [v1_sel, v2_sel, v3_sel]
-        }
-    elif ml_probs is not None:
-        blended_probs = ml_probs
-    else:
-        blended_probs = sim_probs
 
     # ---------------------------------------------------------
     # CHAOS DISAGREEMENT MODE (SIM vs ML both confident, disagree)
