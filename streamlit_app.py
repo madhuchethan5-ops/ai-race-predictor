@@ -995,6 +995,7 @@ def build_single_feature_row(
     k_idx: int,
     k_type: str,
     history_df: pd.DataFrame,
+    user_vehicle_priors: dict | None = None,
 ) -> pd.DataFrame:
     """
     Build a single feature row for live ML prediction.
