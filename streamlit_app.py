@@ -1624,7 +1624,7 @@ def run_full_prediction(
         # SOFT CONFIDENCE CAPPING (ML should not scream 90–95% yet)
         ml_probs = soft_cap_ml_probs(ml_probs, cap_max=80.0)
 
-    p_ml_store = ml_probs
+        p_ml_store = ml_probs
 
     # --- Hybrid blending: ML dominant, SIM stabilizer ---
     blend_weight = 0.65  # base: 65% ML, 35% SIM
@@ -1639,32 +1639,40 @@ def run_full_prediction(
             improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
             # improvement > 0 → ML better, < 0 → SIM better
 
-            # Smooth mapping:
-            # improvement in [-0.20, +0.20] → blend in [0.45, 0.75]
+            # Smooth mapping: improvement in [-0.20, +0.20] → blend in [0.45, 0.75]
             improvement_clipped = float(np.clip(improvement, -0.20, 0.20))
             blend_weight = 0.60 + 0.15 * improvement_clipped
 
-    # Safety clamp: avoid domination or weird extremes
+    # Safety clamp
     blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
 
-    # --- Normal blended probabilities (before disagreement override) ---
+    # ---------------------------------------------------------
+    # ALWAYS CONSTRUCT blended_probs IN ALL CASES
+    # ---------------------------------------------------------
     if ml_probs is not None and sim_probs is not None:
+        # True blend
         blended_probs = {
             v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
             for v in [v1_sel, v2_sel, v3_sel]
         }
     elif ml_probs is not None:
+        # Only ML available
         blended_probs = ml_probs
     elif sim_probs is not None:
+        # Only SIM available
         blended_probs = sim_probs
     else:
-        # SAFETY FALLBACK: both models unavailable
-        blended_probs = {v1_sel: 33.33, v2_sel: 33.33, v3_sel: 33.33}
-        
+        # SAFETY FALLBACK: both unavailable (first run / training failure)
+        blended_probs = {
+            v1_sel: 33.33,
+            v2_sel: 33.33,
+            v3_sel: 33.33,
+        }
+
     # ---------------------------------------------------------
     # CHAOS DISAGREEMENT MODE (SIM vs ML both confident, disagree)
     # ---------------------------------------------------------
-    # Compute SIM and ML winners + top probs
+    # Winners + top probs from raw SIM/ML
     sim_top_prob = None
     sim_winner = None
     if sim_probs is not None:
@@ -1677,7 +1685,7 @@ def run_full_prediction(
         ml_winner = max(ml_probs, key=ml_probs.get)
         ml_top_prob = ml_probs[ml_winner]
 
-    # Default: use blended result
+    # Default: use blended result (now ALWAYS defined)
     final_probs = blended_probs
 
     # Trigger chaos mode only when BOTH are confident AND disagree
@@ -1685,7 +1693,6 @@ def run_full_prediction(
         sim_top_prob is not None and ml_top_prob is not None
         and sim_top_prob > 70.0 and ml_top_prob > 70.0
         and sim_winner != ml_winner
-        and blended_probs is not None
     ):
         # Start from blended probabilities, but shrink the edge to reflect chaos
         ordered = sorted(blended_probs.items(), key=lambda x: x[1], reverse=True)
@@ -1696,8 +1703,8 @@ def run_full_prediction(
         reduced_gap = 0.60 * gap  # keep 60% of the original edge
 
         new_p_top = p_mid + reduced_gap
-        new_p_mid = p_mid  # anchor mid
-        new_p_low = p_low  # leave low as is
+        new_p_mid = p_mid
+        new_p_low = p_low
 
         # Renormalize to sum to 100
         total = new_p_top + new_p_mid + new_p_low
