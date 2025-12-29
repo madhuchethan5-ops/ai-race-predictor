@@ -1646,7 +1646,17 @@ def run_full_prediction(
 
     # Safety clamp: avoid domination or weird extremes
     blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
-    
+
+    # --- Normal blended probabilities (before disagreement override) ---
+    if ml_probs is not None and sim_probs is not None:
+        blended_probs = {
+            v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
+            for v in [v1_sel, v2_sel, v3_sel]
+        }
+    elif ml_probs is not None:
+        blended_probs = ml_probs
+    else:
+        blended_probs = sim_probs
     # ---------------------------------------------------------
     # CHAOS DISAGREEMENT MODE (SIM vs ML both confident, disagree)
     # ---------------------------------------------------------
@@ -1663,7 +1673,7 @@ def run_full_prediction(
         ml_winner = max(ml_probs, key=ml_probs.get)
         ml_top_prob = ml_probs[ml_winner]
 
-        # Default: use blended result
+    # Default: use blended result
     final_probs = blended_probs
 
     # Trigger chaos mode only when BOTH are confident AND disagree
