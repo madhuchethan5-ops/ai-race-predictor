@@ -221,56 +221,33 @@ TRACK_ALIASES = {
     "Normal": "Highway",
 }
 
-    # TRACK LENGTH PRIORS (mean + std from 500-race audit)
-    TRACK_LENGTH_PRIORS = {
-        "Expressway": {"mean": 36.4, "std": 16.8},
-        "Highway":    {"mean": 32.0, "std": 15.2},
-        "Dirt":       {"mean": 34.2, "std": 15.5},
-        "Desert":     {"mean": 33.5, "std": 15.5},
-        "Bumpy":      {"mean": 31.8, "std": 14.7},
-        "Potholes":   {"mean": 32.7, "std": 13.9},
-    }
+# ---------------------------------------------------------
+# TRACK LENGTH PRIORS (mean + std from 500-race audit)
+# ---------------------------------------------------------
+
+TRACK_LENGTH_PRIORS = {
+    "Expressway": {"mean": 36.4, "std": 16.8},
+    "Highway":    {"mean": 32.0, "std": 15.2},
+    "Dirt":       {"mean": 34.2, "std": 15.5},
+    "Desert":     {"mean": 33.5, "std": 15.5},
+    "Bumpy":      {"mean": 31.8, "std": 14.7},
+    "Potholes":   {"mean": 32.7, "std": 13.9},
+}
+
+import numpy as np
+
+def sample_track_length(track, rng=None, clip_min=10, clip_max=80):
+    """
+    Sample a realistic track length for SIM using mean + variance.
+    Prevents SIM from hallucinating 0.9 confidence.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    p = TRACK_LENGTH_PRIORS[track]
+    L = rng.normal(p["mean"], p["std"])
+    return float(np.clip(L, clip_min, clip_max))
     
-    PRIOR_STRENGTH = 5  # "virtual" sample count for Bayesian shrinkage
-
-def compute_track_means(history_df: pd.DataFrame) -> dict:
-    """
-    Compute smoothed per-terrain mean lengths using all laps:
-    mu_t = (n_t * empirical_mean_t + k * prior_t) / (n_t + k)
-    """
-    track_means = {}
-
-    if history_df is not None and not history_df.empty:
-        pieces = []
-        for li in range(1, 4):
-            col_track = f"lap_{li}_track"
-            col_len   = f"lap_{li}_len"
-            if col_track in history_df.columns and col_len in history_df.columns:
-                tmp = history_df[[col_track, col_len]].dropna()
-                tmp.columns = ["track", "len"]
-                pieces.append(tmp)
-
-        if pieces:
-            all_laps = pd.concat(pieces, axis=0, ignore_index=True)
-            stats = all_laps.groupby("track")["len"].agg(["mean", "count"])
-            emp_stats = stats.to_dict(orient="index")
-        else:
-            emp_stats = {}
-    else:
-        emp_stats = {}
-
-    for t in TRACK_OPTIONS:
-        prior_mu = PRIORS_TRACK_LEN.get(t, 33.3)
-        if t in emp_stats:
-            emp_mu = float(emp_stats[t]["mean"])
-            n     = float(emp_stats[t]["count"])
-            mu = (n * emp_mu + PRIOR_STRENGTH * prior_mu) / (n + PRIOR_STRENGTH)
-        else:
-            mu = prior_mu
-        track_means[t] = mu
-
-    return track_means
-
 # =========================================================
 # HIDDEN LAP STATS + ESTIMATOR
 # =========================================================
@@ -1407,14 +1384,26 @@ def run_simulation(
     terrain_matrix = np.column_stack(sim_terrains)
 
     # -----------------------------------------------------
-    # 4. GEOMETRY (DETERMINISTIC LENGTH MATRIX)
+    # 4. GEOMETRY (FULL SIM — VARIANCE-AWARE LENGTH SAMPLING)
     # -----------------------------------------------------
-    track_means = compute_track_means(history_df)
-
-    len_matrix_raw = np.full(terrain_matrix.shape, 33.3, dtype=float)
-    for t, mu in track_means.items():
-        len_matrix_raw[terrain_matrix == t] = mu
-
+    rng = np.random.default_rng()
+    
+    # Create an empty matrix for lengths (iterations x 3)
+    len_matrix_raw = np.zeros_like(terrain_matrix, dtype=float)
+    
+    # For each terrain type, sample lengths for all occurrences
+    for t in TRACK_OPTIONS:
+        mask = (terrain_matrix == t)
+        if mask.any():
+            sampled_lengths = rng.normal(
+                TRACK_LENGTH_PRIORS[t]["mean"],
+                TRACK_LENGTH_PRIORS[t]["std"],
+                size=mask.sum()
+            )
+            sampled_lengths = np.clip(sampled_lengths, 10, 80)
+            len_matrix_raw[mask] = sampled_lengths
+    
+    # Normalize per race (optional but keeps physics stable)
     len_sums = len_matrix_raw.sum(axis=1, keepdims=True)
     len_sums[len_sums == 0] = 1.0
     len_matrix = len_matrix_raw / len_sums
