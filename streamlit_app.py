@@ -1655,8 +1655,12 @@ def run_full_prediction(
         }
     elif ml_probs is not None:
         blended_probs = ml_probs
-    else:
+    elif sim_probs is not None:
         blended_probs = sim_probs
+    else:
+        # SAFETY FALLBACK: both models unavailable
+        blended_probs = {v1_sel: 33.33, v2_sel: 33.33, v3_sel: 33.33}
+        
     # ---------------------------------------------------------
     # CHAOS DISAGREEMENT MODE (SIM vs ML both confident, disagree)
     # ---------------------------------------------------------
