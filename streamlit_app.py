@@ -247,7 +247,72 @@ def sample_track_length(track, rng=None, clip_min=10, clip_max=80):
     p = TRACK_LENGTH_PRIORS[track]
     L = rng.normal(p["mean"], p["std"])
     return float(np.clip(L, clip_min, clip_max))
-    
+
+# ---------------------------------------------------------
+# GLOBAL VEHICLE WIN-RATE PRIORS (DEFAULTS / FALLBACK)
+# ---------------------------------------------------------
+
+# These are global win-rate priors (fractions, not %).
+# You can refresh these manually from the race app when needed.
+DEFAULT_VEHICLE_PRIORS = {
+    "ORV":           0.418,
+    "SUV":           0.399,
+    "Monster Truck": 0.390,
+    "Car":           0.374,
+    "Stock Car":     0.368,
+    "ATV":           0.311,
+    "Motorcycle":    0.269,
+    "Sports Car":    0.259,
+    "Supercar":      0.218,
+}
+
+# ---------------------------------------------------------
+# VEHICLE WIN-RATE PRIOR RESOLVER (UI + DEFAULTS, LEAK-SAFE)
+# ---------------------------------------------------------
+
+from typing import Optional, Dict, Any
+
+def get_vehicle_win_rate(
+    vehicle: str,
+    user_priors: Optional[Dict[str, Dict[str, Any]]],
+    default_priors: Dict[str, float],
+    win_rate_min: float = 0.05,
+    win_rate_max: float = 0.80,
+) -> float:
+    """
+    Return a win_rate prior for a given vehicle.
+
+    user_priors structure (if provided from UI):
+        {
+          "ORV": {"win_rate": 0.42},
+          "SUV": {"win_rate": 0.38},
+          ...
+        }
+
+    Logic:
+    - If user provides win_rate and 0.05 <= win_rate <= 0.80 -> accept.
+    - Else -> fallback to default_priors.
+    - If vehicle not in default_priors -> neutral 0.33.
+    """
+
+    default_wr = default_priors.get(vehicle, 0.33)
+
+    if user_priors is None or vehicle not in user_priors:
+        return float(default_wr)
+
+    user_wr = user_priors[vehicle].get("win_rate", None)
+    if user_wr is None:
+        return float(default_wr)
+
+    try:
+        user_wr = float(user_wr)
+        if win_rate_min <= user_wr <= win_rate_max:
+            return float(user_wr)
+        else:
+            return float(default_wr)
+    except (ValueError, TypeError):
+        return float(default_wr)
+
 # =========================================================
 # HIDDEN LAP STATS + ESTIMATOR
 # =========================================================
@@ -980,10 +1045,10 @@ def build_single_feature_row(
         "high_speed_share": float(high_speed_share),
         "rough_share": float(rough_share),
 
-        # Default priors for unseen vehicles
-        "v1_win_rate": 0.33,
-        "v2_win_rate": 0.33,
-        "v3_win_rate": 0.33,
+        # VEHICLE WIN-RATE PRIORS (LIVE)
+        "v1_win_rate": float(get_vehicle_win_rate(v1, None, DEFAULT_VEHICLE_PRIORS)),
+        "v2_win_rate": float(get_vehicle_win_rate(v2, None, DEFAULT_VEHICLE_PRIORS)),
+        "v3_win_rate": float(get_vehicle_win_rate(v3, None, DEFAULT_VEHICLE_PRIORS)),
     }
 
     # ---------------------------------------------------------
@@ -1509,7 +1574,15 @@ def soft_cap_ml_probs(ml_probs, cap_max=80.0):
     return {v: p * scale for v, p in ml_probs.items()}
 
 
-def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
+def run_full_prediction(
+    v1_sel,
+    v2_sel,
+    v3_sel,
+    k_idx,
+    k_type,
+    history,
+    user_vehicle_priors=None,
+):
 
     model_skill = compute_model_skill(history)
 
@@ -1524,7 +1597,13 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
 
     if ml_model is not None:
         X_curr = build_single_feature_row(
-            v1_sel, v2_sel, v3_sel, k_idx, k_type, history
+            v1_sel,
+            v2_sel,
+            v3_sel,
+            k_idx,
+            k_type,
+            history,
+            user_vehicle_priors=user_vehicle_priors,   # <-- NEW
         )
         raw_proba = ml_model.predict_proba(X_curr)[0]
 
@@ -2386,6 +2465,28 @@ with Q3:
             st.success("✅ Race saved to database! Model will update on next prediction.")
             st.rerun()
             
+# ---------------------------------------------------------
+# ADVANCED: LIVE VEHICLE WIN-RATE INPUTS (OPTIONAL)
+# ---------------------------------------------------------
+
+with st.expander("Advanced: Update live vehicle win-rates (optional)"):
+    st.markdown("Enter live win-rates from the race app. Leave blank to use defaults.")
+
+    ui_vehicle_priors = {}
+
+    for veh, default_wr in DEFAULT_VEHICLE_PRIORS.items():
+        val = st.text_input(
+            label=f"{veh} win rate",
+            value=f"{default_wr:.3f}",
+            key=f"wr_{veh.replace(' ', '_')}",
+        )
+
+        # Backend will validate, so we just pass raw input
+        try:
+            ui_vehicle_priors[veh] = {"win_rate": float(val)}
+        except:
+            ui_vehicle_priors[veh] = {"win_rate": None}
+
 # ---------------------------------------------------------
 # Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
 # ---------------------------------------------------------
