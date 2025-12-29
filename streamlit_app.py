@@ -1983,7 +1983,15 @@ with Q2:
         v1, v2, v3 = st.session_state.selected_vehicles
 
         # --- Run prediction and store result in session_state ---
-        st.session_state.res = run_full_prediction(v1, v2, v3, k_idx, k_type, history)
+        st.session_state.res = run_full_prediction(
+            v1,
+            v2,
+            v3,
+            k_idx,
+            k_type,
+            history,
+            user_vehicle_priors=ui_vehicle_priors,
+        )
 
         # Reset trigger
         st.session_state.trigger_prediction = False
