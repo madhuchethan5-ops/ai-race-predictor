@@ -1500,8 +1500,9 @@ def run_simulation(
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
 
 # ---------------------------------------------------------
-# FULL PREDICTION ENGINE (NO UI) — FINAL CLEAN VERSION
-# WITH SOFT ML CONFIDENCE CAPPING
+# FULL PREDICTION ENGINE (NO UI) — WITH:
+# - SOFT ML CONFIDENCE CAP
+# - CHAOS DISAGREEMENT MODE (SIM vs ML)
 # ---------------------------------------------------------
 
 def soft_cap_ml_probs(ml_probs, cap_max=80.0):
@@ -1553,10 +1554,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             v3_sel: float(calib_proba[2] * 100.0),
         }
 
-        # -----------------------------------------
-        # SOFT CONFIDENCE CAPPING (AFTER ML PROBS)
-        # -----------------------------------------
-        # No fake structure assumptions: just prevent extreme overconfidence.
+        # SOFT CONFIDENCE CAPPING (ML should not scream 90–95% yet)
         ml_probs = soft_cap_ml_probs(ml_probs, cap_max=80.0)
 
     final_probs = sim_probs
@@ -1570,23 +1568,69 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         ml_brier  = model_skill["ml_brier"]
         n_skill   = model_skill["n"]
 
-        if n_skill >= 30 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
+        if n_skill >= 50 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
             improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-            # very gentle adjustment
-            blend_weight += 0.05 * np.clip(improvement, -0.5, 0.5)
 
-    blend_weight = float(np.clip(blend_weight, 0.60, 0.80))
+            if improvement > 0.10:
+                # ML clearly better -> allow up to ~0.80
+                blend_weight = 0.75 + 0.05 * np.clip(improvement, 0.10, 0.30)
+            elif improvement < -0.10:
+                # SIM clearly better -> pull toward SIM
+                blend_weight = 0.45  # 45% ML, 55% SIM
+            else:
+                # Rough tie
+                blend_weight = 0.60
 
-    # final blended probabilities
+    blend_weight = float(np.clip(blend_weight, 0.45, 0.80))
+
+    # --- Normal blended probabilities (before disagreement override) ---
     if ml_probs is not None and sim_probs is not None:
-        final_probs = {
+        blended_probs = {
             v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
             for v in [v1_sel, v2_sel, v3_sel]
         }
     elif ml_probs is not None:
-        final_probs = ml_probs
+        blended_probs = ml_probs
     else:
-        final_probs = sim_probs
+        blended_probs = sim_probs
+
+    # ---------------------------------------------------------
+    # CHAOS DISAGREEMENT MODE (SIM vs ML both confident, disagree)
+    # ---------------------------------------------------------
+    # Compute SIM and ML winners + top probs
+    sim_top_prob = None
+    sim_winner = None
+    if sim_probs is not None:
+        sim_winner = max(sim_probs, key=sim_probs.get)
+        sim_top_prob = sim_probs[sim_winner]
+
+    ml_top_prob = None
+    ml_winner = None
+    if ml_probs is not None:
+        ml_winner = max(ml_probs, key=ml_probs.get)
+        ml_top_prob = ml_probs[ml_winner]
+
+    # Default: use blended result
+    final_probs = blended_probs
+
+    # Trigger chaos mode only when BOTH are confident AND disagree
+    if (
+        sim_top_prob is not None and ml_top_prob is not None
+        and sim_top_prob > 70.0 and ml_top_prob > 70.0
+        and sim_winner != ml_winner
+    ):
+        # Use ML ranking (ordering), but flatten confidence
+        ordered_ml = sorted(ml_probs.items(), key=lambda x: x[1], reverse=True)
+        v_top, _ = ordered_ml[0]
+        v_mid, _ = ordered_ml[1]
+        v_low, _ = ordered_ml[2]
+
+        # Flattened but ranked: ML's order, no hallucinated certainty
+        final_probs = {
+            v_top: 45.0,
+            v_mid: 35.0,
+            v_low: 20.0,
+        }
 
     # --- Terrain–vehicle adjustment (gentle) ---
     tv_matrix, tv_samples = build_tv_matrix(history)
@@ -1673,6 +1717,10 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             'bet_safety': bet_safety,
             'expected_regret': expected_regret,
             'blend_weight_ml': blend_weight if ml_probs is not None else 0.0,
+            'sim_top_prob': sim_top_prob,
+            'ml_top_prob': ml_top_prob,
+            'sim_winner': sim_winner,
+            'ml_winner': ml_winner,
         },
         'hidden_guess': lap_guess,
         'tv_strengths': tv_strengths,
@@ -1680,6 +1728,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         'tv_samples': tv_samples,
     }
     return res
+    
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
 # ---------------------------------------------------------
