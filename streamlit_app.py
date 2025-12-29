@@ -221,18 +221,17 @@ TRACK_ALIASES = {
     "Normal": "Highway",
 }
 
-# GLOBAL PRIORS - derived from historical analysis (adjust values as per your CSV)
-PRIORS_TRACK_LEN = {
-    "Expressway": 37.0,
-    "Highway":    35.0,
-    "Dirt":       30.0,
-    "Desert":     28.0,
-    "Bumpy":      26.0,
-    "Potholes":   24.0,
-    "Pothholes":  24.0,  # typo catcher, same as Potholes
-}
-
-PRIOR_STRENGTH = 5  # "virtual" sample count for Bayesian shrinkage
+    # TRACK LENGTH PRIORS (mean + std from 500-race audit)
+    TRACK_LENGTH_PRIORS = {
+        "Expressway": {"mean": 36.4, "std": 16.8},
+        "Highway":    {"mean": 32.0, "std": 15.2},
+        "Dirt":       {"mean": 34.2, "std": 15.5},
+        "Desert":     {"mean": 33.5, "std": 15.5},
+        "Bumpy":      {"mean": 31.8, "std": 14.7},
+        "Potholes":   {"mean": 32.7, "std": 13.9},
+    }
+    
+    PRIOR_STRENGTH = 5  # "virtual" sample count for Bayesian shrinkage
 
 def compute_track_means(history_df: pd.DataFrame) -> dict:
     """
