@@ -904,24 +904,20 @@ def get_trained_model(history_df: pd.DataFrame):
 
 def expected_length(history_df: pd.DataFrame, lap_idx: int, track_type: str) -> float:
     """
-    Returns expected lap length for ML features.
-    Uses the SAME priors + Bayesian smoothing as SIM.
-    Prevents split-brain between ML and SIM.
+    ML feature: expected lap length for a given terrain.
+    ML uses deterministic means from TRACK_LENGTH_PRIORS.
+    SIM uses variance-aware sampling.
+    This keeps ML and SIM aligned without split-brain.
     """
 
-    # If track is unknown, fallback to neutral prior
     if track_type is None or track_type == "Unknown":
         return 33.3
 
-    # If no history, return prior directly
-    if history_df is None or history_df.empty:
-        return float(PRIORS_TRACK_LEN.get(track_type, 33.3))
+    # ML uses the mean only (no history, no shrinkage)
+    if track_type in TRACK_LENGTH_PRIORS:
+        return TRACK_LENGTH_PRIORS[track_type]["mean"]
 
-    # Compute smoothed per-terrain means (same as SIM)
-    track_means = compute_track_means(history_df)
-
-    # Return the smoothed mean for this track
-    return float(track_means.get(track_type, 33.3))
+    return 33.3  # fallback
     
 # ---------------------------------------------------------
 # 5. SINGLE-ROW FEATURE BUILDER FOR LIVE PREDICTIONS
