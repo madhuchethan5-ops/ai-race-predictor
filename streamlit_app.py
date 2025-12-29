@@ -1624,7 +1624,6 @@ def run_full_prediction(
         # SOFT CONFIDENCE CAPPING (ML should not scream 90–95% yet)
         ml_probs = soft_cap_ml_probs(ml_probs, cap_max=80.0)
 
-    final_probs = sim_probs
     p_ml_store = ml_probs
 
     # --- Hybrid blending: ML dominant, SIM stabilizer ---
