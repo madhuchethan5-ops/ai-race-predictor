@@ -201,11 +201,11 @@ SPEED_DATA = {
     "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
     "Motorcycle":    {"Expressway": 94,  "Desert": 45, "Dirt": 76, "Potholes": 36, "Bumpy": 66, "Highway": 89},
     "Stock Car":     {"Expressway": 100, "Desert": 50, "Dirt": 80, "Potholes": 45, "Bumpy": 72, "Highway": 99},
-    "SUV":           {"Expressway": 180, "Desert": 63, "Dirt": 100, "Pothholes": 60, "Bumpy": 80, "Highway": 143},
-    "Car":           {"Expressway": 235, "Desert": 70, "Dirt": 120, "Pothholes": 68, "Bumpy": 81, "Highway": 180},
-    "ATV":           {"Expressway": 80,  "Desert": 40, "Dirt": 66, "Pothholes": 32, "Bumpy": 60, "Highway": 80},
-    "Sports Car":    {"Expressway": 300, "Desert": 72, "Dirt": 130, "Pothholes": 72, "Bumpy": 91, "Highway": 240},
-    "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134, "Pothholes": 77, "Bumpy": 99, "Highway": 320},
+    "SUV":           {"Expressway": 180, "Desert": 63, "Dirt": 100, "Potholes": 60, "Bumpy": 80, "Highway": 143},
+    "Car":           {"Expressway": 235, "Desert": 70, "Dirt": 120, "Potholes": 68, "Bumpy": 81, "Highway": 180},
+    "ATV":           {"Expressway": 80,  "Desert": 40, "Dirt": 66, "Potholes": 32, "Bumpy": 60, "Highway": 80},
+    "Sports Car":    {"Expressway": 300, "Desert": 72, "Dirt": 130, "Potholes": 72, "Bumpy": 91, "Highway": 240},
+    "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134, "Potholes": 77, "Bumpy": 99, "Highway": 320},
 }
 
 ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
@@ -1383,6 +1383,9 @@ def run_simulation(
 
     terrain_matrix = np.column_stack(sim_terrains)
 
+    print("TRACK_OPTIONS:", TRACK_OPTIONS)
+    print("TRACK_LENGTH_PRIORS keys:", list(TRACK_LENGTH_PRIORS.keys()))
+    
     # -----------------------------------------------------
     # 4. GEOMETRY (FULL SIM — VARIANCE-AWARE LENGTH SAMPLING)
     # -----------------------------------------------------
