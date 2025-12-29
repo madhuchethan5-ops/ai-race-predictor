@@ -1498,32 +1498,29 @@ def run_simulation(
 
     win_pcts = calibrated_probs * 100.0
     return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
+
 # ---------------------------------------------------------
 # FULL PREDICTION ENGINE (NO UI) — FINAL CLEAN VERSION
+# WITH SOFT ML CONFIDENCE CAPPING
 # ---------------------------------------------------------
 
-def is_hard_regime(tracks, lengths):
-    terrains = set(tracks)
-    mixed_terrain = (len(terrains) == 3)
-
-    skewed_lengths = (min(lengths) < 20) or (max(lengths) > 60)
-
-    return mixed_terrain or skewed_lengths
-
-
-def cap_ml_confidence(ml_probs, hard_regime, cap_value=65.0):
+def soft_cap_ml_probs(ml_probs, cap_max=80.0):
     """
-    ml_probs is a dict {vehicle: prob_in_percent}
-    cap_value is in percent (e.g., 65.0)
+    Softly cap ML probabilities so that the max does not exceed cap_max (in percent),
+    while preserving the relative ratios between vehicles.
+    ml_probs is a dict {vehicle: prob_in_percent}.
     """
-    if not hard_regime:
+    if ml_probs is None:
+        return None
+
+    current_max = max(ml_probs.values())
+    if current_max <= cap_max:
         return ml_probs
 
-    capped = {}
-    for v, p in ml_probs.items():
-        capped[v] = min(p, cap_value)
-    return capped
-    
+    scale = cap_max / current_max
+    return {v: p * scale for v, p in ml_probs.items()}
+
+
 def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
 
     model_skill = compute_model_skill(history)
@@ -1536,38 +1533,35 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     # --- ML-based probabilities ---
     ml_probs = None
     ml_model, n_samples = get_trained_model(history)
-    
+
     if ml_model is not None:
         X_curr = build_single_feature_row(
             v1_sel, v2_sel, v3_sel, k_idx, k_type, history
         )
         raw_proba = ml_model.predict_proba(X_curr)[0]
-    
+
         # --- Temperature scaling for ML calibration ---
         ml_temp = estimate_ml_temperature(history)
         logits = np.log(np.clip(raw_proba, 1e-12, 1.0))
         scaled_logits = logits / ml_temp
         calib_proba = np.exp(scaled_logits)
         calib_proba /= calib_proba.sum()
-    
+
         ml_probs = {
             v1_sel: float(calib_proba[0] * 100.0),
             v2_sel: float(calib_proba[1] * 100.0),
             v3_sel: float(calib_proba[2] * 100.0),
         }
+
         # -----------------------------------------
-        # CONFIDENCE CAPPING (AFTER ML PROBS)
+        # SOFT CONFIDENCE CAPPING (AFTER ML PROBS)
         # -----------------------------------------
-        tracks_for_regime = [k_type, k_type, k_type]  # your current assumption
-        lengths_for_regime = [30, 30, 30]             # placeholder until real lengths exist
-        
-        hard_regime = is_hard_regime(tracks_for_regime, lengths_for_regime)
-        
-        ml_probs = cap_ml_confidence(ml_probs, hard_regime, cap_value=65.0)
-    
+        # No fake structure assumptions: just prevent extreme overconfidence.
+        ml_probs = soft_cap_ml_probs(ml_probs, cap_max=80.0)
+
     final_probs = sim_probs
     p_ml_store = ml_probs
-    
+
     # --- Hybrid blending: ML dominant, SIM stabilizer ---
     blend_weight = 0.70  # base: 70% ML, 30% SIM
 
@@ -1611,7 +1605,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
     final_probs, tv_strengths = apply_tv_adjustment(
         final_probs, ctx, tv_matrix, k_type, strength_alpha=0.15
     )
-   
+
     # --- Winner & meta calculations ---
     predicted_winner = max(final_probs, key=final_probs.get)
     p1 = final_probs[predicted_winner]
@@ -1666,7 +1660,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
             'idx': k_idx,
             't': k_type,
             'slot': f"Lap {k_idx + 1}",
-            'tracks': tracks,  # <-- ADDED HERE TOO
+            'tracks': tracks,
         },
         'p_sim': sim_probs,
         'p_ml': p_ml_store,
@@ -1686,7 +1680,6 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
         'tv_samples': tv_samples,
     }
     return res
-    
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
 # ---------------------------------------------------------
