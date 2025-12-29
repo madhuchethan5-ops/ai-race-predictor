@@ -1811,16 +1811,61 @@ if "trigger_prediction" not in st.session_state:
     st.session_state.trigger_prediction = False
 
 # ---------------------------------------------------------
+# ALWAYS INITIALIZE PRIORS BEFORE ANY UI BLOCKS
+# ---------------------------------------------------------
+ui_vehicle_priors = st.session_state.get("ui_vehicle_priors", None)
+
+# ---------------------------------------------------------
 # QUADRANT LAYOUT (2×2, AUTO-FIT)
 # ---------------------------------------------------------
 
 top_left, top_right = st.columns(2)
 bottom_left, bottom_right = st.columns(2)
 
-Q1 = top_left.container()      # Top-left  : Race setup
-Q2 = top_right.container()     # Top-right : Prediction
-Q3 = bottom_left.container()   # Bottom-left: Save race
-Q4 = bottom_right.container()  # Bottom-right: Diagnostics
+Q1 = top_left.container()
+Q2 = top_right.container()
+Q3 = bottom_left.container()
+Q4 = bottom_right.container()
+
+# ---------------------------------------------------------
+# ADVANCED: LIVE VEHICLE WIN-RATE INPUTS (TOP-LEVEL)
+# ---------------------------------------------------------
+
+with st.expander("Advanced: Update live vehicle win-rates (optional)"):
+
+    st.markdown("Enter live win-rates (%) from the race app. Example: `42.3`")
+
+    temp_wr_inputs = {}
+    cols = st.columns(3)
+    vehicles = list(DEFAULT_VEHICLE_PRIORS.keys())
+
+    for i, veh in enumerate(vehicles):
+        col = cols[i % 3]
+        default_percent = DEFAULT_VEHICLE_PRIORS[veh] * 100.0
+
+        val = col.text_input(
+            label=veh,
+            value=f"{default_percent:.1f}",
+            key=f"wr_input_{veh.replace(' ', '_')}",
+        )
+
+        temp_wr_inputs[veh] = val
+
+    if st.button("Submit Win-Rate Updates"):
+        ui_vehicle_priors = {}
+
+        for veh, val in temp_wr_inputs.items():
+            try:
+                wr_fraction = float(val) / 100.0
+                ui_vehicle_priors[veh] = {"win_rate": wr_fraction}
+            except:
+                ui_vehicle_priors[veh] = {"win_rate": None}
+
+        st.session_state["ui_vehicle_priors"] = ui_vehicle_priors
+        st.success("Win-rate priors updated!")
+        
+    # Fallback if user hasn't submitted yet
+    ui_vehicle_priors = st.session_state.get("ui_vehicle_priors", None)
 
 # ---------------------------------------------------------
 # Q1 — COMPACT RACE SETUP (TOP-LEFT) — FINAL FIXED VERSION
@@ -1956,52 +2001,7 @@ with Q1:
 
         st.session_state.trigger_prediction = True
 
-    # ---------------------------------------------------------
-    # ADVANCED: LIVE VEHICLE WIN-RATE INPUTS (OPTIONAL)
-    # ---------------------------------------------------------
     
-    with st.expander("Advanced: Update live vehicle win-rates (optional)"):
-    
-        st.markdown("Enter live win-rates (%) from the race app. Example: `42.3`")
-    
-        # Temporary storage for user edits
-        temp_wr_inputs = {}
-    
-        # Create a neat 3-column table layout
-        cols = st.columns(3)
-    
-        vehicles = list(DEFAULT_VEHICLE_PRIORS.keys())
-    
-        for i, veh in enumerate(vehicles):
-            col = cols[i % 3]
-    
-            default_percent = DEFAULT_VEHICLE_PRIORS[veh] * 100.0  # convert 0.418 → 41.8
-    
-            val = col.text_input(
-                label=veh,
-                value=f"{default_percent:.1f}",
-                key=f"wr_input_{veh.replace(' ', '_')}",
-            )
-    
-            temp_wr_inputs[veh] = val
-    
-        # Submit button
-        if st.button("Submit Win-Rate Updates"):
-            ui_vehicle_priors = {}
-    
-            for veh, val in temp_wr_inputs.items():
-                try:
-                    # Convert % to fraction
-                    wr_fraction = float(val) / 100.0
-                    ui_vehicle_priors[veh] = {"win_rate": wr_fraction}
-                except:
-                    ui_vehicle_priors[veh] = {"win_rate": None}
-    
-            st.success("Win-rate priors updated!")
-            st.session_state["ui_vehicle_priors"] = ui_vehicle_priors
-    
-    # Fallback if user hasn't submitted yet
-    ui_vehicle_priors = st.session_state.get("ui_vehicle_priors", None)
             
 # ---------------------------------------------------------
 # Q2 — COMPACT PREDICTION PANEL (2×2 DASHBOARD LAYOUT)
