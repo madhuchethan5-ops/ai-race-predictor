@@ -1863,9 +1863,6 @@ with st.expander("Advanced: Update live vehicle win-rates (optional)"):
 
         st.session_state["ui_vehicle_priors"] = ui_vehicle_priors
         st.success("Win-rate priors updated!")
-        
-    # Fallback if user hasn't submitted yet
-    ui_vehicle_priors = st.session_state.get("ui_vehicle_priors", None)
 
 # ---------------------------------------------------------
 # Q1 — COMPACT RACE SETUP (TOP-LEFT) — FINAL FIXED VERSION
