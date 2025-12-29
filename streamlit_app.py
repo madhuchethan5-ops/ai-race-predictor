@@ -1568,7 +1568,7 @@ def run_full_prediction(v1_sel, v2_sel, v3_sel, k_idx, k_type, history):
                 # Rough tie
                 blend_weight = 0.60
 
-    blend_weight = float(np.clip(blend_weight, 0.45, 0.80))
+    blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
 
     # --- Normal blended probabilities (before disagreement override) ---
     if ml_probs is not None and sim_probs is not None:
