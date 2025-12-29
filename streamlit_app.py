@@ -1628,28 +1628,26 @@ def run_full_prediction(
     p_ml_store = ml_probs
 
     # --- Hybrid blending: ML dominant, SIM stabilizer ---
-    blend_weight = 0.70  # base: 70% ML, 30% SIM
-    
+    blend_weight = 0.65  # base: 65% ML, 35% SIM
+
     if ml_probs is not None and model_skill is not None:
         sim_brier = model_skill["sim_brier"]
         ml_brier  = model_skill["ml_brier"]
         n_skill   = model_skill["n"]
-    
-        if n_skill >= 50 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
-            improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-    
-            if improvement > 0.10:
-                # ML clearly better -> push toward ML ceiling (0.75)
-                blend_weight = 0.75
-            elif improvement < -0.10:
-                # SIM clearly better -> soften to 0.50 instead of a hard 0.45
-                blend_weight = 0.50  # 50% ML, 50% SIM
-            else:
-                # Rough tie -> modest ML edge
-                blend_weight = 0.60
-    
-    blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
 
+        # Start trusting skill once we have enough races
+        if n_skill >= 25 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
+            improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
+            # improvement > 0 → ML better, < 0 → SIM better
+
+            # Smooth mapping:
+            # improvement in [-0.20, +0.20] → blend in [0.45, 0.75]
+            improvement_clipped = float(np.clip(improvement, -0.20, 0.20))
+            blend_weight = 0.60 + 0.15 * improvement_clipped
+
+    # Safety clamp: avoid domination or weird extremes
+    blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
+    
     # ---------------------------------------------------------
     # CHAOS DISAGREEMENT MODE (SIM vs ML both confident, disagree)
     # ---------------------------------------------------------
@@ -1666,7 +1664,7 @@ def run_full_prediction(
         ml_winner = max(ml_probs, key=ml_probs.get)
         ml_top_prob = ml_probs[ml_winner]
 
-    # Default: use blended result
+        # Default: use blended result
     final_probs = blended_probs
 
     # Trigger chaos mode only when BOTH are confident AND disagree
@@ -1674,20 +1672,30 @@ def run_full_prediction(
         sim_top_prob is not None and ml_top_prob is not None
         and sim_top_prob > 70.0 and ml_top_prob > 70.0
         and sim_winner != ml_winner
+        and blended_probs is not None
     ):
-        # Use ML ranking (ordering), but flatten confidence
-        ordered_ml = sorted(ml_probs.items(), key=lambda x: x[1], reverse=True)
-        v_top, _ = ordered_ml[0]
-        v_mid, _ = ordered_ml[1]
-        v_low, _ = ordered_ml[2]
+        # Start from blended probabilities, but shrink the edge to reflect chaos
+        ordered = sorted(blended_probs.items(), key=lambda x: x[1], reverse=True)
+        (v_top, p_top), (v_mid, p_mid), (v_low, p_low) = ordered
 
-        # Flattened but ranked: ML's order, no hallucinated certainty
+        # Reduce the gap between top and mid by 40%
+        gap = p_top - p_mid
+        reduced_gap = 0.60 * gap  # keep 60% of the original edge
+
+        new_p_top = p_mid + reduced_gap
+        new_p_mid = p_mid  # anchor mid
+        new_p_low = p_low  # leave low as is
+
+        # Renormalize to sum to 100
+        total = new_p_top + new_p_mid + new_p_low
+        scale = 100.0 / total if total > 0 else 1.0
+
         final_probs = {
-            v_top: 45.0,
-            v_mid: 35.0,
-            v_low: 20.0,
+            v_top: new_p_top * scale,
+            v_mid: new_p_mid * scale,
+            v_low: new_p_low * scale,
         }
-
+        
     # --- Terrain–vehicle adjustment (gentle) ---
     tv_matrix, tv_samples = build_tv_matrix(history)
 
