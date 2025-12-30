@@ -3112,3 +3112,121 @@ with st.expander("📥 Import Legacy Race History"):
 #         st.session_state['race_data'] = fixed_df
 #         fixed_df.to_csv("Race_Data_with_Physics.csv", index=False)
 #         st.write("Saved to 'Race_Data_with_Physics.csv'. Please use this file.")
+
+# ---------------------------------------------------------
+# 🔍 FULL ML DIAGNOSTIC SUITE (SAFE, OPTIONAL, NO CODE POLLUTION)
+# ---------------------------------------------------------
+with st.expander("🔧 Full ML Diagnostic Suite"):
+    try:
+        st.write("## 📌 ML Training Diagnostics")
+
+        # Train or retrieve model
+        model, n_samples = get_trained_model(history_df)
+
+        st.write("### 🧮 Training Summary")
+        st.write("Training samples:", n_samples)
+
+        if model is None:
+            st.warning("ML model not trained (not enough samples).")
+        else:
+            # Extract pipeline components
+            pre = model.named_steps["pre"]
+            clf = model.named_steps["clf"]
+
+            # Extract feature info
+            cat_features = pre.transformers_[0][2]
+            num_features = pre.transformers_[1][2]
+            ohe = pre.named_transformers_["cat"]
+
+            st.write("### 🧩 Feature Columns")
+            st.write("Categorical:", cat_features)
+            st.write("Numeric:", num_features)
+
+            st.write("### 🔠 OneHotEncoder Categories")
+            st.write(ohe.categories_)
+
+            # Show transformed shape
+            X_debug, _, _, _ = build_training_data(history_df.tail(200))
+            if X_debug is not None and not X_debug.empty:
+                transformed = pre.transform(X_debug.head(1))
+                st.write("### 🧮 Transformed Feature Vector Shape")
+                st.write("Raw shape:", X_debug.head(1).shape)
+                st.write("Transformed shape:", transformed.shape)
+
+            # ---------------------------------------------------------
+            # LIVE PREDICTION DIAGNOSTICS
+            # ---------------------------------------------------------
+            st.write("## 🚦 Live Prediction Diagnostics")
+
+            # Build a live feature row from the last race
+            last = history_df.tail(1).iloc[0]
+            v1, v2, v3 = last["vehicle_1"], last["vehicle_2"], last["vehicle_3"]
+            lane = last["lane"]
+            k_idx = int(lane.split(" ")[1]) - 1
+            k_type = last[f"lap_{k_idx+1}_track"]
+
+            live_row = build_single_feature_row(
+                v1, v2, v3, k_idx, k_type, history_df,
+                user_vehicle_priors=None,
+                sim_meta_live=None
+            )
+
+            st.write("### 🧪 Live Feature Row")
+            st.write(live_row)
+
+            # ML prediction
+            ml_probs = model.predict_proba(live_row)[0]
+            st.write("### 🤖 ML Probabilities")
+            st.write({
+                v1: float(ml_probs[0]),
+                v2: float(ml_probs[1]),
+                v3: float(ml_probs[2]),
+            })
+
+            # SIM prediction
+            sim_probs = compute_sim_probs(v1, v2, v3, history_df)
+            st.write("### 🏎️ SIM Probabilities")
+            st.write(sim_probs)
+
+            # Compare ML vs SIM
+            st.write("### ⚔️ ML vs SIM Disagreement")
+            st.write({
+                "ML Top": max(ml_probs),
+                "SIM Top": max(sim_probs.values()),
+                "ML Winner": [v1, v2, v3][int(ml_probs.argmax())],
+                "SIM Winner": max(sim_probs, key=sim_probs.get),
+            })
+
+            # ---------------------------------------------------------
+            # BLEND DIAGNOSTICS
+            # ---------------------------------------------------------
+            st.write("## 🔀 Blend Diagnostics")
+
+            # Compute blend weight
+            sim_top = max(sim_probs.values())
+            ml_top = max(ml_probs)
+            blend_weight = compute_blend_weight(sim_top, ml_top)
+
+            st.write("Blend Weight (ML share):", blend_weight)
+
+            # Brier scores
+            st.write("### 📉 Brier Scores")
+            st.write({
+                "SIM Brier": compute_brier(sim_probs, last["actual_winner"]),
+                "ML Brier": compute_brier(
+                    {v1: ml_probs[0], v2: ml_probs[1], v3: ml_probs[2]},
+                    last["actual_winner"]
+                ),
+            })
+
+            # Expected regret
+            st.write("### 😬 Expected Regret")
+            st.write(compute_expected_regret(sim_probs, ml_probs))
+
+            # Chaos mode indicator
+            chaos = (sim_top > 0.70 and ml_top > 0.70 and
+                     max(sim_probs, key=sim_probs.get) != [v1, v2, v3][int(ml_probs.argmax())])
+            st.write("### 🌪️ Chaos Mode Triggered:", chaos)
+
+    except Exception as e:
+        st.error(f"ML Debug Error: {e}")
