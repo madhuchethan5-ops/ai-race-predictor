@@ -788,155 +788,94 @@ def compute_live_vehicle_win_rates(history_df: pd.DataFrame, v1: str, v2: str, v
 
     return rate(v1), rate(v2), rate(v3)
 
-def build_training_data(history_df: pd.DataFrame):
-    df = history_df.copy()
+def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transform full-history rows (3 laps known) into pre-race-style rows
+    using the same logic as build_single_feature_row.
 
-    df = df.dropna(subset=[
-        "actual_winner",
-        "vehicle_1", "vehicle_2", "vehicle_3",
-        "lap_1_track", "lap_2_track", "lap_3_track",
-        "lap_1_len", "lap_2_len", "lap_3_len",
-        "lane",
-        "timestamp",
-    ])
-    if df.empty:
-        return None, None, None, None
+    We use 'lane' to detect which lap was revealed pre-race.
+    """
+    if history_df is None or history_df.empty:
+        return pd.DataFrame()
 
-    def winner_index(row):
-        vs = [row["vehicle_1"], row["vehicle_2"], row["vehicle_3"]]
-        if row["actual_winner"] not in vs:
-            return None
-        return vs.index(row["actual_winner"])
+    rows = []
+    for _, row in history_df.iterrows():
+        # Basic sanity: need vehicles and actual_winner
+        if any(col not in row for col in ["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"]):
+            continue
 
-    df["winner_idx"] = df.apply(winner_index, axis=1)
-    df = df.dropna(subset=["winner_idx"])
-    if df.empty:
-        return None, None, None, None
-
-    # Track categories
-    def is_high_speed(track):
-        return track in ["Expressway", "Highway"]
-
-    def is_rough(track):
-        return track in ["Dirt", "Bumpy", "Potholes"]
-
-    df["high_speed_share"] = (
-        df["lap_1_track"].apply(is_high_speed).astype(int) +
-        df["lap_2_track"].apply(is_high_speed).astype(int) +
-        df["lap_3_track"].apply(is_high_speed).astype(int)
-    ) / 3.0
-
-    df["rough_share"] = (
-        df["lap_1_track"].apply(is_rough).astype(int) +
-        df["lap_2_track"].apply(is_rough).astype(int) +
-        df["lap_3_track"].apply(is_rough).astype(int)
-    ) / 3.0
-
-    df = add_leakage_safe_win_rates(df)
-
-    # -----------------------------
-    # Surprise Index Calculation
-    # -----------------------------
-    def compute_surprise(row):
+        v1 = row["vehicle_1"]
+        v2 = row["vehicle_2"]
+        v3 = row["vehicle_3"]
         winner = row["actual_winner"]
-        # Legacy compatibility: fall back to equal 33.3% if no stored per-vehicle probs.
-        probs = {
-            row["vehicle_1"]: row.get("Win_Prob_1", 33.3),
-            row["vehicle_2"]: row.get("Win_Prob_2", 33.3),
-            row["vehicle_3"]: row.get("Win_Prob_3", 33.3),
-        }
-        p = probs.get(winner, 33.3) / 100.0
-        return 1.0 - p  # 0 = expected, 1 = shocking
 
-    df["surprise_weight"] = df.apply(compute_surprise, axis=1)
-    df["surprise_weight"] = df["surprise_weight"].clip(lower=0.05)
+        # Determine which lap was revealed from 'lane'
+        lane = row.get("lane", None)
+        if lane == "Lap 1":
+            k_idx = 0
+            k_type = row.get("lap_1_track", "Unknown")
+        elif lane == "Lap 2":
+            k_idx = 1
+            k_type = row.get("lap_2_track", "Unknown")
+        elif lane == "Lap 3":
+            k_idx = 2
+            k_type = row.get("lap_3_track", "Unknown")
+        else:
+            # If we don't know which lap was shown, skip this race for ML
+            continue
 
-    # ---------------------------------------------------------
-    # GEOMETRY REGIME FEATURES
-    # ---------------------------------------------------------
-    # Lap-wise means and stds
-    geom_means = [
-        df["lap_1_len"].mean(),
-        df["lap_2_len"].mean(),
-        df["lap_3_len"].mean(),
-    ]
-    geom_stds = [
-        df["lap_1_len"].std(),
-        df["lap_2_len"].std(),
-        df["lap_3_len"].std(),
-    ]
+        # Build SIM meta from stored Win_Prob_1/2/3 if available
+        sim_meta_live = None
+        if all(col in row for col in ["Win_Prob_1", "Win_Prob_2", "Win_Prob_3"]):
+            sim_probs_hist = {
+                v1: row["Win_Prob_1"],
+                v2: row["Win_Prob_2"],
+                v3: row["Win_Prob_3"],
+            }
+            sim_meta_live = sim_meta_from_probs(sim_probs_hist)
 
-    df["geom_lap1_mean"] = geom_means[0]
-    df["geom_lap2_mean"] = geom_means[1]
-    df["geom_lap3_mean"] = geom_means[2]
+        # Build a pre-race-style feature row using the same logic as live
+        feat_row = build_single_feature_row(
+            v1,
+            v2,
+            v3,
+            k_idx,
+            k_type,
+            history_df,
+            user_vehicle_priors=None,
+            sim_meta_live=sim_meta_live,
+        )
 
-    df["geom_lap1_std"] = geom_stds[0]
-    df["geom_lap2_std"] = geom_stds[1]
-    df["geom_lap3_std"] = geom_stds[2]
+        # Target: winner_idx
+        vs = [v1, v2, v3]
+        if winner not in vs:
+            continue
+        winner_idx = vs.index(winner)
+        feat_row["winner_idx"] = int(winner_idx)
 
-    geom_range = max(geom_means) - min(geom_means)
-    df["geom_range"] = geom_range
-    df["geom_split_flag"] = 1 if geom_range >= 20 else 0
+        rows.append(feat_row)
 
-    # ---------------------------------------------------------
-    # SIM META-FEATURES (from stored Win_Prob columns)
-    # ---------------------------------------------------------
-    def sim_meta(row):
-        p1 = row.get("Win_Prob_1", 33.3)
-        p2 = row.get("Win_Prob_2", 33.3)
-        p3 = row.get("Win_Prob_3", 33.3)
-        arr = np.array([p1, p2, p3], dtype=float)
-        arr = np.clip(arr, 1e-6, None)
-        arr_norm = arr / arr.sum()
+    if not rows:
+        return pd.DataFrame()
 
-        top = float(arr_norm.max())
-        second = float(np.partition(arr_norm, -2)[-2])
-        margin = top - second
-        entropy = float(-(arr_norm * np.log(arr_norm)).sum())
-        volatility = float(arr_norm.std())
+    return pd.concat(rows, ignore_index=True)
+            
+def build_training_data(history_df: pd.DataFrame):
+    """
+    Build ML training data in the same 1-known-lap regime as live prediction.
+    Uses build_single_feature_row to guarantee feature alignment.
+    """
+    if history_df is None or history_df.empty:
+        return None, None, None, None
 
-        return pd.Series([top, second, margin, entropy, volatility])
+    df = build_pre_race_training_rows(history_df)
+    if df is None or df.empty:
+        return None, None, None, None
 
-    df[["sim_top_prob", "sim_second_prob", "sim_margin",
-        "sim_entropy", "sim_volatility"]] = df.apply(sim_meta, axis=1)
-
-    # ---------------------------------------------------------
-    # TRANSITION ENTROPY FEATURES
-    # ---------------------------------------------------------
-    mats = compute_transition_matrices(df)
-
-    def entropy_from_mat(mat):
-        # mat is a DataFrame row-normalized to 100
-        arr = (mat.values / 100.0).astype(float)
-        arr = np.clip(arr, 1e-12, None)
-        return float(-(arr * np.log(arr)).sum())
-
-    ent_l1 = ent_l2 = ent_l3 = 0.0
-
-    # transitions FROM lap 1
-    if (1, 2) in mats:
-        ent_l1 += entropy_from_mat(mats[(1, 2)])
-    if (1, 3) in mats:
-        ent_l1 += entropy_from_mat(mats[(1, 3)])
-
-    # transitions FROM lap 2
-    if (2, 1) in mats:
-        ent_l2 += entropy_from_mat(mats[(2, 1)])
-    if (2, 3) in mats:
-        ent_l2 += entropy_from_mat(mats[(2, 3)])
-
-    # transitions FROM lap 3
-    if (3, 1) in mats:
-        ent_l3 += entropy_from_mat(mats[(3, 1)])
-    if (3, 2) in mats:
-        ent_l3 += entropy_from_mat(mats[(3, 2)])
-
-    df["trans_entropy_l1"] = ent_l1
-    df["trans_entropy_l2"] = ent_l2
-    df["trans_entropy_l3"] = ent_l3
-
+    # Target
     y = df["winner_idx"].astype(int)
 
+    # Feature columns must match build_single_feature_row output
     feature_cols = [
         "vehicle_1", "vehicle_2", "vehicle_3",
         "lap_1_track", "lap_2_track", "lap_3_track",
@@ -970,11 +909,12 @@ def build_training_data(history_df: pd.DataFrame):
         "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
     ]
 
+    # For now, use uniform sample weights (can reintroduce surprise_weight later)
+    sample_weights = np.ones(len(df), dtype=float)
+
     X = df[feature_cols].copy()
-    sample_weights = df["surprise_weight"].values
 
     return X, y, (cat_features, num_features), sample_weights
-
 
 def train_ml_model(history_df: pd.DataFrame):
     df_recent = history_df.copy().tail(200)
