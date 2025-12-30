@@ -2637,8 +2637,11 @@ with Q4:
 
         st.caption("For full chaos, drift, and heatmap views, use the Analytics tabs below.")
 
-        st.subheader("Debug: Regret Tracker")
+        st.subheader("Regret Tracker")
         st.write("Regret tracker:", st.session_state.regret_tracker)
+        st.write("Soft doubt bucket:", bucket_key)
+        st.write("Regret count:", regret_count)
+        st.write("Blend weight after soft doubt:", blend_weight)
 
 # ---------------------------------------------------------
 # 10. ANALYTICS TABS + WHAT‑IF SIMULATOR (FULL ORIGINAL LOGIC)
