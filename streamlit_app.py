@@ -1914,39 +1914,46 @@ def run_full_prediction(
     res = {
         # Final blended probabilities (percent)
         "p": final_probs,
-
+    
         # Raw components
         "p_sim": sim_probs_pct,   # SIM in percent
         "p_ml": ml_probs,         # ML in percent (post-temp & cap)
-
+    
         # Blend control
         "blend_weight": blend_weight,
         "model_skill": model_skill,
         "blend_improvement_clipped": improvement_clipped,
-
+    
         # Winners and tops
         "sim_winner": sim_winner,
         "sim_top_prob": sim_top_prob,
         "ml_winner": ml_winner,
         "ml_top_prob": ml_top_prob,
-
+    
         # Chaos / soft doubt / regret
         "chaos_triggered": chaos_triggered_flag,
         "soft_doubt_applied": soft_doubt_applied,
         "regret_bucket": regret_bucket,
         "regret_count": regret_count,
-
-        # Context
+    
+        # Context (top-level)
         "vehicles": vehicles,
         "terrain": k_type,
         "lap_index": k_idx,
-
+    
         # Anything else you already used in Q2
         "vpi": vpi_res,
     }
-
+    
+    # 🔥 Restore ctx for Q2 compatibility
+    res["ctx"] = {
+        "v": vehicles,
+        "t": k_type,
+        "idx": k_idx,
+        "slot": f"Lap {k_idx + 1}",
+    }
+    
     return res
-
 
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
