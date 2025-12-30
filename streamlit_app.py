@@ -1634,9 +1634,9 @@ def run_full_prediction(
     # ---------------------------------------------------------
     sim_probs, vpi_res = run_simulation(
         v1_sel, v2_sel, v3_sel, k_idx, k_type, history
-        sim_meta_live = sim_meta_from_probs(sim_probs),
     )
-
+    sim_meta_live = sim_meta_from_probs(sim_probs)
+    
     # ---------------------------------------------------------
     # ML PROBABILITIES
     # ---------------------------------------------------------
@@ -1650,7 +1650,7 @@ def run_full_prediction(
             user_vehicle_priors=user_vehicle_priors,
             sim_meta_live=sim_meta_live,
         )
-         raw_proba = ml_model.predict_proba(X_curr)[0]
+        raw_proba = ml_model.predict_proba(X_curr)[0]
 
         # Temperature scaling
         ml_temp = estimate_ml_temperature(history)
