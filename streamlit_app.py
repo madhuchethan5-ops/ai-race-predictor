@@ -1647,6 +1647,23 @@ def run_full_prediction(
     blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
 
     # ---------------------------------------------------------
+    # SOFT DOUBT RULE (APPLIED BEFORE BLENDING)
+    # ---------------------------------------------------------
+
+    # Determine dominant terrain (terrain of longest lap)
+    # NOTE: these values are available only AFTER hidden lap estimation,
+    # so we temporarily compute them here using k_type and history.
+    # But the REAL dominant terrain must be computed later for regret tracking.
+    # For soft doubt, we use the current lap's terrain.
+    dominant_terrain = k_type
+    bucket_key = (v1_sel, dominant_terrain)  # predicted_winner not known yet
+
+    regret_count = st.session_state.regret_tracker.get(bucket_key, 0)
+
+    if regret_count >= 3:
+        blend_weight = max(blend_weight - 0.05, 0.40)
+
+    # ---------------------------------------------------------
     # ALWAYS CONSTRUCT blended_probs IN ALL CASES
     # ---------------------------------------------------------
     if ml_probs is not None and sim_probs is not None:
@@ -1776,7 +1793,36 @@ def run_full_prediction(
         hidden_stats,
         TRACK_OPTIONS,
     )
+    
+    # ---------------------------------------------------------
+    # REGRET TRACKER UPDATE
+    # ---------------------------------------------------------
 
+    # Determine dominant terrain (terrain of longest lap)
+    lengths = [lap_1_len, lap_2_len, lap_3_len]
+    terrains = [lap_1_track, lap_2_track, lap_3_track]
+    dominant_terrain = terrains[lengths.index(max(lengths))]
+
+    bucket_key = (predicted_winner, dominant_terrain)
+
+    # Define regret case (high-confidence clean miss)
+    regret_case = (
+        p1 >= 60.0
+        and (predicted_winner != actual_winner)
+        and res["meta"]["expected_regret"] >= 0.40
+        and hidden_track_error_l1 < 0.5
+        and hidden_track_error_l2 < 0.5
+        and hidden_track_error_l3 < 0.5
+        and hidden_len_error_l1 < 5
+        and hidden_len_error_l2 < 5
+        and hidden_len_error_l3 < 5
+    )
+
+    if regret_case:
+        st.session_state.regret_tracker[bucket_key] = (
+            st.session_state.regret_tracker.get(bucket_key, 0) + 1
+        )
+        
     # ---------------------------------------------------------
     # FINAL RESULT (PURE RETURN, NO SESSION MUTATION)
     # ---------------------------------------------------------
@@ -1830,6 +1876,8 @@ if "selected_vehicles" not in st.session_state:
 if "trigger_prediction" not in st.session_state:
     st.session_state.trigger_prediction = False
 
+if "regret_tracker" not in st.session_state:
+    st.session_state.regret_tracker = {}
 # ---------------------------------------------------------
 # ALWAYS INITIALIZE PRIORS BEFORE ANY UI BLOCKS
 # ---------------------------------------------------------
