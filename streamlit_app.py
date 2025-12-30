@@ -122,6 +122,18 @@ history = load_history()
 # Ignore imported CSV rows (they have no track data)
 valid_history = history.dropna(subset=["lap_1_track", "lap_2_track", "lap_3_track"])
 
+# ---------------------------------------------------------
+# INITIALIZE ML MODEL (ONCE PER SESSION)
+# ---------------------------------------------------------
+if "ml_model" not in st.session_state:
+    try:
+        model, n_samples = train_ml_model(valid_history)
+    except Exception:
+        model, n_samples = None, 0
+
+    st.session_state.ml_model = model
+    st.session_state.ml_n_samples = n_samples
+
 if len(valid_history) > 0:
     last_race = valid_history.iloc[-1]
 else:
@@ -952,8 +964,14 @@ def train_ml_model(history_df: pd.DataFrame):
 
 
 @st.cache_resource
-def get_trained_model(history_df: pd.DataFrame):
-    return train_ml_model(history_df)
+def get_trained_model():
+    """
+    Accessor only. Never trains.
+    Reads the model and sample count from session_state.
+    """
+    model = st.session_state.get("ml_model")
+    n_samples = st.session_state.get("ml_n_samples", 0)
+    return model, n_samples
 
 # ---------------------------------------------------------
 # BLEND WEIGHT HELPER (for debug panel + consistency)
@@ -1728,13 +1746,15 @@ def run_full_prediction(
     sim_meta_live = sim_meta_from_probs(sim_probs)  # meta should see 0–1, keep as-is
 
     # ---------------------------------------------------------
-    # ML PROBABILITIES
+    # ML PROBABILITIES (REAL-TIME SAFE)
     # ---------------------------------------------------------
     ml_probs = None
     p_ml_store = None
-    ml_model, n_samples = get_trained_model(history)
-
-    if ml_model is not None:
+    
+    # NEW: accessor only, no training
+    ml_model, n_samples = get_trained_model()
+    
+    if ml_model is not None and n_samples > 0:
         X_curr = build_single_feature_row(
             v1_sel,
             v2_sel,
@@ -1745,21 +1765,22 @@ def run_full_prediction(
             user_vehicle_priors=user_vehicle_priors,
             sim_meta_live=sim_meta_live,
         )
+    
         raw_proba = ml_model.predict_proba(X_curr)[0]
-
+    
         # Temperature scaling
         ml_temp = estimate_ml_temperature(history)
         logits = np.log(np.clip(raw_proba, 1e-12, 1.0))
         scaled_logits = logits / ml_temp
         calib_proba = np.exp(scaled_logits)
         calib_proba /= calib_proba.sum()
-
+    
         ml_probs = {
             v1_sel: float(calib_proba[0] * 100.0),
             v2_sel: float(calib_proba[1] * 100.0),
             v3_sel: float(calib_proba[2] * 100.0),
         }
-
+    
         # Soft cap ML confidence
         ml_probs = soft_cap_ml_probs(ml_probs, cap_max=80.0)
         p_ml_store = ml_probs
@@ -2811,6 +2832,28 @@ with Q4:
 
         #st.subheader("Regret Tracker")
         #st.write("Regret tracker:", st.session_state.regret_tracker)
+
+with Q4:
+    st.markdown("### 🧠 ML Model Control")
+
+    col_ml1, col_ml2 = st.columns([2, 1])
+
+    with col_ml1:
+        if st.button("🔁 Retrain ML model now"):
+            with st.spinner("Retraining ML model on full valid history..."):
+                try:
+                    model, n_samples = train_ml_model(valid_history)
+                except Exception:
+                    model, n_samples = None, 0
+
+                st.session_state.ml_model = model
+                st.session_state.ml_n_samples = n_samples
+
+            st.success(f"ML retrained on {n_samples} samples.")
+
+    with col_ml2:
+        current_n = st.session_state.get("ml_n_samples", 0)
+        st.caption(f"Current ML samples: {current_n}")
 
 # ---------------------------------------------------------
 # 10. ANALYTICS TABS + WHAT‑IF SIMULATOR (FULL ORIGINAL LOGIC)
