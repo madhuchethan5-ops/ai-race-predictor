@@ -668,6 +668,27 @@ def auto_clean_history(df: pd.DataFrame):
 
     return df, issues
 
+def sim_meta_from_probs(sim_probs: dict):
+    """
+    Compute SIM meta-features from a dict {vehicle: prob_in_percent}.
+    Returns normalized top, second, margin, entropy, volatility.
+    """
+    if not sim_probs or len(sim_probs) < 3:
+        # fallback neutral
+        return 0.33, 0.33, 0.0, 1.10, 0.0
+
+    arr = np.array(list(sim_probs.values()), dtype=float)
+    arr = np.clip(arr, 1e-6, None)
+    arr_norm = arr / arr.sum()
+
+    top = float(arr_norm.max())
+    second = float(np.partition(arr_norm, -2)[-2])
+    margin = top - second
+    entropy = float(-(arr_norm * np.log(arr_norm)).sum())
+    volatility = float(arr_norm.std())
+
+    return top, second, margin, entropy, volatility
+
 # ---------------------------------------------------------
 # 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
 # ---------------------------------------------------------
@@ -996,6 +1017,7 @@ def build_single_feature_row(
     k_type: str,
     history_df: pd.DataFrame,
     user_vehicle_priors: dict | None = None,
+    sim_meta_live: tuple[float, float, float, float, float] | None = None,
 ) -> pd.DataFrame:
     """
     Build a single feature row for live ML prediction.
@@ -1086,12 +1108,17 @@ def build_single_feature_row(
     # ---------------------------------------------------------
     # SIM META-FEATURES (LIVE)
     # ---------------------------------------------------------
-    # Default neutral priors
-    data["sim_top_prob"] = 0.33
-    data["sim_second_prob"] = 0.33
-    data["sim_margin"] = 0.0
-    data["sim_entropy"] = 1.10
-    data["sim_volatility"] = 0.0
+    if sim_meta_live is not None:
+        sim_top, sim_second, sim_margin, sim_entropy, sim_volatility = sim_meta_live
+    else:
+        # fallback neutral priors
+        sim_top, sim_second, sim_margin, sim_entropy, sim_volatility = 0.33, 0.33, 0.0, 1.10, 0.0
+
+    data["sim_top_prob"] = float(sim_top)
+    data["sim_second_prob"] = float(sim_second)
+    data["sim_margin"] = float(sim_margin)
+    data["sim_entropy"] = float(sim_entropy)
+    data["sim_volatility"] = float(sim_volatility)
 
     # ---------------------------------------------------------
     # TRANSITION ENTROPY (LIVE)
@@ -1607,6 +1634,7 @@ def run_full_prediction(
     # ---------------------------------------------------------
     sim_probs, vpi_res = run_simulation(
         v1_sel, v2_sel, v3_sel, k_idx, k_type, history
+        sim_meta_live = sim_meta_from_probs(sim_probs)
     )
 
     # ---------------------------------------------------------
@@ -1625,6 +1653,7 @@ def run_full_prediction(
             k_type,
             history,
             user_vehicle_priors=user_vehicle_priors,
+            sim_meta_live=sim_meta_live,
         )
         raw_proba = ml_model.predict_proba(X_curr)[0]
 
