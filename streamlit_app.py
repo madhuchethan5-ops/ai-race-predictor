@@ -1371,37 +1371,6 @@ def run_simulation(
 ):
     vehicles = [v1, v2, v3]
 
-# ---------------------------------------------------------
-# SIM WRAPPER FOR DEBUG PANEL
-# ---------------------------------------------------------
-def compute_sim_probs(v1: str, v2: str, v3: str, history_df: pd.DataFrame):
-    """
-    Wrapper to compute SIM win probabilities for the debug panel.
-    Uses the existing run_simulation engine.
-    """
-    # We need k_idx and k_type for SIM, but debug panel doesn't know them.
-    # So we infer them from the last known race in history.
-    if history_df is None or history_df.empty:
-        return {v1: 0.33, v2: 0.33, v3: 0.33}
-
-    last = history_df.tail(1).iloc[0]
-    lane = last.get("lane", "Lap 1")
-    k_idx = int(lane.split(" ")[1]) - 1
-    k_type = last.get(f"lap_{k_idx+1}_track", "Unknown")
-
-    sim_probs = run_simulation(
-        v1, v2, v3,
-        k_idx,
-        k_type,
-        history_df
-    )
-
-    return {
-        v1: float(sim_probs.get(v1, 0.0)),
-        v2: float(sim_probs.get(v2, 0.0)),
-        v3: float(sim_probs.get(v3, 0.0)),
-    }
-
     # 1. BAYESIAN REINFORCEMENT (VPI)
     vpi_raw = {v: 1.0 for v in vehicles}
 
@@ -1496,18 +1465,13 @@ def compute_sim_probs(v1: str, v2: str, v3: str, history_df: pd.DataFrame):
 
     terrain_matrix = np.column_stack(sim_terrains)
 
-    print("TRACK_OPTIONS:", TRACK_OPTIONS)
-    print("TRACK_LENGTH_PRIORS keys:", list(TRACK_LENGTH_PRIORS.keys()))
-    
     # -----------------------------------------------------
     # 4. GEOMETRY (FULL SIM — VARIANCE-AWARE LENGTH SAMPLING)
     # -----------------------------------------------------
     rng = np.random.default_rng()
-    
-    # Create an empty matrix for lengths (iterations x 3)
+
     len_matrix_raw = np.zeros_like(terrain_matrix, dtype=float)
-    
-    # For each terrain type, sample lengths for all occurrences
+
     for t in TRACK_OPTIONS:
         mask = (terrain_matrix == t)
         if mask.any():
@@ -1518,8 +1482,7 @@ def compute_sim_probs(v1: str, v2: str, v3: str, history_df: pd.DataFrame):
             )
             sampled_lengths = np.clip(sampled_lengths, 10, 80)
             len_matrix_raw[mask] = sampled_lengths
-    
-    # Normalize per race (optional but keeps physics stable)
+
     len_sums = len_matrix_raw.sum(axis=1, keepdims=True)
     len_sums[len_sums == 0] = 1.0
     len_matrix = len_matrix_raw / len_sums
@@ -1596,13 +1559,43 @@ def compute_sim_probs(v1: str, v2: str, v3: str, history_df: pd.DataFrame):
     calibrated_probs = np.exp(calibrated_logits)
     calibrated_probs /= calibrated_probs.sum()
 
-    # Clamp SIM confidence
     calibrated_probs = np.clip(calibrated_probs, 0.05, 0.90)
     calibrated_probs /= calibrated_probs.sum()
 
     win_pcts = calibrated_probs * 100.0
-    return {vehicles[i]: float(win_pcts[i]) for i in range(3)}, vpi
+    sim_prob_dict = {vehicles[i]: float(win_pcts[i]) for i in range(3)}
 
+    return sim_prob_dict, vpi
+
+
+# ---------------------------------------------------------
+# SIM WRAPPER FOR DEBUG PANEL
+# ---------------------------------------------------------
+def compute_sim_probs(v1: str, v2: str, v3: str, history_df: pd.DataFrame):
+    """
+    Wrapper to compute SIM win probabilities for the debug panel.
+    Uses the existing run_simulation engine.
+    """
+    if history_df is None or history_df.empty:
+        return {v1: 0.33, v2: 0.33, v3: 0.33}
+
+    last = history_df.tail(1).iloc[0]
+    lane = last.get("lane", "Lap 1")
+    k_idx = int(lane.split(" ")[1]) - 1
+    k_type = last.get(f"lap_{k_idx+1}_track", "Unknown")
+
+    sim_probs_dict, _ = run_simulation(
+        v1, v2, v3,
+        k_idx,
+        k_type,
+        history_df
+    )
+
+    return {
+        v1: float(sim_probs_dict.get(v1, 0.0)),
+        v2: float(sim_probs_dict.get(v2, 0.0)),
+        v3: float(sim_probs_dict.get(v3, 0.0)),
+    }
 # ---------------------------------------------------------
 # FULL PREDICTION ENGINE (NO UI) — WITH:
 # - SOFT ML CONFIDENCE CAP
