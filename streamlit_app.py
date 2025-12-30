@@ -3225,114 +3225,179 @@ with st.expander("📥 Import Legacy Race History"):
 #         st.write("Saved to 'Race_Data_with_Physics.csv'. Please use this file.")
 
 # ---------------------------------------------------------
-# 🔍 FULL ML DIAGNOSTIC SUITE (SAFE, OPTIONAL, NO CODE POLLUTION)
+# 🔍 FULL ML DIAGNOSTIC SUITE (MANUAL + CACHED + LIGHT UI)
 # ---------------------------------------------------------
-with st.expander("🔧 Full ML Diagnostic Suite"):
-    try:
-        # Use your actual history variable
-        model, n_samples = get_trained_model(history)
 
-        st.write("## 📌 ML Training Diagnostics")
-        st.write("Training samples:", n_samples)
+# 1) Manual trigger
+st.markdown("---")
+if st.button("Run ML Diagnostic Suite"):
+    st.session_state.run_ml_diag = True
 
-        if model is None:
-            st.warning("ML model not trained (not enough samples).")
-        else:
-            pre = model.named_steps["pre"]
-            clf = model.named_steps["clf"]
+# 2) Cached heavy computation
+@st.cache_data
+def compute_ml_diagnostics(history_df: pd.DataFrame):
+    """
+    Heavy ML diagnostic computation.
+    Runs only when explicitly triggered, then cached.
+    """
+    diag = {
+        "training_samples": 0,
+        "feature_info": None,
+        "ohe_categories": None,
+        "raw_shape": None,
+        "transformed_shape": None,
+        "live_row": None,
+        "ml_probs": None,
+        "sim_probs": None,
+        "disagreement": None,
+        "blend_weight": None,
+        "brier": None,
+        "expected_regret": None,
+        "chaos": None,
+    }
 
-            # Extract feature info
-            cat_features = pre.transformers_[0][2]
-            num_features = pre.transformers_[1][2]
-            ohe = pre.named_transformers_["cat"]
+    model, n_samples = get_trained_model(history_df)
+    diag["training_samples"] = n_samples
 
-            st.write("### 🧩 Feature Columns")
-            st.write("Categorical:", cat_features)
-            st.write("Numeric:", num_features)
+    if model is None:
+        return diag  # nothing else to do
 
-            st.write("### 🔠 OneHotEncoder Categories")
-            st.write(ohe.categories_)
+    # --- Feature / transformer info ---
+    pre = model.named_steps["pre"]
+    clf = model.named_steps["clf"]
 
-            # Show transformed shape
-            X_debug, _, _, _ = build_training_data(history.tail(200))
-            if X_debug is not None and not X_debug.empty:
-                transformed = pre.transform(X_debug.head(1))
-                st.write("### 🧮 Transformed Feature Vector Shape")
-                st.write("Raw shape:", X_debug.head(1).shape)
-                st.write("Transformed shape:", transformed.shape)
+    cat_features = pre.transformers_[0][2]
+    num_features = pre.transformers_[1][2]
+    ohe = pre.named_transformers_["cat"]
 
-            # ---------------------------------------------------------
-            # LIVE PREDICTION DIAGNOSTICS
-            # ---------------------------------------------------------
-            st.write("## 🚦 Live Prediction Diagnostics")
+    diag["feature_info"] = {
+        "categorical": cat_features,
+        "numeric": num_features,
+    }
+    diag["ohe_categories"] = ohe.categories_
 
-            last = history.tail(1).iloc[0]
-            v1, v2, v3 = last["vehicle_1"], last["vehicle_2"], last["vehicle_3"]
-            lane = last["lane"]
-            k_idx = int(lane.split(" ")[1]) - 1
-            k_type = last[f"lap_{k_idx+1}_track"]
+    # --- Transformed shape (debug on last 200 modern rows) ---
+    X_debug, _, _, _ = build_training_data(history_df.tail(200))
+    if X_debug is not None and not X_debug.empty:
+        transformed = pre.transform(X_debug.head(1))
+        diag["raw_shape"] = X_debug.head(1).shape
+        diag["transformed_shape"] = transformed.shape
 
-            live_row = build_single_feature_row(
-                v1, v2, v3, k_idx, k_type, history,
-                user_vehicle_priors=None,
-                sim_meta_live=None
-            )
+    # --- Live prediction diagnostics on the latest race ---
+    last = history_df.tail(1).iloc[0]
+    v1, v2, v3 = last["vehicle_1"], last["vehicle_2"], last["vehicle_3"]
+    lane = last["lane"]
+    k_idx = int(lane.split(" ")[1]) - 1
+    k_type = last[f"lap_{k_idx+1}_track"]
 
-            st.write("### 🧪 Live Feature Row")
-            st.write(live_row)
+    live_row = build_single_feature_row(
+        v1, v2, v3, k_idx, k_type, history_df,
+        user_vehicle_priors=None,
+        sim_meta_live=None,
+    )
+    diag["live_row"] = live_row
 
-            # ML prediction
-            ml_probs = model.predict_proba(live_row)[0]
-            st.write("### 🤖 ML Probabilities")
-            st.write({
-                v1: float(ml_probs[0]),
-                v2: float(ml_probs[1]),
-                v3: float(ml_probs[2]),
-            })
+    # ML prediction (probabilities in 0–1)
+    ml_probs = model.predict_proba(live_row)[0]
+    ml_probs_dict = {
+        v1: float(ml_probs[0]),
+        v2: float(ml_probs[1]),
+        v3: float(ml_probs[2]),
+    }
+    diag["ml_probs"] = ml_probs_dict
 
-            # SIM prediction
-            sim_probs = compute_sim_probs(v1, v2, v3, history)
-            st.write("### 🏎️ SIM Probabilities")
-            st.write(sim_probs)
+    # SIM prediction (0–1 probs expected here)
+    sim_probs = compute_sim_probs(v1, v2, v3, history_df)
+    diag["sim_probs"] = sim_probs
 
-            # Compare ML vs SIM
-            st.write("### ⚔️ ML vs SIM Disagreement")
-            st.write({
-                "ML Top": max(ml_probs),
-                "SIM Top": max(sim_probs.values()),
-                "ML Winner": [v1, v2, v3][int(ml_probs.argmax())],
-                "SIM Winner": max(sim_probs, key=sim_probs.get),
-            })
+    # Disagreement info
+    ml_top = max(ml_probs)
+    sim_top = max(sim_probs.values())
+    ml_winner = [v1, v2, v3][int(ml_probs.argmax())]
+    sim_winner = max(sim_probs, key=sim_probs.get)
 
-            # ---------------------------------------------------------
-            # BLEND DIAGNOSTICS
-            # ---------------------------------------------------------
-            st.write("## 🔀 Blend Diagnostics")
+    diag["disagreement"] = {
+        "ml_top": ml_top,
+        "sim_top": sim_top,
+        "ml_winner": ml_winner,
+        "sim_winner": sim_winner,
+    }
 
-            sim_top = max(sim_probs.values())
-            ml_top = max(ml_probs)
-            blend_weight = compute_blend_weight(sim_top, ml_top)
+    # Blend diagnostics (if you still want this simple view)
+    blend_weight = compute_blend_weight(sim_top, ml_top)
+    diag["blend_weight"] = blend_weight
 
-            st.write("Blend Weight (ML share):", blend_weight)
+    # Brier scores (SIM + ML vs actual winner)
+    actual_winner = last["actual_winner"]
+    diag["brier"] = {
+        "sim_brier": compute_brier(sim_probs, actual_winner),
+        "ml_brier": compute_brier(ml_probs_dict, actual_winner),
+    }
 
-            st.write("### 📉 Brier Scores")
-            st.write({
-                "SIM Brier": compute_brier(sim_probs, last["actual_winner"]),
-                "ML Brier": compute_brier(
-                    {v1: ml_probs[0], v2: ml_probs[1], v3: ml_probs[2]},
-                    last["actual_winner"]
-                ),
-            })
+    # Expected regret (whatever your implementation is)
+    diag["expected_regret"] = compute_expected_regret(sim_probs, ml_probs)
 
-            st.write("### 😬 Expected Regret")
-            st.write(compute_expected_regret(sim_probs, ml_probs))
+    # Chaos condition
+    chaos = (
+        sim_top > 0.70
+        and ml_top > 0.70
+        and sim_winner != ml_winner
+    )
+    diag["chaos"] = chaos
 
-            chaos = (
-                sim_top > 0.70 and
-                ml_top > 0.70 and
-                max(sim_probs, key=sim_probs.get) != [v1, v2, v3][int(ml_probs.argmax())]
-            )
-            st.write("### 🌪️ Chaos Mode Triggered:", chaos)
+    return diag
 
-    except Exception as e:
-        st.error(f"ML Debug Error: {e}")
+
+# 3) Render (only when triggered) in an expander
+if st.session_state.get("run_ml_diag", False):
+    with st.expander("🔧 Full ML Diagnostic Suite", expanded=True):
+        try:
+            diag = compute_ml_diagnostics(history)
+
+            st.write("## 📌 ML Training Diagnostics")
+            st.write("Training samples:", diag["training_samples"])
+
+            if diag["training_samples"] == 0:
+                st.warning("ML model not trained (not enough usable samples).")
+            else:
+                # Feature info
+                st.write("### 🧩 Feature Columns")
+                st.write("Categorical:", diag["feature_info"]["categorical"])
+                st.write("Numeric:", diag["feature_info"]["numeric"])
+
+                st.write("### 🔠 OneHotEncoder Categories")
+                st.write(diag["ohe_categories"])
+
+                # Shapes
+                if diag["raw_shape"] is not None:
+                    st.write("### 🧮 Transformed Feature Vector Shape")
+                    st.write("Raw shape:", diag["raw_shape"])
+                    st.write("Transformed shape:", diag["transformed_shape"])
+
+                st.write("## 🚦 Live Prediction Diagnostics")
+
+                st.write("### 🧪 Live Feature Row")
+                st.write(diag["live_row"])
+
+                st.write("### 🤖 ML Probabilities")
+                st.write(diag["ml_probs"])
+
+                st.write("### 🏎️ SIM Probabilities")
+                st.write(diag["sim_probs"])
+
+                st.write("### ⚔️ ML vs SIM Disagreement")
+                st.write(diag["disagreement"])
+
+                st.write("## 🔀 Blend Diagnostics")
+                st.write("Blend Weight (ML share):", diag["blend_weight"])
+
+                st.write("### 📉 Brier Scores")
+                st.write(diag["brier"])
+
+                st.write("### 😬 Expected Regret")
+                st.write(diag["expected_regret"])
+
+                st.write("### 🌪️ Chaos Mode Triggered:", diag["chaos"])
+
+        except Exception as e:
+            st.error(f"ML Debug Error: {e}")
