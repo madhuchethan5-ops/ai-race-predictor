@@ -1646,16 +1646,11 @@ def run_full_prediction(
 
     if ml_model is not None:
         X_curr = build_single_feature_row(
-            v1_sel,
-            v2_sel,
-            v3_sel,
-            k_idx,
-            k_type,
-            history,
+            v1_sel, v2_sel, v3_sel, k_idx, k_type, history,
             user_vehicle_priors=user_vehicle_priors,
             sim_meta_live=sim_meta_live,
         )
-        raw_proba = ml_model.predict_proba(X_curr)[0]
+         raw_proba = ml_model.predict_proba(X_curr)[0]
 
         # Temperature scaling
         ml_temp = estimate_ml_temperature(history)
