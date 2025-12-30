@@ -956,6 +956,24 @@ def get_trained_model(history_df: pd.DataFrame):
     return train_ml_model(history_df)
 
 # ---------------------------------------------------------
+# BLEND WEIGHT HELPER (for debug panel + consistency)
+# ---------------------------------------------------------
+def compute_blend_weight(sim_top: float, ml_top: float) -> float:
+    """
+    Compute the ML blend weight using the same logic as run_full_prediction.
+    """
+    # Base weight from confidence gap
+    gap = ml_top - sim_top
+
+    # Start at 0.55 (balanced)
+    w = 0.55 + gap * 0.35
+
+    # Clamp to safe range
+    w = float(np.clip(w, 0.40, 0.75))
+
+    return w
+
+# ---------------------------------------------------------
 # EXPECTED LENGTH ESTIMATOR (NEW, CORRECT)
 # ---------------------------------------------------------
 
