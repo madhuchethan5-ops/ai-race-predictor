@@ -756,6 +756,37 @@ def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
     df["v3_win_rate"] = v3_rates
     return df
 
+def compute_live_vehicle_win_rates(history_df: pd.DataFrame, v1: str, v2: str, v3: str):
+    """
+    Compute per-vehicle win rates from full history, leak-safe style.
+    Used for live feature building so it matches training semantics.
+    """
+    if history_df is None or history_df.empty:
+        return 0.33, 0.33, 0.33
+
+    df = history_df.copy()
+    df = df.sort_values("timestamp").reset_index(drop=True)
+
+    win_counts = {}
+    race_counts = {}
+
+    for _, row in df.iterrows():
+        vs = [row.get("vehicle_1"), row.get("vehicle_2"), row.get("vehicle_3")]
+        for v in vs:
+            if pd.notna(v):
+                race_counts[v] = race_counts.get(v, 0) + 1
+        w = row.get("actual_winner")
+        if pd.notna(w):
+            win_counts[w] = win_counts.get(w, 0) + 1
+
+    def rate(v):
+        rc = race_counts.get(v, 0)
+        wc = win_counts.get(v, 0)
+        if rc > 0:
+            return wc / rc
+        return 0.33
+
+    return rate(v1), rate(v2), rate(v3)
 
 def build_training_data(history_df: pd.DataFrame):
     df = history_df.copy()
@@ -1068,10 +1099,15 @@ def build_single_feature_row(
         "high_speed_share": float(high_speed_share),
         "rough_share": float(rough_share),
 
-        # VEHICLE WIN-RATE PRIORS (LIVE)
-        "v1_win_rate": float(get_vehicle_win_rate(v1, None, DEFAULT_VEHICLE_PRIORS)),
-        "v2_win_rate": float(get_vehicle_win_rate(v2, None, DEFAULT_VEHICLE_PRIORS)),
-        "v3_win_rate": float(get_vehicle_win_rate(v3, None, DEFAULT_VEHICLE_PRIORS)),
+        # VEHICLE WIN-RATE PRIORS (LIVE, HISTORY-ALIGNED)
+        if history_df is not None and not history_df.empty:
+            v1_wr, v2_wr, v3_wr = compute_live_vehicle_win_rates(history_df, v1, v2, v3)
+        else:
+            v1_wr = v2_wr = v3_wr = 0.33
+    
+        data["v1_win_rate"] = float(v1_wr)
+        data["v2_win_rate"] = float(v2_wr)
+        data["v3_win_rate"] = float(v3_wr)
     }
 
     # ---------------------------------------------------------
