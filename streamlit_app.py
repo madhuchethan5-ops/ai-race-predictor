@@ -1654,7 +1654,7 @@ def run_full_prediction(
     # Regime key: (candidate winner, terrain).
     # Here we approximate with lane 1 + terrain; regret_tracker is updated in Q3.
     dominant_terrain = k_type
-    bucket_key = (v1_sel, dominant_terrain)
+    bucket_key = f"{v1_sel}|{dominant_terrain}"
 
     regret_tracker = st.session_state.get("regret_tracker", {})
     regret_count = regret_tracker.get(bucket_key, 0)
@@ -2556,7 +2556,7 @@ with Q3:
                 tracks = [row['lap_1_track'], row['lap_2_track'], row['lap_3_track']]
                 dominant_terrain = tracks[int(np.argmax(lengths))]
             
-                bucket_key = (row['predicted_winner'], dominant_terrain)
+                bucket_key = f"{row['predicted_winner']}|{dominant_terrain}"
             
                 regret_case = (
                     row['top_prob'] >= 0.60
