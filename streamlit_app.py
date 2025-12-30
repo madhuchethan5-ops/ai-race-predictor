@@ -1636,7 +1636,7 @@ def run_full_prediction(
         v1_sel, v2_sel, v3_sel, k_idx, k_type, history
     )
     sim_meta_live = sim_meta_from_probs(sim_probs)
-    
+
     # ---------------------------------------------------------
     # ML PROBABILITIES
     # ---------------------------------------------------------
@@ -1646,7 +1646,12 @@ def run_full_prediction(
 
     if ml_model is not None:
         X_curr = build_single_feature_row(
-            v1_sel, v2_sel, v3_sel, k_idx, k_type, history,
+            v1_sel,
+            v2_sel,
+            v3_sel,
+            k_idx,
+            k_type,
+            history,
             user_vehicle_priors=user_vehicle_priors,
             sim_meta_live=sim_meta_live,
         )
@@ -1862,7 +1867,6 @@ def run_full_prediction(
         "tv_samples": tv_samples,
     }
     return res
-        
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
 # ---------------------------------------------------------
