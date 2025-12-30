@@ -2638,8 +2638,8 @@ with Q4:
 
         st.caption("For full chaos, drift, and heatmap views, use the Analytics tabs below.")
 
-        st.subheader("Regret Tracker")
-        st.write("Regret tracker:", st.session_state.regret_tracker)
+        #st.subheader("Regret Tracker")
+        #st.write("Regret tracker:", st.session_state.regret_tracker)
 
 # ---------------------------------------------------------
 # 10. ANALYTICS TABS + WHAT‑IF SIMULATOR (FULL ORIGINAL LOGIC)
