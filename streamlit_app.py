@@ -2630,7 +2630,6 @@ with Q4:
 
         st.subheader("Regret Tracker")
         st.write("Regret tracker:", st.session_state.regret_tracker)
-        st.write("Blend weight after soft doubt:", blend_weight)
 
 # ---------------------------------------------------------
 # 10. ANALYTICS TABS + WHAT‑IF SIMULATOR (FULL ORIGINAL LOGIC)
