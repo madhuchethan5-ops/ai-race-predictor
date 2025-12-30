@@ -1634,7 +1634,7 @@ def run_full_prediction(
     # ---------------------------------------------------------
     sim_probs, vpi_res = run_simulation(
         v1_sel, v2_sel, v3_sel, k_idx, k_type, history
-        sim_meta_live = sim_meta_from_probs(sim_probs)
+        sim_meta_live = sim_meta_from_probs(sim_probs),
     )
 
     # ---------------------------------------------------------
