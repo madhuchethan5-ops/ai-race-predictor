@@ -1647,9 +1647,7 @@ def run_simulation(
     calibrated_probs = np.clip(calibrated_probs, 0.05, 0.90)
     calibrated_probs /= calibrated_probs.sum()
 
-    win_pcts = calibrated_probs * 100.0
-    sim_prob_dict = {vehicles[i]: float(win_pcts[i]) for i in range(3)}
-
+    sim_prob_dict = {vehicles[i]: float(calibrated_probs[i]) for i in range(3)}
     return sim_prob_dict, vpi
 
 
