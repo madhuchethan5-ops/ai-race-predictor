@@ -995,7 +995,51 @@ def compute_brier(prob_dict, actual_winner):
 
     # Brier score
     return float(np.mean((probs - y) ** 2))
-    
+
+# ---------------------------------------------------------
+# EXPECTED REGRET HELPER
+# ---------------------------------------------------------
+def compute_expected_regret(sim_probs, ml_probs):
+    """
+    Compute expected regret between SIM and ML distributions.
+    sim_probs: dict {vehicle: prob}
+    ml_probs: array/list of 3 probabilities in v1,v2,v3 order
+    """
+    vehicles = list(sim_probs.keys())
+    sim_vec = np.array([sim_probs[v] for v in vehicles], dtype=float)
+    ml_vec  = np.array(ml_probs, dtype=float)
+
+    # Normalize if needed
+    sim_vec = sim_vec / sim_vec.sum()
+    ml_vec  = ml_vec / ml_vec.sum()
+
+    # Expected regret = L1 distance / 2
+    regret = float(np.sum(np.abs(sim_vec - ml_vec)) / 2.0)
+    return regret
+
+# ---------------------------------------------------------
+# CHAOS MODE HELPER
+# ---------------------------------------------------------
+def compute_chaos_mode(sim_probs, ml_probs):
+    """
+    Chaos mode triggers when both SIM and ML are confident
+    AND they disagree on the winner.
+    """
+    vehicles = list(sim_probs.keys())
+
+    sim_top = max(sim_probs.values())
+    ml_top  = max(ml_probs)
+
+    sim_winner = max(sim_probs, key=sim_probs.get)
+    ml_winner  = vehicles[int(np.argmax(ml_probs))]
+
+    chaos = (
+        sim_top > 0.70 and
+        ml_top  > 0.70 and
+        sim_winner != ml_winner
+    )
+    return chaos
+
 # ---------------------------------------------------------
 # EXPECTED LENGTH ESTIMATOR (NEW, CORRECT)
 # ---------------------------------------------------------
