@@ -2630,7 +2630,6 @@ with Q4:
 
         st.subheader("Regret Tracker")
         st.write("Regret tracker:", st.session_state.regret_tracker)
-        st.write("Regret count:", regret_count)
         st.write("Blend weight after soft doubt:", blend_weight)
 
 # ---------------------------------------------------------
