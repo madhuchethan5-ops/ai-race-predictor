@@ -1035,7 +1035,7 @@ def expected_length(history_df: pd.DataFrame, lap_idx: int, track_type: str) -> 
         return TRACK_LENGTH_PRIORS[track_type]["mean"]
 
     return 33.3  # fallback
-    
+
 # ---------------------------------------------------------
 # 5. SINGLE-ROW FEATURE BUILDER FOR LIVE PREDICTIONS
 # ---------------------------------------------------------
@@ -1059,11 +1059,12 @@ def build_single_feature_row(
     history_df   : full normalized history, used to infer expected lap lengths
     """
 
-    # Build lap tracks with only the revealed lap filled
+    # ---------------------------------------------------------
+    # KNOWN / UNKNOWN LAPS
+    # ---------------------------------------------------------
     lap_tracks = ["Unknown", "Unknown", "Unknown"]
     lap_tracks[k_idx] = k_type
 
-    # EXPECTED lap lengths based on history (no more hard-coded 33/33/34)
     lap_lens = [
         expected_length(history_df, 0, lap_tracks[0]),
         expected_length(history_df, 1, lap_tracks[1]),
@@ -1071,7 +1072,7 @@ def build_single_feature_row(
     ]
 
     lane = f"Lap {k_idx + 1}"
-    
+
     high_speed_share = (
         lap_tracks.count("Expressway") + lap_tracks.count("Highway")
     ) / 3.0
@@ -1080,7 +1081,17 @@ def build_single_feature_row(
         1 for t in lap_tracks if t in ["Dirt", "Bumpy", "Potholes"]
     ) / 3.0
 
-    # IMPORTANT: snake_case keys to match training data
+    # ---------------------------------------------------------
+    # VEHICLE WIN-RATE PRIORS (LIVE, HISTORY-ALIGNED)
+    # ---------------------------------------------------------
+    if history_df is not None and not history_df.empty:
+        v1_wr, v2_wr, v3_wr = compute_live_vehicle_win_rates(history_df, v1, v2, v3)
+    else:
+        v1_wr = v2_wr = v3_wr = 0.33
+
+    # ---------------------------------------------------------
+    # BASE FEATURE DICT (MUST MATCH TRAINING COLUMNS)
+    # ---------------------------------------------------------
     data = {
         "vehicle_1": v1,
         "vehicle_2": v2,
@@ -1102,22 +1113,11 @@ def build_single_feature_row(
         "v1_win_rate": float(v1_wr),
         "v2_win_rate": float(v2_wr),
         "v3_win_rate": float(v3_wr),
-
-        # VEHICLE WIN-RATE PRIORS (LIVE, HISTORY-ALIGNED)
-        if history_df is not None and not history_df.empty:
-            v1_wr, v2_wr, v3_wr = compute_live_vehicle_win_rates(history_df, v1, v2, v3)
-        else:
-            v1_wr = v2_wr = v3_wr = 0.33
-    
-        data["v1_win_rate"] = float(v1_wr)
-        data["v2_win_rate"] = float(v2_wr)
-        data["v3_win_rate"] = float(v3_wr)
     }
 
     # ---------------------------------------------------------
     # GEOMETRY REGIME FEATURES (LIVE)
     # ---------------------------------------------------------
-    # Compute historical geometry stats
     if history_df is not None and not history_df.empty:
         geom_means = [
             history_df["lap_1_len"].mean(),
@@ -1190,9 +1190,8 @@ def build_single_feature_row(
     data["trans_entropy_l1"] = ent_l1
     data["trans_entropy_l2"] = ent_l2
     data["trans_entropy_l3"] = ent_l3
-    
-    return pd.DataFrame([data])
 
+    return pd.DataFrame([data])
 # ---------------------------------------------------------
 # 6. METRICS & MODEL SKILL
 # ---------------------------------------------------------
