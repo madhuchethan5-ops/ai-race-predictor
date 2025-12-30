@@ -1720,7 +1720,6 @@ def soft_cap_ml_probs(ml_probs, cap_max=80.0):
     scale = cap_max / current_max
     return {v: p * scale for v, p in ml_probs.items()}
 
-
 def run_full_prediction(
     v1_sel,
     v2_sel,
@@ -1730,30 +1729,41 @@ def run_full_prediction(
     history,
     user_vehicle_priors=None,
 ):
+    """
+    Full engine: SIM + ML + blend + meta + Q2 diagnostics.
+    ML is prediction-only (no training here).
+    """
 
-    model_skill = compute_model_skill(history)
+    vehicles = [v1_sel, v2_sel, v3_sel]
 
     # ---------------------------------------------------------
-    # SIMULATION PROBABILITIES
+    # MODEL SKILL (FOR BLEND ADJUSTMENT)
+    # ---------------------------------------------------------
+    model_skill = compute_model_skill(history)
+    # expected keys: "sim_brier", "ml_brier", "n"
+
+    # ---------------------------------------------------------
+    # SIMULATION PROBABILITIES (0–1 in sim core)
     # ---------------------------------------------------------
     sim_probs, vpi_res = run_simulation(
         v1_sel, v2_sel, v3_sel, k_idx, k_type, history
     )
-    # sim_probs is in 0–1 from SIM core → convert to percent for this engine
-    vehicles = [v1_sel, v2_sel, v3_sel]
-    sim_probs_pct = {v: sim_probs[v] * 100.0 for v in vehicles}
+    # sim_probs: {vehicle: 0–1}
+    sim_probs_pct = None
+    if sim_probs is not None:
+        sim_probs_pct = {v: float(sim_probs[v] * 100.0) for v in vehicles}
 
-    sim_meta_live = sim_meta_from_probs(sim_probs)  # meta should see 0–1, keep as-is
+    # Meta for current race context, built on SIM (0–1)
+    sim_meta_live = sim_meta_from_probs(sim_probs) if sim_probs is not None else None
 
     # ---------------------------------------------------------
-    # ML PROBABILITIES (REAL-TIME SAFE)
+    # ML PROBABILITIES (REAL-TIME SAFE: PREDICT-ONLY)
     # ---------------------------------------------------------
     ml_probs = None
     p_ml_store = None
-    
-    # NEW: accessor only, no training
-    ml_model, n_samples = get_trained_model()
-    
+
+    ml_model, n_samples = get_trained_model()  # accessor only, no training
+
     if ml_model is not None and n_samples > 0:
         X_curr = build_single_feature_row(
             v1_sel,
@@ -1765,37 +1775,43 @@ def run_full_prediction(
             user_vehicle_priors=user_vehicle_priors,
             sim_meta_live=sim_meta_live,
         )
-    
-        raw_proba = ml_model.predict_proba(X_curr)[0]
-    
-        # Temperature scaling
+
+        raw_proba = ml_model.predict_proba(X_curr)[0]  # [p1, p2, p3] in 0–1
+
+        # Temperature scaling (calibration on history)
         ml_temp = estimate_ml_temperature(history)
         logits = np.log(np.clip(raw_proba, 1e-12, 1.0))
         scaled_logits = logits / ml_temp
         calib_proba = np.exp(scaled_logits)
         calib_proba /= calib_proba.sum()
-    
+
         ml_probs = {
             v1_sel: float(calib_proba[0] * 100.0),
             v2_sel: float(calib_proba[1] * 100.0),
             v3_sel: float(calib_proba[2] * 100.0),
         }
-    
+
         # Soft cap ML confidence
         ml_probs = soft_cap_ml_probs(ml_probs, cap_max=80.0)
         p_ml_store = ml_probs
 
     # ---------------------------------------------------------
-    # BASE BLEND (ML dominant)
+    # BASE BLEND (ML DOMINANT, THEN ADJUSTED BY SKILL)
     # ---------------------------------------------------------
-    blend_weight = 0.65  # 65% ML, 35% SIM
+    blend_weight = 0.65  # baseline: 65% ML, 35% SIM
+    improvement_clipped = 0.0
 
     if ml_probs is not None and model_skill is not None:
-        sim_brier = model_skill["sim_brier"]
-        ml_brier = model_skill["ml_brier"]
-        n_skill = model_skill["n"]
+        sim_brier = model_skill.get("sim_brier", np.nan)
+        ml_brier = model_skill.get("ml_brier", np.nan)
+        n_skill = model_skill.get("n", 0)
 
-        if n_skill >= 25 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
+        if (
+            n_skill >= 25
+            and np.isfinite(sim_brier)
+            and np.isfinite(ml_brier)
+            and sim_brier > 0
+        ):
             improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
             improvement_clipped = float(np.clip(improvement, -0.20, 0.20))
             blend_weight = 0.60 + 0.15 * improvement_clipped
@@ -1803,16 +1819,16 @@ def run_full_prediction(
     blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
 
     # ---------------------------------------------------------
-    # INITIAL BLENDED PROBS
+    # INITIAL BLENDED PROBS (PERCENT SPACE)
     # ---------------------------------------------------------
-    if ml_probs is not None and sim_probs is not None:
+    if ml_probs is not None and sim_probs_pct is not None:
         blended_probs = {
             v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs_pct[v]
-            for v in [v1_sel, v2_sel, v3_sel]
+            for v in vehicles
         }
     elif ml_probs is not None:
         blended_probs = ml_probs
-    elif sim_probs is not None:
+    elif sim_probs_pct is not None:
         blended_probs = sim_probs_pct
     else:
         blended_probs = {
@@ -1824,19 +1840,24 @@ def run_full_prediction(
     # ---------------------------------------------------------
     # SOFT DOUBT RULE (AFTER BASE BLEND)
     # ---------------------------------------------------------
+    soft_doubt_applied = False
+    regret_bucket = None
+    regret_count = 0
+
     if ml_probs is not None and sim_probs_pct is not None:
         candidate_winner = max(blended_probs, key=blended_probs.get)
         dominant_terrain = k_type
-        bucket_key = f"{candidate_winner}|{dominant_terrain}"
+        regret_bucket = f"{candidate_winner}|{dominant_terrain}"
 
         regret_tracker = st.session_state.get("regret_tracker", {})
-        regret_count = regret_tracker.get(bucket_key, 0)
+        regret_count = regret_tracker.get(regret_bucket, 0)
 
         if regret_count >= 3:
+            soft_doubt_applied = True
             blend_weight = max(blend_weight - 0.05, 0.40)
             blended_probs = {
                 v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs_pct[v]
-                for v in [v1_sel, v2_sel, v3_sel]
+                for v in vehicles
             }
 
     final_probs = blended_probs
@@ -1848,7 +1869,7 @@ def run_full_prediction(
     sim_winner = None
     if sim_probs_pct is not None:
         sim_winner = max(sim_probs_pct, key=sim_probs_pct.get)
-        sim_top_prob = sim_probs_pct[sim_winner]  # percent
+        sim_top_prob = sim_probs_pct[sim_winner]
 
     ml_top_prob = None
     ml_winner = None
@@ -1856,11 +1877,18 @@ def run_full_prediction(
         ml_winner = max(ml_probs, key=ml_probs.get)
         ml_top_prob = ml_probs[ml_winner]
 
+    chaos_triggered_flag = False
+
     if (
-        sim_top_prob is not None and ml_top_prob is not None
-        and sim_top_prob > 70.0 and ml_top_prob > 70.0
+        sim_top_prob is not None
+        and ml_top_prob is not None
+        and sim_top_prob > 70.0
+        and ml_top_prob > 70.0
         and sim_winner != ml_winner
     ):
+        chaos_triggered_flag = True
+
+        # Squash top vs mid gap, keep ordering
         ordered = sorted(final_probs.items(), key=lambda x: x[1], reverse=True)
         (v_top, p_top), (v_mid, p_mid), (v_low, p_low) = ordered
 
@@ -1881,103 +1909,45 @@ def run_full_prediction(
         }
 
     # ---------------------------------------------------------
-    # TERRAIN–VEHICLE ADJUSTMENT
-    # ---------------------------------------------------------
-    tv_matrix, tv_samples = build_tv_matrix(history)
-    tracks = [k_type, k_type, k_type]
-
-    ctx = {
-        "v": [v1_sel, v2_sel, v3_sel],
-        "idx": k_idx,
-        "t": k_type,
-        "slot": f"Lap {k_idx + 1}",
-        "tracks": tracks,
-    }
-
-    final_probs, tv_strengths = apply_tv_adjustment(
-        final_probs, ctx, tv_matrix, k_type, strength_alpha=0.15
-    )
-
-    # ---------------------------------------------------------
-    # WINNER & META
-    # ---------------------------------------------------------
-    predicted_winner = max(final_probs, key=final_probs.get)
-    p1 = final_probs[predicted_winner]
-
-    expected_regret = p1 / 100.0
-
-    sorted_probs = sorted(final_probs.items(), key=lambda kv: kv[1], reverse=True)
-    (top_vehicle, p1_sorted), (_, p2) = sorted_probs[0], sorted_probs[1]
-    vol_gap = round(p1_sorted - p2, 2)
-
-    if vol_gap < 5:
-        vol_label = "Chaos"
-    elif vol_gap < 12:
-        vol_label = "Shaky"
-    else:
-        vol_label = "Calm"
-
-    if p1 < 40:
-        bet_safety = "AVOID"
-    elif vol_gap < 5:
-        bet_safety = "AVOID"
-    elif vol_gap < 12:
-        bet_safety = "CAUTION"
-    elif p1 >= 60 and vol_gap >= 15:
-        bet_safety = "FAVORABLE"
-    else:
-        bet_safety = "CAUTION"
-
-    # ---------------------------------------------------------
-    # HIDDEN LAP ESTIMATION
-    # ---------------------------------------------------------
-    hidden_stats = build_hidden_lap_stats(history)
-    lap_guess = estimate_hidden_laps(
-        {
-            "v": [v1_sel, v2_sel, v3_sel],
-            "idx": k_idx,
-            "t": k_type,
-            "slot": f"Lap {k_idx + 1}",
-        },
-        hidden_stats,
-        TRACK_OPTIONS,
-    )
-
-    # ---------------------------------------------------------
-    # RETURN RESULT
+    # PACKAGE FULL Q2 DIAGNOSTICS
     # ---------------------------------------------------------
     res = {
+        # Final blended probabilities (percent)
         "p": final_probs,
+
+        # Raw components
+        "p_sim": sim_probs_pct,   # SIM in percent
+        "p_ml": ml_probs,         # ML in percent (post-temp & cap)
+
+        # Blend control
+        "blend_weight": blend_weight,
+        "model_skill": model_skill,
+        "blend_improvement_clipped": improvement_clipped,
+
+        # Winners and tops
+        "sim_winner": sim_winner,
+        "sim_top_prob": sim_top_prob,
+        "ml_winner": ml_winner,
+        "ml_top_prob": ml_top_prob,
+
+        # Chaos / soft doubt / regret
+        "chaos_triggered": chaos_triggered_flag,
+        "soft_doubt_applied": soft_doubt_applied,
+        "regret_bucket": regret_bucket,
+        "regret_count": regret_count,
+
+        # Context
+        "vehicles": vehicles,
+        "terrain": k_type,
+        "lap_index": k_idx,
+
+        # Anything else you already used in Q2
         "vpi": vpi_res,
-        "ctx": {
-            "v": [v1_sel, v2_sel, v3_sel],
-            "idx": k_idx,
-            "t": k_type,
-            "slot": f"Lap {k_idx + 1}",
-            "tracks": tracks,
-        },
-        "p_sim": sim_probs_pct,
-        "p_ml": p_ml_store,
-        "meta": {
-            "top_vehicle": top_vehicle,
-            "top_prob": p1,
-            "second_prob": p2,
-            "volatility_gap_pp": vol_gap,
-            "volatility_label": vol_label,
-            "bet_safety": bet_safety,
-            "expected_regret": expected_regret,
-            "blend_weight_ml": blend_weight if ml_probs is not None else 0.0,
-            "sim_top_prob": sim_top_prob,
-            "ml_top_prob": ml_top_prob,
-            "sim_winner": sim_winner,
-            "ml_winner": ml_winner,
-        },
-        "hidden_guess": lap_guess,
-        "tv_strengths": tv_strengths,
-        "tv_matrix": tv_matrix,
-        "tv_samples": tv_samples,
     }
+
     return res
+
+
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
 # ---------------------------------------------------------
