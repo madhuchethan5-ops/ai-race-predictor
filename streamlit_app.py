@@ -1793,36 +1793,7 @@ def run_full_prediction(
         hidden_stats,
         TRACK_OPTIONS,
     )
-    
-    # ---------------------------------------------------------
-    # REGRET TRACKER UPDATE
-    # ---------------------------------------------------------
-
-    # Determine dominant terrain (terrain of longest lap)
-    lengths = [lap_1_len, lap_2_len, lap_3_len]
-    terrains = [lap_1_track, lap_2_track, lap_3_track]
-    dominant_terrain = terrains[lengths.index(max(lengths))]
-
-    bucket_key = (predicted_winner, dominant_terrain)
-
-    # Define regret case (high-confidence clean miss)
-    regret_case = (
-        p1 >= 60.0
-        and (predicted_winner != actual_winner)
-        and res["meta"]["expected_regret"] >= 0.40
-        and hidden_track_error_l1 < 0.5
-        and hidden_track_error_l2 < 0.5
-        and hidden_track_error_l3 < 0.5
-        and hidden_len_error_l1 < 5
-        and hidden_len_error_l2 < 5
-        and hidden_len_error_l3 < 5
-    )
-
-    if regret_case:
-        st.session_state.regret_tracker[bucket_key] = (
-            st.session_state.regret_tracker.get(bucket_key, 0) + 1
-        )
-        
+            
     # ---------------------------------------------------------
     # FINAL RESULT (PURE RETURN, NO SESSION MUTATION)
     # ---------------------------------------------------------
@@ -2578,6 +2549,41 @@ with Q3:
                 'last_updated': datetime.utcnow().isoformat(timespec="seconds"),
             }
 
+            # ---------------------------------------------------------
+            # REGRET TRACKER UPDATE (POST-MORTEM, AFTER WE KNOW THE RESULT)
+            # ---------------------------------------------------------
+            try:
+                # dominant terrain = track of the longest lap
+                lengths = [row['lap_1_len'], row['lap_2_len'], row['lap_3_len']]
+                tracks = [row['lap_1_track'], row['lap_2_track'], row['lap_3_track']]
+                dominant_terrain = tracks[int(np.argmax(lengths))]
+
+                # regime key: predicted winner + dominant terrain
+                bucket_key = (row['predicted_winner'], dominant_terrain)
+
+                # high-confidence clean miss
+                regret_case = (
+                    row['top_prob'] >= 0.60    # model was confident
+                    and row['was_correct'] == 0.0  # and wrong
+                    and row['surprise_index'] >= 0.40  # surprised itself
+                    and (row['hidden_track_error_l1'] is None or row['hidden_track_error_l1'] < 0.5)
+                    and (row['hidden_track_error_l2'] is None or row['hidden_track_error_l2'] < 0.5)
+                    and (row['hidden_track_error_l3'] is None or row['hidden_track_error_l3'] < 0.5)
+                    and (row['hidden_len_error_l1'] is None or row['hidden_len_error_l1'] < 5)
+                    and (row['hidden_len_error_l2'] is None or row['hidden_len_error_l2'] < 5)
+                    and (row['hidden_len_error_l3'] is None or row['hidden_len_error_l3'] < 5)
+                )
+
+                if regret_case:
+                    if "regret_tracker" not in st.session_state:
+                        st.session_state.regret_tracker = {}
+                    st.session_state.regret_tracker[bucket_key] = (
+                        st.session_state.regret_tracker.get(bucket_key, 0) + 1
+                    )
+            except Exception as e:
+                # fail safe: never break saving due to diagnostics
+                st.warning(f"Regret tracker update failed: {e}")
+            
             save_race_to_db(row)
 
             st.success("✅ Race saved to database! Model will update on next prediction.")
