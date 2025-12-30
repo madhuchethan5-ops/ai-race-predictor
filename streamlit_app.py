@@ -1332,6 +1332,20 @@ def get_physics_bias(history_df: pd.DataFrame):
 
     return corrected
 
+def get_known_terrain_from_row(row: pd.Series) -> str:
+    """
+    Returns the terrain of the lap that was revealed pre-race.
+    Uses the 'lane' column to determine which lap was shown.
+    """
+    lane = row.get("lane", None)
+    if lane == "Lap 1":
+        return row.get("lap_1_track", "Unknown")
+    elif lane == "Lap 2":
+        return row.get("lap_2_track", "Unknown")
+    elif lane == "Lap 3":
+        return row.get("lap_3_track", "Unknown")
+    return "Unknown"
+
 # ---------------------------------------------------------
 # 7. CORE SIMULATION ENGINE (CLEAN VERSION)
 # ---------------------------------------------------------
@@ -2546,13 +2560,13 @@ with Q3:
 
             # ---------------------------------------------------------
             # REGRET TRACKER UPDATE (POST-MORTEM, AFTER WE KNOW THE RESULT)
+            # Regime key: winner | known_terrain (revealed lap terrain)
             # ---------------------------------------------------------
             try:
-                lengths = [row['lap_1_len'], row['lap_2_len'], row['lap_3_len']]
-                tracks = [row['lap_1_track'], row['lap_2_track'], row['lap_3_track']]
-                dominant_terrain = tracks[int(np.argmax(lengths))]
+                pred_winner = row['predicted_winner']
+                known_terrain = get_known_terrain_from_row(row)
             
-                bucket_key = f"{row['predicted_winner']}|{dominant_terrain}"
+                bucket_key = f"{pred_winner}|{known_terrain}"
             
                 regret_case = (
                     row['top_prob'] >= 0.60
