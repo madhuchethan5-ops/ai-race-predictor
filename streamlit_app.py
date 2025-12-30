@@ -1786,7 +1786,7 @@ def run_full_prediction(
     # ---------------------------------------------------------
     if ml_probs is not None and sim_probs is not None:
         blended_probs = {
-            v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
+            v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs_pct[v]
             for v in [v1_sel, v2_sel, v3_sel]
         }
     elif ml_probs is not None:
@@ -1814,7 +1814,7 @@ def run_full_prediction(
         if regret_count >= 3:
             blend_weight = max(blend_weight - 0.05, 0.40)
             blended_probs = {
-                v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
+                v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs_pct[v]
                 for v in [v1_sel, v2_sel, v3_sel]
             }
 
@@ -1826,8 +1826,8 @@ def run_full_prediction(
     sim_top_prob = None
     sim_winner = None
     if sim_probs is not None:
-        sim_winner = max(sim_probs, key=sim_probs.get)
-        sim_top_prob = sim_probs[sim_winner]
+        sim_winner = max(sim_probs_pct, key=sim_probs_pct.get)
+        sim_top_prob = sim_probs_pct[sim_winner]  # percent
 
     ml_top_prob = None
     ml_winner = None
@@ -1935,7 +1935,7 @@ def run_full_prediction(
             "slot": f"Lap {k_idx + 1}",
             "tracks": tracks,
         },
-        "p_sim": sim_probs,
+        "p_sim": sim_probs_pct,
         "p_ml": p_ml_store,
         "meta": {
             "top_vehicle": top_vehicle,
