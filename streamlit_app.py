@@ -974,6 +974,29 @@ def compute_blend_weight(sim_top: float, ml_top: float) -> float:
     return w
 
 # ---------------------------------------------------------
+# BRIER SCORE HELPER (for debug panel + consistency)
+# ---------------------------------------------------------
+def compute_brier(prob_dict, actual_winner):
+    """
+    Compute Brier score for a 3-class probability distribution.
+    prob_dict: {vehicle: prob}
+    actual_winner: string
+    """
+    if actual_winner not in prob_dict:
+        return None
+
+    # Convert to vector
+    vehicles = list(prob_dict.keys())
+    probs = np.array([prob_dict[v] for v in vehicles], dtype=float)
+
+    # One-hot target
+    y = np.zeros(3)
+    y[vehicles.index(actual_winner)] = 1.0
+
+    # Brier score
+    return float(np.mean((probs - y) ** 2))
+    
+# ---------------------------------------------------------
 # EXPECTED LENGTH ESTIMATOR (NEW, CORRECT)
 # ---------------------------------------------------------
 
