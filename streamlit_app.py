@@ -1099,6 +1099,10 @@ def build_single_feature_row(
         "high_speed_share": float(high_speed_share),
         "rough_share": float(rough_share),
 
+        "v1_win_rate": float(v1_wr),
+        "v2_win_rate": float(v2_wr),
+        "v3_win_rate": float(v3_wr),
+
         # VEHICLE WIN-RATE PRIORS (LIVE, HISTORY-ALIGNED)
         if history_df is not None and not history_df.empty:
             v1_wr, v2_wr, v3_wr = compute_live_vehicle_win_rates(history_df, v1, v2, v3)
