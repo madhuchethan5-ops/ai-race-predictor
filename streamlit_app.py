@@ -3118,18 +3118,15 @@ with st.expander("📥 Import Legacy Race History"):
 # ---------------------------------------------------------
 with st.expander("🔧 Full ML Diagnostic Suite"):
     try:
+        # Use your actual history variable
+        model, n_samples = get_trained_model(history)
+
         st.write("## 📌 ML Training Diagnostics")
-
-        # Train or retrieve model
-        model, n_samples = get_trained_model(history_df)
-
-        st.write("### 🧮 Training Summary")
         st.write("Training samples:", n_samples)
 
         if model is None:
             st.warning("ML model not trained (not enough samples).")
         else:
-            # Extract pipeline components
             pre = model.named_steps["pre"]
             clf = model.named_steps["clf"]
 
@@ -3146,7 +3143,7 @@ with st.expander("🔧 Full ML Diagnostic Suite"):
             st.write(ohe.categories_)
 
             # Show transformed shape
-            X_debug, _, _, _ = build_training_data(history_df.tail(200))
+            X_debug, _, _, _ = build_training_data(history.tail(200))
             if X_debug is not None and not X_debug.empty:
                 transformed = pre.transform(X_debug.head(1))
                 st.write("### 🧮 Transformed Feature Vector Shape")
@@ -3158,15 +3155,14 @@ with st.expander("🔧 Full ML Diagnostic Suite"):
             # ---------------------------------------------------------
             st.write("## 🚦 Live Prediction Diagnostics")
 
-            # Build a live feature row from the last race
-            last = history_df.tail(1).iloc[0]
+            last = history.tail(1).iloc[0]
             v1, v2, v3 = last["vehicle_1"], last["vehicle_2"], last["vehicle_3"]
             lane = last["lane"]
             k_idx = int(lane.split(" ")[1]) - 1
             k_type = last[f"lap_{k_idx+1}_track"]
 
             live_row = build_single_feature_row(
-                v1, v2, v3, k_idx, k_type, history_df,
+                v1, v2, v3, k_idx, k_type, history,
                 user_vehicle_priors=None,
                 sim_meta_live=None
             )
@@ -3184,7 +3180,7 @@ with st.expander("🔧 Full ML Diagnostic Suite"):
             })
 
             # SIM prediction
-            sim_probs = compute_sim_probs(v1, v2, v3, history_df)
+            sim_probs = compute_sim_probs(v1, v2, v3, history)
             st.write("### 🏎️ SIM Probabilities")
             st.write(sim_probs)
 
@@ -3202,14 +3198,12 @@ with st.expander("🔧 Full ML Diagnostic Suite"):
             # ---------------------------------------------------------
             st.write("## 🔀 Blend Diagnostics")
 
-            # Compute blend weight
             sim_top = max(sim_probs.values())
             ml_top = max(ml_probs)
             blend_weight = compute_blend_weight(sim_top, ml_top)
 
             st.write("Blend Weight (ML share):", blend_weight)
 
-            # Brier scores
             st.write("### 📉 Brier Scores")
             st.write({
                 "SIM Brier": compute_brier(sim_probs, last["actual_winner"]),
@@ -3219,13 +3213,14 @@ with st.expander("🔧 Full ML Diagnostic Suite"):
                 ),
             })
 
-            # Expected regret
             st.write("### 😬 Expected Regret")
             st.write(compute_expected_regret(sim_probs, ml_probs))
 
-            # Chaos mode indicator
-            chaos = (sim_top > 0.70 and ml_top > 0.70 and
-                     max(sim_probs, key=sim_probs.get) != [v1, v2, v3][int(ml_probs.argmax())])
+            chaos = (
+                sim_top > 0.70 and
+                ml_top > 0.70 and
+                max(sim_probs, key=sim_probs.get) != [v1, v2, v3][int(ml_probs.argmax())]
+            )
             st.write("### 🌪️ Chaos Mode Triggered:", chaos)
 
     except Exception as e:
