@@ -1588,14 +1588,18 @@ def run_full_prediction(
 
     model_skill = compute_model_skill(history)
 
-    # --- Simulation-based probabilities ---
+    # ---------------------------------------------------------
+    # SIMULATION PROBABILITIES
+    # ---------------------------------------------------------
     sim_probs, vpi_res = run_simulation(
         v1_sel, v2_sel, v3_sel, k_idx, k_type, history
     )
 
-    # --- ML-based probabilities ---
+    # ---------------------------------------------------------
+    # ML PROBABILITIES
+    # ---------------------------------------------------------
     ml_probs = None
-    p_ml_store = None  # ensure defined even if ML is unavailable
+    p_ml_store = None
     ml_model, n_samples = get_trained_model(history)
 
     if ml_model is not None:
@@ -1610,7 +1614,7 @@ def run_full_prediction(
         )
         raw_proba = ml_model.predict_proba(X_curr)[0]
 
-        # --- Temperature scaling for ML calibration ---
+        # Temperature scaling
         ml_temp = estimate_ml_temperature(history)
         logits = np.log(np.clip(raw_proba, 1e-12, 1.0))
         scaled_logits = logits / ml_temp
@@ -1623,62 +1627,40 @@ def run_full_prediction(
             v3_sel: float(calib_proba[2] * 100.0),
         }
 
-        # SOFT CONFIDENCE CAPPING (ML should not scream 90–95% yet)
+        # Soft cap ML confidence
         ml_probs = soft_cap_ml_probs(ml_probs, cap_max=80.0)
-
         p_ml_store = ml_probs
 
-    # --- Hybrid blending: ML dominant, SIM stabilizer ---
-    blend_weight = 0.65  # base: 65% ML, 35% SIM
+    # ---------------------------------------------------------
+    # BASE BLEND (ML dominant)
+    # ---------------------------------------------------------
+    blend_weight = 0.65  # 65% ML, 35% SIM
 
     if ml_probs is not None and model_skill is not None:
         sim_brier = model_skill["sim_brier"]
         ml_brier = model_skill["ml_brier"]
         n_skill = model_skill["n"]
 
-        # Start trusting skill once we have enough races
         if n_skill >= 25 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
             improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-            # improvement > 0 → ML better, < 0 → SIM better
-
-            # Smooth mapping: improvement in [-0.20, +0.20] → blend in [0.45, 0.75]
             improvement_clipped = float(np.clip(improvement, -0.20, 0.20))
             blend_weight = 0.60 + 0.15 * improvement_clipped
 
-    # Safety clamp
     blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
 
     # ---------------------------------------------------------
-    # SOFT DOUBT RULE (APPLIED BEFORE BLENDING)
-    # ---------------------------------------------------------
-    # Regime key: (candidate winner, terrain).
-    # Here we approximate with lane 1 + terrain; regret_tracker is updated in Q3.
-    dominant_terrain = k_type
-    bucket_key = f"{v1_sel}|{dominant_terrain}"
-
-    regret_tracker = st.session_state.get("regret_tracker", {})
-    regret_count = regret_tracker.get(bucket_key, 0)
-
-    if regret_count >= 3:
-        blend_weight = max(blend_weight - 0.05, 0.40)
-
-    # ---------------------------------------------------------
-    # ALWAYS CONSTRUCT blended_probs IN ALL CASES
+    # INITIAL BLENDED PROBS
     # ---------------------------------------------------------
     if ml_probs is not None and sim_probs is not None:
-        # True blend
         blended_probs = {
             v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
             for v in [v1_sel, v2_sel, v3_sel]
         }
     elif ml_probs is not None:
-        # Only ML available
         blended_probs = ml_probs
     elif sim_probs is not None:
-        # Only SIM available
         blended_probs = sim_probs
     else:
-        # SAFETY FALLBACK: both unavailable (first run / training failure)
         blended_probs = {
             v1_sel: 33.33,
             v2_sel: 33.33,
@@ -1686,9 +1668,28 @@ def run_full_prediction(
         }
 
     # ---------------------------------------------------------
-    # CHAOS DISAGREEMENT MODE (SIM vs ML both confident, disagree)
+    # SOFT DOUBT RULE (AFTER BASE BLEND)
     # ---------------------------------------------------------
-    # Winners + top probs from raw SIM/ML
+    if ml_probs is not None and sim_probs is not None:
+        candidate_winner = max(blended_probs, key=blended_probs.get)
+        dominant_terrain = k_type
+        bucket_key = f"{candidate_winner}|{dominant_terrain}"
+
+        regret_tracker = st.session_state.get("regret_tracker", {})
+        regret_count = regret_tracker.get(bucket_key, 0)
+
+        if regret_count >= 3:
+            blend_weight = max(blend_weight - 0.05, 0.40)
+            blended_probs = {
+                v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs[v]
+                for v in [v1_sel, v2_sel, v3_sel]
+            }
+
+    final_probs = blended_probs
+
+    # ---------------------------------------------------------
+    # CHAOS DISAGREEMENT MODE
+    # ---------------------------------------------------------
     sim_top_prob = None
     sim_winner = None
     if sim_probs is not None:
@@ -1701,28 +1702,21 @@ def run_full_prediction(
         ml_winner = max(ml_probs, key=ml_probs.get)
         ml_top_prob = ml_probs[ml_winner]
 
-    # Default: use blended result (now ALWAYS defined)
-    final_probs = blended_probs
-
-    # Trigger chaos mode only when BOTH are confident AND disagree
     if (
         sim_top_prob is not None and ml_top_prob is not None
         and sim_top_prob > 70.0 and ml_top_prob > 70.0
         and sim_winner != ml_winner
     ):
-        # Start from blended probabilities, but shrink the edge to reflect chaos
-        ordered = sorted(blended_probs.items(), key=lambda x: x[1], reverse=True)
+        ordered = sorted(final_probs.items(), key=lambda x: x[1], reverse=True)
         (v_top, p_top), (v_mid, p_mid), (v_low, p_low) = ordered
 
-        # Reduce the gap between top and mid by 40%
         gap = p_top - p_mid
-        reduced_gap = 0.60 * gap  # keep 60% of the original edge
+        reduced_gap = 0.60 * gap
 
         new_p_top = p_mid + reduced_gap
         new_p_mid = p_mid
         new_p_low = p_low
 
-        # Renormalize to sum to 100
         total = new_p_top + new_p_mid + new_p_low
         scale = 100.0 / total if total > 0 else 1.0
 
@@ -1732,10 +1726,10 @@ def run_full_prediction(
             v_low: new_p_low * scale,
         }
 
-    # --- Terrain–vehicle adjustment (gentle) ---
+    # ---------------------------------------------------------
+    # TERRAIN–VEHICLE ADJUSTMENT
+    # ---------------------------------------------------------
     tv_matrix, tv_samples = build_tv_matrix(history)
-
-    # For now, assume all three laps use the same track k_type
     tracks = [k_type, k_type, k_type]
 
     ctx = {
@@ -1750,7 +1744,9 @@ def run_full_prediction(
         final_probs, ctx, tv_matrix, k_type, strength_alpha=0.15
     )
 
-    # --- Winner & meta calculations ---
+    # ---------------------------------------------------------
+    # WINNER & META
+    # ---------------------------------------------------------
     predicted_winner = max(final_probs, key=final_probs.get)
     p1 = final_probs[predicted_winner]
 
@@ -1779,7 +1775,7 @@ def run_full_prediction(
         bet_safety = "CAUTION"
 
     # ---------------------------------------------------------
-    # Hidden Lap Estimation
+    # HIDDEN LAP ESTIMATION
     # ---------------------------------------------------------
     hidden_stats = build_hidden_lap_stats(history)
     lap_guess = estimate_hidden_laps(
@@ -1794,7 +1790,7 @@ def run_full_prediction(
     )
 
     # ---------------------------------------------------------
-    # FINAL RESULT (PURE RETURN, NO SESSION MUTATION)
+    # RETURN RESULT
     # ---------------------------------------------------------
     res = {
         "p": final_probs,
