@@ -1721,7 +1721,11 @@ def run_full_prediction(
     sim_probs, vpi_res = run_simulation(
         v1_sel, v2_sel, v3_sel, k_idx, k_type, history
     )
-    sim_meta_live = sim_meta_from_probs(sim_probs)
+    # sim_probs is in 0–1 from SIM core → convert to percent for this engine
+    vehicles = [v1_sel, v2_sel, v3_sel]
+    sim_probs_pct = {v: sim_probs[v] * 100.0 for v in vehicles}
+
+    sim_meta_live = sim_meta_from_probs(sim_probs)  # meta should see 0–1, keep as-is
 
     # ---------------------------------------------------------
     # ML PROBABILITIES
