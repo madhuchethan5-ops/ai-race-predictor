@@ -1792,7 +1792,7 @@ def run_full_prediction(
     elif ml_probs is not None:
         blended_probs = ml_probs
     elif sim_probs is not None:
-        blended_probs = sim_probs
+        blended_probs = sim_probs_pct
     else:
         blended_probs = {
             v1_sel: 33.33,
@@ -1803,7 +1803,7 @@ def run_full_prediction(
     # ---------------------------------------------------------
     # SOFT DOUBT RULE (AFTER BASE BLEND)
     # ---------------------------------------------------------
-    if ml_probs is not None and sim_probs is not None:
+    if ml_probs is not None and sim_probs_pct is not None:
         candidate_winner = max(blended_probs, key=blended_probs.get)
         dominant_terrain = k_type
         bucket_key = f"{candidate_winner}|{dominant_terrain}"
@@ -1825,7 +1825,7 @@ def run_full_prediction(
     # ---------------------------------------------------------
     sim_top_prob = None
     sim_winner = None
-    if sim_probs is not None:
+    if sim_probs_pct is not None:
         sim_winner = max(sim_probs_pct, key=sim_probs_pct.get)
         sim_top_prob = sim_probs_pct[sim_winner]  # percent
 
