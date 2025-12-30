@@ -2168,14 +2168,62 @@ with Q1:
             
 # ---------------------------------------------------------
 # Q2 — COMPACT PREDICTION PANEL (2×2 DASHBOARD LAYOUT)
+# (Optimised: prediction once, diagnostics manual + cached)
+# ---------------------------------------------------------
+
+# 1) Cached helper for diagnostics (place this at top level, not inside Q2)
+@st.cache_data
+def compute_q2_diagnostics(res: dict):
+    """
+    Heavy-ish Q2 diagnostics based on a single prediction result.
+    Cached so re-opening the expander is instant.
+    """
+    diag = {}
+
+    # Basic check
+    if res is None:
+        return diag
+
+    probs = res["p"]
+    predicted_winner = max(probs, key=probs.get)
+
+    # SIM/ML winners (if available)
+    p_sim = res.get("p_sim")
+    p_ml = res.get("p_ml")
+    if p_sim and p_ml:
+        sim_winner = max(p_sim, key=p_sim.get)
+        ml_winner = max(p_ml, key=p_ml.get)
+        diag["agreement"] = {
+            "sim_winner": sim_winner,
+            "ml_winner": ml_winner,
+            "divergent": sim_winner != ml_winner,
+        }
+    else:
+        diag["agreement"] = None
+
+    # Context snapshot
+    diag["context_snapshot"] = {
+        "Revealed Lap": res["ctx"]["slot"],
+        "Revealed Track": res["ctx"]["t"],
+        "Winner": predicted_winner,
+        "Probabilities": probs,
+    }
+
+    return diag
+
+
+# ---------------------------------------------------------
+# Q2 PANEL
 # ---------------------------------------------------------
 with Q2:
     st.markdown("### 📡 Prediction & Bet Guidance")
 
-    # Run prediction once when triggered
+    # -----------------------------------------------------
+    # PREDICTION TRIGGER (run_full_prediction ONCE)
+    # -----------------------------------------------------
     if st.session_state.get("trigger_prediction", False):
 
-        # --- Clear stale Save-form widget state BEFORE prediction ---
+        # Clear stale Save-form widget state BEFORE prediction
         for k in [
             "lap1_track", "lap2_track", "lap3_track",
             "lap1_len", "lap2_len", "lap3_len",
@@ -2184,13 +2232,13 @@ with Q2:
             if k in st.session_state:
                 del st.session_state[k]
 
-        # --- Build prediction context ---
+        # Build prediction context
         lap_map = {"Lap 1": 0, "Lap 2": 1, "Lap 3": 2}
         k_idx = lap_map[st.session_state.selected_lap]
         k_type = st.session_state.selected_terrain
         v1, v2, v3 = st.session_state.selected_vehicles
 
-        # --- Run prediction and store result in session_state ---
+        # Run prediction once and store result
         st.session_state.res = run_full_prediction(
             v1,
             v2,
@@ -2201,23 +2249,21 @@ with Q2:
             user_vehicle_priors=ui_vehicle_priors,
         )
 
-        # Reset trigger
+        # Reset trigger so we don't recompute on every rerun
         st.session_state.trigger_prediction = False
 
     # -----------------------------------------------------
     # DISPLAY PANEL
     # -----------------------------------------------------
-    if 'res' not in st.session_state:
+    if "res" not in st.session_state:
         st.info("Set up the race on the left and run a prediction.")
     else:
-        res = st.session_state['res']
-        meta = res['meta']
-        probs = res['p']
-        vpi = res['vpi']
+        res = st.session_state["res"]
+        meta = res["meta"]
+        probs = res["p"]
+        vpi = res["vpi"]
 
-        # -----------------------------------------------------
-        # 2×2 GRID LAYOUT (reuse same columns for stacked sections)
-        # -----------------------------------------------------
+        # 2×2 grid layout
         col_left, col_right = st.columns(2)
 
         # -----------------------------------------------------
@@ -2226,11 +2272,13 @@ with Q2:
         with col_left:
             st.markdown("#### 🎯 Accuracy & Winner")
 
-            # history is normalized → use lowercase column names
-            if not history.empty and 'actual_winner' in history.columns:
-                valid = history.dropna(subset=['actual_winner', 'predicted_winner'])
+            # Accuracy: cheap, but still guarded
+            if not history.empty and "actual_winner" in history.columns:
+                valid = history.dropna(subset=["actual_winner", "predicted_winner"])
                 if not valid.empty:
-                    acc = (valid['predicted_winner'] == valid['actual_winner']).mean() * 100
+                    acc = (
+                        valid["predicted_winner"] == valid["actual_winner"]
+                    ).mean() * 100
                     st.metric("AI Accuracy", f"{acc:.1f}%")
 
             predicted_winner = max(probs, key=probs.get)
@@ -2241,25 +2289,26 @@ with Q2:
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 📊 Win Probabilities")
-        
-            p_sim = res.get('p_sim')
-            p_ml = res.get('p_ml')
-            blend_w = res.get('meta', {}).get('blend_weight_ml')
-        
-            for v in res['ctx']['v']:
+
+            p_sim = res.get("p_sim")
+            p_ml = res.get("p_ml")
+            blend_w = res.get("meta", {}).get("blend_weight_ml")
+
+            for v in res["ctx"]["v"]:
                 p_final = probs[v]
                 line = f"**{v}**: {p_final:.1f}%"
-        
+
                 if p_sim and p_ml:
                     line += f" (SIM {p_sim[v]:.1f}%, ML {p_ml[v]:.1f}%)"
-        
+
                 st.markdown(f"- {line}")
                 confidence_bar(v, p_final)
-        
+
             if p_sim and p_ml and blend_w is not None:
                 st.caption(
                     f"Blend weight → ML: {blend_w:.2f}, SIM: {1 - blend_w:.2f}"
                 )
+
         # -----------------------------------------------------
         # MID‑LEFT: Volatility & Safety
         # -----------------------------------------------------
@@ -2268,7 +2317,7 @@ with Q2:
             st.write(f"Volatility Gap: **{meta['volatility_gap_pp']} pp**")
             st.write(f"Market: **{meta['volatility_label']}**")
 
-            safety = meta['bet_safety']
+            safety = meta["bet_safety"]
             if safety == "AVOID":
                 st.error("**AVOID** — Too volatile or low-confidence.")
             elif safety == "CAUTION":
@@ -2281,18 +2330,18 @@ with Q2:
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 🧬 Terrain–vehicle matchup")
-        
+
             tv_matrix = res.get("tv_matrix", {})
             tv_samples = res.get("tv_samples", {})
             terrain_options = ["Desert", "Expressway", "Bumpy", "Dirt", "Highway", "Potholes"]
             selected_terrain = st.selectbox("Inspect tendencies for:", terrain_options)
-        
+
             if tv_matrix:
-                for v in res['ctx']['v']:
+                for v in res["ctx"]["v"]:
                     key = (v, selected_terrain)
                     win_rate = tv_matrix.get(key, 0.5)
                     count = tv_samples.get(key, 0)
-        
+
                     if count < 10:
                         flavor = "insufficient data"
                         icon = "⚪"
@@ -2305,7 +2354,7 @@ with Q2:
                     else:
                         flavor = "neutral"
                         icon = "🟡"
-        
+
                     st.markdown(
                         f"- {icon} **{v}** on **{selected_terrain}** → "
                         f"{flavor} (win rate {win_rate*100:.1f}%, n={count})"
@@ -2314,20 +2363,19 @@ with Q2:
                 st.caption("Not enough history yet to learn terrain–vehicle strengths.")
 
         # -----------------------------------------------------
-        # BOTTOM‑LEFT: Hidden Lap Guess
+        # BOTTOM‑LEFT: Hidden Lap Guess (display only, no heavy compute)
         # -----------------------------------------------------
         with col_left:
             lg = res.get("hidden_guess")
             if lg:
                 with st.expander("🤫 AI guess for hidden laps"):
-
                     TERRAIN_EMOJI = {
                         "Desert": "🏜️",
                         "Bumpy": "🪨",
                         "Expressway": "🛣️",
                         "Highway": "🚗",
                         "Dirt": "🌾",
-                        "Potholes": "🕳️"
+                        "Potholes": "🕳️",
                     }
 
                     summary_lines = []
@@ -2346,7 +2394,9 @@ with Q2:
                         expected_len = info["expected_len"]
 
                         # Sort terrains by probability
-                        sorted_probs = sorted(probs_k.items(), key=lambda x: x[1], reverse=True)
+                        sorted_probs = sorted(
+                            probs_k.items(), key=lambda x: x[1], reverse=True
+                        )
                         top_terrain, top_prob = sorted_probs[0]
 
                         emoji = TERRAIN_EMOJI.get(top_terrain, "🌍")
@@ -2356,18 +2406,20 @@ with Q2:
                         )
 
                         # Top 3 terrains
-                        top_str = ", ".join([
-                            f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
-                            for t, p in sorted_probs[:3]
-                        ])
+                        top_str = ", ".join(
+                            [
+                                f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
+                                for t, p in sorted_probs[:3]
+                            ]
+                        )
 
-                        # SAFE HANDLING OF ANY TYPE
+                        # Safe handling of any type
                         try:
                             expected_val = float(expected_len)
                             expected_text = f"{expected_val:.1f}%"
                         except Exception:
                             expected_text = "unknown"
-                            
+
                         st.markdown(
                             f"**{label} (hidden):** expected length ≈ {expected_text}, "
                             f"top terrains → {top_str}"
@@ -2397,29 +2449,30 @@ with Q2:
             c3.metric("Expected Regret", f"{meta['expected_regret']:.2f}")
 
         # -----------------------------------------------------
-        # DIAGNOSTICS (full width)
+        # DIAGNOSTICS (manual + cached)
         # -----------------------------------------------------
         st.markdown("---")
         with st.expander("🔍 Detailed diagnostics"):
-            if res.get('p_sim') and res.get('p_ml'):
-                sim_winner = max(res['p_sim'], key=res['p_sim'].get)
-                ml_winner = max(res['p_ml'], key=res['p_ml'].get)
+            # Manual trigger to avoid even cached lookup unless you care
+            if st.button("Compute Q2 diagnostics", key="btn_q2_diag"):
+                diag = compute_q2_diagnostics(res)
 
-                if sim_winner != ml_winner:
-                    st.warning(
-                        f"⚠️ **Model Divergence:** Physics → {sim_winner}, ML → {ml_winner}. "
-                        "This race has higher uncertainty."
-                    )
+                agreement = diag.get("agreement")
+                if agreement:
+                    if agreement["divergent"]:
+                        st.warning(
+                            f"⚠️ **Model Divergence:** Physics → {agreement['sim_winner']}, "
+                            f"ML → {agreement['ml_winner']}. This race has higher uncertainty."
+                        )
+                    else:
+                        st.success("✅ Physics and ML agree on the winner.")
                 else:
-                    st.success("✅ Physics and ML agree on the winner.")
+                    st.info("SIM/ML probability breakdown not available for this run.")
 
-            st.markdown("**Context snapshot:**")
-            st.json({
-                "Revealed Lap": res['ctx']['slot'],
-                "Revealed Track": res['ctx']['t'],
-                "Winner": predicted_winner,
-                "Probabilities": probs
-            })
+                st.markdown("**Context snapshot:**")
+                st.json(diag["context_snapshot"])
+            else:
+                st.caption("Click the button above to compute diagnostics for this race.")
 
 # ---------------------------------------------------------
 # Q3 — SAVE RACE REPORT (BOTTOM-LEFT, CLEAN & WIDGET-SAFE)
