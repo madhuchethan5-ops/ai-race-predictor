@@ -1556,6 +1556,7 @@ def run_simulation(
 # FULL PREDICTION ENGINE (NO UI) — WITH:
 # - SOFT ML CONFIDENCE CAP
 # - CHAOS DISAGREEMENT MODE (SIM vs ML)
+# - SOFT DOUBT RULE (uses regret_tracker)
 # ---------------------------------------------------------
 
 def soft_cap_ml_probs(ml_probs, cap_max=80.0):
@@ -1594,6 +1595,7 @@ def run_full_prediction(
 
     # --- ML-based probabilities ---
     ml_probs = None
+    p_ml_store = None  # ensure defined even if ML is unavailable
     ml_model, n_samples = get_trained_model(history)
 
     if ml_model is not None:
@@ -1604,7 +1606,7 @@ def run_full_prediction(
             k_idx,
             k_type,
             history,
-            user_vehicle_priors=user_vehicle_priors,   # <-- NEW
+            user_vehicle_priors=user_vehicle_priors,
         )
         raw_proba = ml_model.predict_proba(X_curr)[0]
 
@@ -1631,8 +1633,8 @@ def run_full_prediction(
 
     if ml_probs is not None and model_skill is not None:
         sim_brier = model_skill["sim_brier"]
-        ml_brier  = model_skill["ml_brier"]
-        n_skill   = model_skill["n"]
+        ml_brier = model_skill["ml_brier"]
+        n_skill = model_skill["n"]
 
         # Start trusting skill once we have enough races
         if n_skill >= 25 and np.isfinite(sim_brier) and np.isfinite(ml_brier):
@@ -1649,16 +1651,13 @@ def run_full_prediction(
     # ---------------------------------------------------------
     # SOFT DOUBT RULE (APPLIED BEFORE BLENDING)
     # ---------------------------------------------------------
-
-    # Determine dominant terrain (terrain of longest lap)
-    # NOTE: these values are available only AFTER hidden lap estimation,
-    # so we temporarily compute them here using k_type and history.
-    # But the REAL dominant terrain must be computed later for regret tracking.
-    # For soft doubt, we use the current lap's terrain.
+    # Regime key: (candidate winner, terrain).
+    # Here we approximate with lane 1 + terrain; regret_tracker is updated in Q3.
     dominant_terrain = k_type
-    bucket_key = (v1_sel, dominant_terrain)  # predicted_winner not known yet
+    bucket_key = (v1_sel, dominant_terrain)
 
-    regret_count = st.session_state.regret_tracker.get(bucket_key, 0)
+    regret_tracker = st.session_state.get("regret_tracker", {})
+    regret_count = regret_tracker.get(bucket_key, 0)
 
     if regret_count >= 3:
         blend_weight = max(blend_weight - 0.05, 0.40)
@@ -1732,7 +1731,7 @@ def run_full_prediction(
             v_mid: new_p_mid * scale,
             v_low: new_p_low * scale,
         }
-        
+
     # --- Terrain–vehicle adjustment (gentle) ---
     tv_matrix, tv_samples = build_tv_matrix(history)
 
@@ -1793,43 +1792,43 @@ def run_full_prediction(
         hidden_stats,
         TRACK_OPTIONS,
     )
-            
+
     # ---------------------------------------------------------
     # FINAL RESULT (PURE RETURN, NO SESSION MUTATION)
     # ---------------------------------------------------------
     res = {
-        'p': final_probs,
-        'vpi': vpi_res,
-        'ctx': {
-            'v': [v1_sel, v2_sel, v3_sel],
-            'idx': k_idx,
-            't': k_type,
-            'slot': f"Lap {k_idx + 1}",
-            'tracks': tracks,
+        "p": final_probs,
+        "vpi": vpi_res,
+        "ctx": {
+            "v": [v1_sel, v2_sel, v3_sel],
+            "idx": k_idx,
+            "t": k_type,
+            "slot": f"Lap {k_idx + 1}",
+            "tracks": tracks,
         },
-        'p_sim': sim_probs,
-        'p_ml': p_ml_store,
-        'meta': {
-            'top_vehicle': top_vehicle,
-            'top_prob': p1,
-            'second_prob': p2,
-            'volatility_gap_pp': vol_gap,
-            'volatility_label': vol_label,
-            'bet_safety': bet_safety,
-            'expected_regret': expected_regret,
-            'blend_weight_ml': blend_weight if ml_probs is not None else 0.0,
-            'sim_top_prob': sim_top_prob,
-            'ml_top_prob': ml_top_prob,
-            'sim_winner': sim_winner,
-            'ml_winner': ml_winner,
+        "p_sim": sim_probs,
+        "p_ml": p_ml_store,
+        "meta": {
+            "top_vehicle": top_vehicle,
+            "top_prob": p1,
+            "second_prob": p2,
+            "volatility_gap_pp": vol_gap,
+            "volatility_label": vol_label,
+            "bet_safety": bet_safety,
+            "expected_regret": expected_regret,
+            "blend_weight_ml": blend_weight if ml_probs is not None else 0.0,
+            "sim_top_prob": sim_top_prob,
+            "ml_top_prob": ml_top_prob,
+            "sim_winner": sim_winner,
+            "ml_winner": ml_winner,
         },
-        'hidden_guess': lap_guess,
-        'tv_strengths': tv_strengths,
-        'tv_matrix': tv_matrix,
-        'tv_samples': tv_samples,
+        "hidden_guess": lap_guess,
+        "tv_strengths": tv_strengths,
+        "tv_matrix": tv_matrix,
+        "tv_samples": tv_samples,
     }
     return res
-    
+        
 # ---------------------------------------------------------
 # 8. QUADRANT UI LAYOUT — AUTO-FIT DASHBOARD
 # ---------------------------------------------------------
