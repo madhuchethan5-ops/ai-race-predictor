@@ -992,7 +992,7 @@ def build_training_data(history_df: pd.DataFrame):
     return X, y, (cat_features, num_features), sample_weights
 
 def train_ml_model(history_df: pd.DataFrame):
-    df_recent = history_df.copy().tail(200)
+    df_recent = history_df.copy()
 
     X, y, feat_info, sample_weights = build_training_data(df_recent)
     if X is None:
