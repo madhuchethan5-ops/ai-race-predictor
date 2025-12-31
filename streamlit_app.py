@@ -2789,45 +2789,45 @@ with Q3:
             # Hidden-lap guess error (AI learning from mistakes)
             # ---------------------------------------------------------
             def compute_hidden_guess_error(res, s1t, s2t, s3t, s1l, s2l, s3l):
-            lg = res.get("hidden_guess")
-            if not lg:
-                return None
-        
-            actual_tracks = {1: s1t, 2: s2t, 3: s3t}
-            actual_lens   = {1: s1l, 2: s2l, 3: s3l}
-        
-            track_err = {}
-            len_err   = {}
-        
-            for k in (1, 2, 3):
-        
-                # 🔥 Skip revealed lap — hidden_guess only contains hidden laps
-                if k not in lg:
-                    track_err[k] = None
-                    len_err[k]   = None
-                    continue
-        
-                # Safe access
-                probs = lg[k].get("track_probs", {})
-                track_err[k] = 1.0 - probs.get(actual_tracks[k], 0.0)
-        
-                # Length error
-                try:
-                    exp_len = float(lg[k].get("expected_len", None))
-                except Exception:
-                    exp_len = None
-        
-                try:
-                    act_len = float(actual_lens[k])
-                except Exception:
-                    act_len = None
-        
-                if exp_len is None or act_len is None:
-                    len_err[k] = None
-                else:
-                    len_err[k] = abs(exp_len - act_len)
-        
-            return track_err, len_err
+                lg = res.get("hidden_guess")
+                if not lg:
+                    return None
+            
+                actual_tracks = {1: s1t, 2: s2t, 3: s3t}
+                actual_lens   = {1: s1l, 2: s2l, 3: s3l}
+            
+                track_err = {}
+                len_err   = {}
+            
+                for k in (1, 2, 3):
+            
+                    # Skip revealed lap — hidden_guess only contains hidden laps
+                    if k not in lg:
+                        track_err[k] = None
+                        len_err[k]   = None
+                        continue
+            
+                    # Track error
+                    probs = lg[k].get("track_probs", {})
+                    track_err[k] = 1.0 - probs.get(actual_tracks[k], 0.0)
+            
+                    # Length error
+                    try:
+                        exp_len = float(lg[k].get("expected_len", None))
+                    except Exception:
+                        exp_len = None
+            
+                    try:
+                        act_len = float(actual_lens[k])
+                    except Exception:
+                        act_len = None
+            
+                    if exp_len is None or act_len is None:
+                        len_err[k] = None
+                    else:
+                        len_err[k] = abs(exp_len - act_len)
+            
+                return track_err, len_err
             
             guess_errors = compute_hidden_guess_error(
                 res, s1t, s2t, s3t, s1l, s2l, s3l
