@@ -962,8 +962,6 @@ def train_ml_model(history_df: pd.DataFrame):
 
     return model, n_samples
 
-
-@st.cache_resource
 def get_trained_model():
     """
     Accessor only. Never trains.
@@ -1456,9 +1454,54 @@ def get_known_terrain_from_row(row: pd.Series) -> str:
     return "Unknown"
 
 # ---------------------------------------------------------
+# ADAPTIVE CLAMP (OPTION C)
+# ---------------------------------------------------------
+def adaptive_sim_clamp(calibrated_probs, history_df, sim_entropy, sim_margin):
+    """
+    Adaptive clamp for SIM probabilities.
+    Becomes looser as history grows and SIM becomes well-calibrated.
+    Tightens when SIM is overconfident or poorly calibrated.
+    """
+
+    # 1. History size factor (0 → tight, 1 → loose)
+    n = len(history_df) if history_df is not None else 0
+    hist_factor = np.clip((n - 300) / 400, 0.0, 1.0)
+    # 300 races → start loosening
+    # 700 races → fully loose
+
+    # 2. Calibration factor (0 → tight, 1 → loose)
+    if history_df is not None and "sim_top_prob" in history_df.columns:
+        recent = history_df.dropna(subset=["sim_top_prob", "sim_was_correct"]).tail(200)
+        if len(recent) >= 50:
+            calib_error = abs(recent["sim_top_prob"].mean() - recent["sim_was_correct"].mean())
+            calib_factor = 1.0 - np.clip(calib_error * 3.0, 0.0, 1.0)
+        else:
+            calib_factor = 0.5
+    else:
+        calib_factor = 0.5
+
+    # 3. Entropy factor (uncertainty → looser clamp)
+    entropy_factor = np.clip(sim_entropy / 1.5, 0.0, 1.0)
+
+    # 4. Margin factor (big margin → tighter clamp)
+    margin_factor = 1.0 - np.clip(sim_margin / 0.8, 0.0, 1.0)
+
+    # Combine all factors
+    looseness = (hist_factor + calib_factor + entropy_factor + margin_factor) / 4.0
+
+    # Compute clamp bounds
+    low = 0.02 + 0.08 * (1 - looseness)   # 2% → 10%
+    high = 0.98 - 0.18 * (1 - looseness)  # 98% → 80%
+
+    # Apply clamp
+    probs = np.clip(calibrated_probs, low, high)
+    probs /= probs.sum()
+    return probs
+
+
+# ---------------------------------------------------------
 # 7. CORE SIMULATION ENGINE (CLEAN VERSION)
 # ---------------------------------------------------------
-
 def run_simulation(
     v1, v2, v3,
     k_idx,
@@ -1474,10 +1517,11 @@ def run_simulation(
 ):
     vehicles = [v1, v2, v3]
 
+    # -----------------------------------------------------
     # 1. BAYESIAN REINFORCEMENT (VPI)
+    # -----------------------------------------------------
     vpi_raw = {v: 1.0 for v in vehicles}
 
-    # history_df is normalized → use lowercase column names
     if history_df is not None and not history_df.empty and 'actual_winner' in history_df.columns:
         winners = history_df['actual_winner'].dropna()
         wins = winners.value_counts()
@@ -1547,7 +1591,7 @@ def run_simulation(
                 if lap_probs[j] is None and j in global_transitions:
                     lap_probs[j] = global_transitions[j].values
 
-    # FINAL FALLBACK: uniform distribution for any missing lap
+    # FINAL FALLBACK: uniform distribution
     for j in range(3):
         if lap_probs[j] is None:
             lap_probs[j] = np.ones(len(TRACK_OPTIONS)) / len(TRACK_OPTIONS)
@@ -1572,7 +1616,6 @@ def run_simulation(
     # 4. GEOMETRY (FULL SIM — VARIANCE-AWARE LENGTH SAMPLING)
     # -----------------------------------------------------
     rng = np.random.default_rng()
-
     len_matrix_raw = np.zeros_like(terrain_matrix, dtype=float)
 
     for t in TRACK_OPTIONS:
@@ -1633,7 +1676,7 @@ def run_simulation(
     raw_probs /= raw_probs.sum()
 
     # -----------------------------------------------------
-    # 7. TEMPERATURE CALIBRATION + CLAMP (SIM-ONLY)
+    # 7. TEMPERATURE CALIBRATION + REGIME SWITCH
     # -----------------------------------------------------
     def estimate_temperature_from_history(df):
         if df is None or df.empty or 'sim_top_prob' not in df.columns or 'sim_was_correct' not in df.columns:
@@ -1652,7 +1695,6 @@ def run_simulation(
         calib_error = abs(avg_conf - avg_acc)
         base_temp   = 1.0 + 2.0 * calib_error
 
-        # Never sharpen (<1.0). Only soften.
         return float(np.clip(base_temp, 1.0, 2.0))
 
     temp = estimate_temperature_from_history(history_df)
@@ -1662,41 +1704,29 @@ def run_simulation(
     calibrated_probs = np.exp(calibrated_logits)
     calibrated_probs /= calibrated_probs.sum()
 
-    calibrated_probs = np.clip(calibrated_probs, 0.05, 0.90)
-    calibrated_probs /= calibrated_probs.sum()
+    # -----------------------------------------
+    # OPTION A (pure SIM) until 700 races
+    # OPTION C (adaptive clamp) after 700 races
+    # -----------------------------------------
+    n_hist = len(history_df) if history_df is not None else 0
 
-    sim_prob_dict = {vehicles[i]: float(calibrated_probs[i]) for i in range(3)}
+    if n_hist < 700:
+        final_probs = calibrated_probs
+    else:
+        sim_top = float(np.max(calibrated_probs))
+        sim_second = float(np.partition(calibrated_probs, -2)[-2])
+        sim_margin = sim_top - sim_second
+        sim_entropy = float(-(calibrated_probs * np.log(calibrated_probs + 1e-12)).sum())
+
+        final_probs = adaptive_sim_clamp(
+            calibrated_probs,
+            history_df,
+            sim_entropy=sim_entropy,
+            sim_margin=sim_margin
+        )
+
+    sim_prob_dict = {vehicles[i]: float(final_probs[i]) for i in range(3)}
     return sim_prob_dict, vpi
-
-
-# ---------------------------------------------------------
-# SIM WRAPPER FOR DEBUG PANEL
-# ---------------------------------------------------------
-def compute_sim_probs(v1: str, v2: str, v3: str, history_df: pd.DataFrame):
-    """
-    Wrapper to compute SIM win probabilities for the debug panel.
-    Uses the existing run_simulation engine.
-    """
-    if history_df is None or history_df.empty:
-        return {v1: 0.33, v2: 0.33, v3: 0.33}
-
-    last = history_df.tail(1).iloc[0]
-    lane = last.get("lane", "Lap 1")
-    k_idx = int(lane.split(" ")[1]) - 1
-    k_type = last.get(f"lap_{k_idx+1}_track", "Unknown")
-
-    sim_probs_dict, _ = run_simulation(
-        v1, v2, v3,
-        k_idx,
-        k_type,
-        history_df
-    )
-
-    return {
-        v1: float(sim_probs_dict.get(v1, 0.0)),
-        v2: float(sim_probs_dict.get(v2, 0.0)),
-        v3: float(sim_probs_dict.get(v3, 0.0)),
-    }
 # ---------------------------------------------------------
 # FULL PREDICTION ENGINE (NO UI) — WITH:
 # - SOFT ML CONFIDENCE CAP
@@ -1719,6 +1749,7 @@ def soft_cap_ml_probs(ml_probs, cap_max=80.0):
 
     scale = cap_max / current_max
     return {v: p * scale for v, p in ml_probs.items()}
+
 
 def run_full_prediction(
     v1_sel,
@@ -1909,42 +1940,133 @@ def run_full_prediction(
         }
 
     # ---------------------------------------------------------
+    # Q2 EXTRA DIAGNOSTICS (VOLATILITY, SAFETY, TV MATRIX, HIDDEN LAPS, REGRET)
+    # ---------------------------------------------------------
+    # Volatility (top-second gap)
+    sorted_final = sorted(final_probs.items(), key=lambda x: x[1], reverse=True)
+    if len(sorted_final) >= 2:
+        (_, p1), (_, p2) = sorted_final[0], sorted_final[1]
+    else:
+        p1, p2 = 0.0, 0.0
+
+    vol_gap_pp = round(p1 - p2, 1)
+    if vol_gap_pp >= 25:
+        vol_label = "Very Stable"
+    elif vol_gap_pp >= 15:
+        vol_label = "Stable"
+    elif vol_gap_pp >= 8:
+        vol_label = "Uncertain"
+    else:
+        vol_label = "Highly Volatile"
+
+    # Bet safety
+    if chaos_triggered_flag:
+        bet_safety = "AVOID"
+    elif vol_gap_pp < 8:
+        bet_safety = "AVOID"
+    elif vol_gap_pp < 15:
+        bet_safety = "CAUTION"
+    else:
+        bet_safety = "FAVORABLE"
+
+    # Terrain–vehicle matrix (win rates by terrain)
+    tv_matrix = {}
+    tv_samples = {}
+    if history is not None and not history.empty and "actual_winner" in history.columns:
+        df_tv = history.dropna(subset=["actual_winner"]).copy()
+        for _, row in df_tv.iterrows():
+            terrains = [
+                row.get("lap_1_track"),
+                row.get("lap_2_track"),
+                row.get("lap_3_track"),
+            ]
+            winner = row["actual_winner"]
+            for t in terrains:
+                if t is None or t == "" or t == "Unknown":
+                    continue
+                key = (winner, t)
+                tv_samples[key] = tv_samples.get(key, 0) + 1
+
+        for (veh, terr), count in tv_samples.items():
+            total_for_terr = sum(
+                c for (v2, t2), c in tv_samples.items() if t2 == terr
+            )
+            if total_for_terr > 0:
+                tv_matrix[(veh, terr)] = count / total_for_terr
+
+    # Hidden lap guesses (simple: empirical terrain distributions + expected length)
+    hidden_guess = {}
+    if history is not None and not history.empty:
+        for lap in [1, 2, 3]:
+            if lap - 1 == k_idx:
+                continue  # revealed lap
+
+            col = f"lap_{lap}_track"
+            if col in history.columns:
+                counts = history[col].value_counts(normalize=True)
+                track_probs = counts.to_dict()
+            else:
+                track_probs = {}
+
+            expected_len = 0.0
+            for t, p in track_probs.items():
+                if t in TRACK_LENGTH_PRIORS:
+                    expected_len += TRACK_LENGTH_PRIORS[t]["mean"] * p
+
+            hidden_guess[lap] = {
+                "track_probs": track_probs,
+                "expected_len": expected_len,
+            }
+
+    # Expected regret (simple: top-second gap)
+    expected_regret = round(p1 - p2, 2)
+
+    # ---------------------------------------------------------
     # PACKAGE FULL Q2 DIAGNOSTICS
     # ---------------------------------------------------------
     res = {
         # Final blended probabilities (percent)
         "p": final_probs,
-    
+
         # Raw components
         "p_sim": sim_probs_pct,   # SIM in percent
         "p_ml": ml_probs,         # ML in percent (post-temp & cap)
-    
+
         # Blend control
         "blend_weight": blend_weight,
         "model_skill": model_skill,
         "blend_improvement_clipped": improvement_clipped,
-    
+
         # Winners and tops
         "sim_winner": sim_winner,
         "sim_top_prob": sim_top_prob,
         "ml_winner": ml_winner,
         "ml_top_prob": ml_top_prob,
-    
+
         # Chaos / soft doubt / regret
         "chaos_triggered": chaos_triggered_flag,
         "soft_doubt_applied": soft_doubt_applied,
         "regret_bucket": regret_bucket,
         "regret_count": regret_count,
-    
+
+        # Extra diagnostics for Q2
+        "volatility_gap_pp": vol_gap_pp,
+        "volatility_label": vol_label,
+        "bet_safety": bet_safety,
+        "tv_matrix": tv_matrix,
+        "tv_samples": tv_samples,
+        "hidden_guess": hidden_guess,
+        "expected_regret": expected_regret,
+
         # Context (top-level)
         "vehicles": vehicles,
         "terrain": k_type,
         "lap_index": k_idx,
-    
+
         # Anything else you already used in Q2
         "vpi": vpi_res,
     }
-    
+
     # 🔥 Restore ctx for Q2 compatibility
     res["ctx"] = {
         "v": vehicles,
@@ -1952,7 +2074,7 @@ def run_full_prediction(
         "idx": k_idx,
         "slot": f"Lap {k_idx + 1}",
     }
-    
+
     return res
 
 # ---------------------------------------------------------
