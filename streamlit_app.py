@@ -1027,7 +1027,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
 
-    return pd.concat(rows, ignore_index=True)
+    return pd.DataFrame(rows)
 
 def build_training_data(history_df: pd.DataFrame):
     """
