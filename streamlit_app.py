@@ -770,6 +770,24 @@ def sim_meta_from_probs(sim_probs: dict):
 # ---------------------------------------------------------
 # 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
 # ---------------------------------------------------------
+def compute_global_vehicle_win_rates(df: pd.DataFrame) -> dict:
+    """
+    Compute global win-rate priors for all vehicles in history_df.
+    Returns a dict: {vehicle_name: win_rate}
+    """
+    counts = {}
+    total = 0
+
+    for _, row in df.iterrows():
+        winner = row.get("actual_winner")
+        if winner:
+            counts[winner] = counts.get(winner, 0) + 1
+            total += 1
+
+    if total == 0:
+        return {}
+
+    return {v: counts[v] / total for v in counts}
 
 def estimate_ml_temperature(history_df: pd.DataFrame, calib_min_hist: int = 50) -> float:
     cols = ["ml_top_prob", "ml_was_correct"]
@@ -882,7 +900,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     # GLOBAL PRIORS
     # ---------------------------------------------------------
     if "global_wr_cache" not in st.session_state:
-        st.session_state.global_wr_cache = compute_live_vehicle_win_rates(history_df)
+        st.session_state.global_wr_cache = compute_global_vehicle_win_rates(history_df)
 
     if "global_trans_entropy_cache" not in st.session_state:
         st.session_state.global_trans_entropy_cache = compute_global_transition_entropy(history_df)
