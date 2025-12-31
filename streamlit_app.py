@@ -1114,7 +1114,7 @@ def train_ml_model(history_df: pd.DataFrame):
 
     return model, n_samples
 
-def get_trained_model():
+def get_trained_model(*args, **kwargs):
     """
     Accessor only. Never trains.
     Reads the model and sample count from session_state.
