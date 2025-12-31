@@ -789,6 +789,25 @@ def compute_global_vehicle_win_rates(df: pd.DataFrame) -> dict:
 
     return {v: counts[v] / total for v in counts}
 
+def compute_global_transition_entropy(df: pd.DataFrame) -> float:
+    """
+    Compute a global transition entropy prior from history_df.
+    Returns a single float.
+    """
+    entropies = []
+
+    for _, row in df.iterrows():
+        # If you have per-lap entropies, use them
+        for col in ["hidden_track_error_l1", "hidden_track_error_l2", "hidden_track_error_l3"]:
+            val = row.get(col)
+            if val is not None and not pd.isna(val):
+                entropies.append(val)
+
+    if not entropies:
+        return 1.0  # safe neutral fallback
+
+    return float(np.mean(entropies))
+
 def estimate_ml_temperature(history_df: pd.DataFrame, calib_min_hist: int = 50) -> float:
     cols = ["ml_top_prob", "ml_was_correct"]
     if history_df is None or history_df.empty or not all(c in history_df.columns for c in cols):
