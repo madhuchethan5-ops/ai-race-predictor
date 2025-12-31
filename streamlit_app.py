@@ -2760,31 +2760,30 @@ with Q3:
 
             # Submit button
             save_clicked = st.form_submit_button("💾 Save & Train")
-
         # -----------------------------
         # SAVE LOGIC (SQLITE VERSION)
         # -----------------------------
         if save_clicked:
-
+        
             if not prediction_available:
                 st.error("Run a prediction first.")
                 st.stop()
-
+        
             if winner is None:
                 st.error("Please select the actual winner.")
                 st.stop()
-
+        
             s1l, s2l, s3l = float(s1l), float(s2l), float(s3l)
             if abs((s1l + s2l + s3l) - 100) > 0.001:
                 st.error("Lap lengths must total 100%.")
                 st.stop()
-
+        
             if not s1t or not s2t or not s3t:
                 st.error("All laps must have a track selected.")
                 st.stop()
-
+        
             st.session_state['last_train_probs'] = dict(predicted)
-
+        
             # ---------------------------------------------------------
             # Hidden-lap guess error (AI learning from mistakes)
             # ---------------------------------------------------------
@@ -2792,70 +2791,72 @@ with Q3:
                 lg = res.get("hidden_guess")
                 if not lg:
                     return None
-            
+        
                 actual_tracks = {1: s1t, 2: s2t, 3: s3t}
                 actual_lens   = {1: s1l, 2: s2l, 3: s3l}
-            
+        
                 track_err = {}
                 len_err   = {}
-            
+        
                 for k in (1, 2, 3):
-            
+        
                     # Skip revealed lap — hidden_guess only contains hidden laps
                     if k not in lg:
                         track_err[k] = None
                         len_err[k]   = None
                         continue
-            
+        
                     # Track error
                     probs = lg[k].get("track_probs", {})
                     track_err[k] = 1.0 - probs.get(actual_tracks[k], 0.0)
-            
+        
                     # Length error
                     try:
                         exp_len = float(lg[k].get("expected_len", None))
                     except Exception:
                         exp_len = None
-            
+        
                     try:
                         act_len = float(actual_lens[k])
                     except Exception:
                         act_len = None
-            
+        
                     if exp_len is None or act_len is None:
                         len_err[k] = None
                     else:
                         len_err[k] = abs(exp_len - act_len)
-            
+        
                 return track_err, len_err
-            
+        
             guess_errors = compute_hidden_guess_error(
                 res, s1t, s2t, s3t, s1l, s2l, s3l
             )
-
+        
             if guess_errors:
                 track_err, len_err = guess_errors
             else:
                 track_err = {1: None, 2: None, 3: None}
-                len_err = {1: None, 2: None, 3: None}
-
+                len_err   = {1: None, 2: None, 3: None}
+        
             sim_pred_winner = max(p_sim, key=p_sim.get) if isinstance(p_sim, dict) else None
-            ml_pred_winner = max(p_ml, key=p_ml.get) if isinstance(p_ml, dict) else None
+            ml_pred_winner  = max(p_ml, key=p_ml.get) if isinstance(p_ml, dict) else None
+        
             sim_top_prob = p_sim[sim_pred_winner] / 100.0 if sim_pred_winner else np.nan
-            ml_top_prob = p_ml[ml_pred_winner] / 100.0 if ml_pred_winner else np.nan
+            ml_top_prob  = p_ml[ml_pred_winner] / 100.0 if ml_pred_winner else np.nan
+        
             sim_correct = float(sim_pred_winner == winner) if sim_pred_winner else np.nan
-            ml_correct = float(ml_pred_winner == winner) if ml_pred_winner else np.nan
-
+            ml_correct  = float(ml_pred_winner == winner) if ml_pred_winner else np.nan
+        
             was_correct = float(predicted_winner == winner)
             p1 = predicted[predicted_winner] / 100.0
             surprise = round(1 - p1, 4) if was_correct == 1 else 1.0
-
+        
             row = {
                 # Vehicles
                 'vehicle_1': ctx['v'][0],
                 'vehicle_2': ctx['v'][1],
                 'vehicle_3': ctx['v'][2],
-
+        
                 # Laps
                 'lap_1_track': s1t,
                 'lap_1_len': s1l,
@@ -2863,17 +2864,17 @@ with Q3:
                 'lap_2_len': s2l,
                 'lap_3_track': s3t,
                 'lap_3_len': s3l,
-
+        
                 # Core outcome
                 'predicted_winner': predicted_winner,
                 'actual_winner': winner,
                 'lane': revealed_slot,
-
+        
                 # Overall prob & correctness
                 'top_prob': p1,
                 'was_correct': was_correct,
                 'surprise_index': surprise,
-
+        
                 # Physics vs ML diagnostics
                 'sim_predicted_winner': sim_pred_winner,
                 'ml_predicted_winner': ml_pred_winner,
@@ -2881,7 +2882,7 @@ with Q3:
                 'ml_top_prob': ml_top_prob,
                 'sim_was_correct': sim_correct,
                 'ml_was_correct': ml_correct,
-
+        
                 # Hidden-lap errors
                 'hidden_track_error_l1': track_err[1],
                 'hidden_track_error_l2': track_err[2],
@@ -2889,43 +2890,42 @@ with Q3:
                 'hidden_len_error_l1': len_err[1],
                 'hidden_len_error_l2': len_err[2],
                 'hidden_len_error_l3': len_err[3],
-
+        
                 # Timestamps
                 'timestamp': datetime.now().isoformat(timespec="seconds"),
                 'last_updated': datetime.utcnow().isoformat(timespec="seconds"),
             }
-
+        
             # ---------------------------------------------------------
-            # REGRET TRACKER UPDATE (POST-MORTEM, AFTER WE KNOW THE RESULT)
-            # Regime key: winner | known_terrain (revealed lap terrain)
+            # REGRET TRACKER UPDATE (POST-MORTEM)
             # ---------------------------------------------------------
             try:
                 pred_winner = row['predicted_winner']
                 known_terrain = get_known_terrain_from_row(row)
-            
+        
                 bucket_key = f"{pred_winner}|{known_terrain}"
-            
+        
                 regret_case = (
                     row['top_prob'] >= 0.60
                     and row['was_correct'] == 0.0
                     and row['surprise_index'] >= 0.40
                 )
-            
+        
                 if regret_case:
                     if "regret_tracker" not in st.session_state:
                         st.session_state.regret_tracker = {}
                     st.session_state.regret_tracker[bucket_key] = (
                         st.session_state.regret_tracker.get(bucket_key, 0) + 1
                     )
-            
+        
             except Exception as e:
                 st.warning(f"Regret tracker update failed: {e}")
-            
+        
             save_race_to_db(row)
-
+        
             st.success("✅ Race saved to database! Model will update on next prediction.")
             st.rerun()
-            
+
 # ---------------------------------------------------------
 # Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
 # ---------------------------------------------------------
