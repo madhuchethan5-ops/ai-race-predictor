@@ -123,6 +123,8 @@ history = load_history()
 # VALID HISTORY FILTER
 valid_history = history.dropna(subset=["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"])
 
+st.write("✅ valid_history rows:", len(valid_history))
+
 # ---------------------------------------------------------
 # INITIALIZE ML MODEL (ONCE PER SESSION)
 # ---------------------------------------------------------
@@ -1002,6 +1004,7 @@ def build_training_data(history_df: pd.DataFrame):
         return None, None, None, None
 
     df = build_pre_race_training_rows(history_df)
+    st.write("✅ pre_race rows:", len(df))
     if df is None or df.empty:
         return None, None, None, None
 
@@ -1046,6 +1049,7 @@ def build_training_data(history_df: pd.DataFrame):
     sample_weights = np.ones(len(df), dtype=float)
 
     X = df[feature_cols].copy()
+    st.write("✅ final ML samples:", len(X))
 
     return X, y, (cat_features, num_features), sample_weights
 
@@ -1080,6 +1084,8 @@ def train_ml_model(history_df: pd.DataFrame):
     ])
 
     model.fit(X, y, clf__sample_weight=sample_weights)
+
+    st.write("✅ train_ml_model called")
 
     return model, n_samples
 
