@@ -871,6 +871,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     Transform full-history rows (3 laps known) into pre-race-style rows
     using the same logic as build_single_feature_row.
     """
+    st.write("🔍 Starting build_pre_race_training_rows with", len(history_df), "rows")
 
     if history_df is None or history_df.empty:
         return pd.DataFrame()
@@ -890,6 +891,11 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
 
     for _, row in history_df.iterrows():
+        try:
+            # everything inside the loop goes here
+        except Exception as e:
+            st.write("❌ Row failed:", row.get("id", None), repr(e))
+            continue
 
         # Basic sanity
         if any(col not in row for col in ["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"]):
@@ -989,6 +995,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
                 feat_row[col] = val
 
         rows.append(feat_row)
+    st.write("✅ Finished build_pre_race_training_rows — built", len(rows), "rows")
 
     if not rows:
         return pd.DataFrame()
