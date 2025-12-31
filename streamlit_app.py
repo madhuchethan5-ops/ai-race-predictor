@@ -2535,7 +2535,8 @@ with Q2:
                         label = f"Lap {k}"
 
                         # Revealed lap
-                        if k == ctx.get("idx", k_idx) + 1:
+                        revealed_idx = ctx.get("idx", 0)
+                        if k == revealed_idx + 1:
                             st.markdown(f"**{label} (revealed):** {ctx.get('t', terrain)}")
                             continue
 
