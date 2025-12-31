@@ -942,7 +942,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
                 sim_meta_live = sim_meta_from_probs(sim_probs_hist)
 
             # -------------------------
-            # Build feature row
+            # Build feature row (robust)
             # -------------------------
             feat_row = build_single_feature_row(
                 v1, v2, v3,
@@ -951,53 +951,62 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
                 user_vehicle_priors=None,
                 sim_meta_live=sim_meta_live,
             )
-
+            
+            # If the feature builder fails, rebuild using REAL row data
             if feat_row is None:
-                st.write("❌ Skipped due to None feature row:", row.get("id"))
-                continue
-
-            # -------------------------
-            # Winner index
-            # -------------------------
-            vs = [v1, v2, v3]
-            if winner not in vs:
-                st.write("❌ Skipped due to winner mismatch:", row.get("id"), "winner=", winner, "vs=", vs)
-                continue
-
-            feat_row["winner_idx"] = vs.index(winner)
-
-            # -------------------------
-            # SAFE MISSING VALUE HANDLING
-            # -------------------------
-            feat_row["v1_win_rate"] = feat_row.get("v1_win_rate", global_wr.get(v1, 0.33))
-            feat_row["v2_win_rate"] = feat_row.get("v2_win_rate", global_wr.get(v2, 0.33))
-            feat_row["v3_win_rate"] = feat_row.get("v3_win_rate", global_wr.get(v3, 0.33))
-
-            for col in ["trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3"]:
-                if col not in feat_row or pd.isna(feat_row[col]):
-                    feat_row[col] = global_trans_entropy
-
-            sim_defaults = {
-                "sim_top_prob": 33.33,
-                "sim_second_prob": 33.33,
-                "sim_margin": 0,
-                "sim_entropy": 1.10,
-                "sim_volatility": 0,
-            }
-            for col, val in sim_defaults.items():
-                if col not in feat_row or pd.isna(feat_row[col]):
-                    feat_row[col] = val
-
-            geom_defaults = {
-                "geom_lap1_mean": 0,
-                "geom_lap2_mean": 0,
-                "geom_lap3_mean": 0,
-                "geom_lap1_std": 0,
-                "geom_lap2_std": 0,
-                "geom_lap3_std": 0,
-                "geom_range": 0,
-                "geom_split_flag": 0,
-            }
+                st.write("⚠️ build_single_feature_row failed for id:", row.get("id"), "— rebuilding safely")
+            
+                # Reconstruct a valid pre‑race row using REAL history values
+                feat_row = {
+                    # Vehicles
+                    "vehicle_1": v1,
+                    "vehicle_2": v2,
+                    "vehicle_3": v3,
+            
+                    # Tracks (REAL)
+                    "lap_1_track": row.get("lap_1_track", "Unknown"),
+                    "lap_2_track": row.get("lap_2_track", "Unknown"),
+                    "lap_3_track": row.get("lap_3_track", "Unknown"),
+            
+                    # Lap lengths (REAL)
+                    "lap_1_len": row.get("lap_1_len", 0),
+                    "lap_2_len": row.get("lap_2_len", 0),
+                    "lap_3_len": row.get("lap_3_len", 0),
+            
+                    # Lane (REAL)
+                    "lane": row.get("lane", "Lap 1"),
+            
+                    # Geometry (REAL if present, else safe)
+                    "geom_lap1_mean": row.get("geom_lap1_mean", 0),
+                    "geom_lap2_mean": row.get("geom_lap2_mean", 0),
+                    "geom_lap3_mean": row.get("geom_lap3_mean", 0),
+                    "geom_lap1_std": row.get("geom_lap1_std", 0),
+                    "geom_lap2_std": row.get("geom_lap2_std", 0),
+                    "geom_lap3_std": row.get("geom_lap3_std", 0),
+                    "geom_range": row.get("geom_range", 0),
+                    "geom_split_flag": row.get("geom_split_flag", 0),
+            
+                    # Transition entropy (REAL global)
+                    "trans_entropy_l1": global_trans_entropy,
+                    "trans_entropy_l2": global_trans_entropy,
+                    "trans_entropy_l3": global_trans_entropy,
+            
+                    # SIM meta (REAL if available)
+                    "sim_top_prob": row.get("Win_Prob_1", 33.33),
+                    "sim_second_prob": row.get("Win_Prob_2", 33.33),
+                    "sim_margin": abs(row.get("Win_Prob_1", 33.33) - row.get("Win_Prob_2", 33.33)),
+                    "sim_entropy": 1.10,
+                    "sim_volatility": 0,
+            
+                    # Win rates (REAL global priors)
+                    "v1_win_rate": global_wr.get(v1, 0.33),
+                    "v2_win_rate": global_wr.get(v2, 0.33),
+                    "v3_win_rate": global_wr.get(v3, 0.33),
+            
+                    # Track shares (REAL if present)
+                    "high_speed_share": row.get("high_speed_share", 0),
+                    "rough_share": row.get("rough_share", 0),
+                }
             for col, val in geom_defaults.items():
                 if col not in feat_row or pd.isna(feat_row[col]):
                     feat_row[col] = val
