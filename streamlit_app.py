@@ -121,7 +121,7 @@ def load_history():
 history = load_history()
 # Ignore imported CSV rows (they have no track data)
 # VALID HISTORY FILTER
-valid_history = history.dropna(subset=["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"])
+valid_history = history
 
 st.write("✅ valid_history rows:", len(valid_history))
 
