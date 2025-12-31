@@ -209,15 +209,78 @@ def clickable_tile(label, img_path, selected=False, disabled=False, key="tile"):
 # ---------------------------------------------------------
 
 SPEED_DATA = {
-    "Monster Truck": {"Expressway": 110, "Desert": 55, "Dirt": 81, "Potholes": 48, "Bumpy": 75, "Highway": 100},
-    "ORV":           {"Expressway": 140, "Desert": 57, "Dirt": 92, "Potholes": 49, "Bumpy": 76, "Highway": 112},
-    "Motorcycle":    {"Expressway": 94,  "Desert": 45, "Dirt": 76, "Potholes": 36, "Bumpy": 66, "Highway": 89},
-    "Stock Car":     {"Expressway": 100, "Desert": 50, "Dirt": 80, "Potholes": 45, "Bumpy": 72, "Highway": 99},
-    "SUV":           {"Expressway": 180, "Desert": 63, "Dirt": 100, "Potholes": 60, "Bumpy": 80, "Highway": 143},
-    "Car":           {"Expressway": 235, "Desert": 70, "Dirt": 120, "Potholes": 68, "Bumpy": 81, "Highway": 180},
-    "ATV":           {"Expressway": 80,  "Desert": 40, "Dirt": 66, "Potholes": 32, "Bumpy": 60, "Highway": 80},
-    "Sports Car":    {"Expressway": 300, "Desert": 72, "Dirt": 130, "Potholes": 72, "Bumpy": 91, "Highway": 240},
-    "Supercar":      {"Expressway": 390, "Desert": 80, "Dirt": 134, "Potholes": 77, "Bumpy": 99, "Highway": 320},
+    "Supercar": {
+        "Expressway": 390,
+        "Desert": 40,
+        "Dirt": 100,
+        "Potholes": 32,
+        "Bumpy": 60,
+        "Highway": 320
+    },
+    "Sports Car": {
+        "Expressway": 300,
+        "Desert": 45,
+        "Dirt": 120,
+        "Potholes": 36,
+        "Bumpy": 66,
+        "Highway": 240
+    },
+    "Car": {
+        "Expressway": 235,
+        "Desert": 50,
+        "Dirt": 130,
+        "Potholes": 45,
+        "Bumpy": 75,
+        "Highway": 180
+    },
+    "SUV": {
+        "Expressway": 180,
+        "Desert": 57,
+        "Dirt": 134,
+        "Potholes": 48,
+        "Bumpy": 76,
+        "Highway": 143
+    },
+    "ORV": {
+        "Expressway": 140,
+        "Desert": 70,
+        "Dirt": 92,
+        "Potholes": 49,
+        "Bumpy": 91,
+        "Highway": 112
+    },
+    "Monster Truck": {
+        "Expressway": 110,
+        "Desert": 55,
+        "Dirt": 66,
+        "Potholes": 77,
+        "Bumpy": 99,
+        "Highway": 99
+    },
+    "Stock Car": {
+        "Expressway": 100,
+        "Desert": 80,
+        "Dirt": 80,
+        "Potholes": 60,
+        "Bumpy": 80,
+        "Highway": 100
+    },
+    "Motorcycle": {
+        "Expressway": 94,
+        "Desert": 63,
+        "Dirt": 81,
+        "Potholes": 68,
+        "Bumpy": 81,
+        "Highway": 89
+    },
+    "ATV": {
+        "Expressway": 80,
+        "Desert": 72,
+        "Dirt": 76,
+        "Potholes": 72,
+        "Bumpy": 72,
+        "Highway": 80
+    }
 }
 
 ALL_VEHICLES = sorted(list(SPEED_DATA.keys()))
