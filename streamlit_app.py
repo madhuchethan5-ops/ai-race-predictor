@@ -897,6 +897,8 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     # ---------------------------------------------------------
     for _, row in history_df.iterrows():
         try:
+            st.write("🔄 Trying row id:", row.get("id"))
+
             # -------------------------
             # Basic sanity
             # -------------------------
@@ -924,7 +926,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
                 k_idx = 2
                 k_type = row.get("lap_3_track", "Unknown")
             else:
-                st.write("❌ Invalid lane for row id:", row.get("id"), "lane=", lane)
+                st.write("❌ Skipped due to invalid lane:", row.get("id"), "lane=", lane)
                 continue
 
             # -------------------------
@@ -951,7 +953,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
             )
 
             if feat_row is None:
-                st.write("❌ build_single_feature_row returned None for id:", row.get("id"))
+                st.write("❌ Skipped due to None feature row:", row.get("id"))
                 continue
 
             # -------------------------
@@ -959,7 +961,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
             # -------------------------
             vs = [v1, v2, v3]
             if winner not in vs:
-                st.write("❌ Winner mismatch for id:", row.get("id"), "winner=", winner, "vs=", vs)
+                st.write("❌ Skipped due to winner mismatch:", row.get("id"), "winner=", winner, "vs=", vs)
                 continue
 
             feat_row["winner_idx"] = vs.index(winner)
