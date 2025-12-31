@@ -1498,9 +1498,8 @@ def adaptive_sim_clamp(calibrated_probs, history_df, sim_entropy, sim_margin):
     probs /= probs.sum()
     return probs
 
-
 # ---------------------------------------------------------
-# 7. CORE SIMULATION ENGINE (CLEAN VERSION)
+# 7. CORE SIMULATION ENGINE (MULTI-REGIME VERSION)
 # ---------------------------------------------------------
 def run_simulation(
     v1, v2, v3,
@@ -1511,14 +1510,14 @@ def run_simulation(
     alpha_prior=1.0,
     beta_prior=1.0,
     smoothing=0.5,
-    base_len_mean=33.3,
-    base_len_std=15.0,
+    base_len_mean=33.3,   # kept for compatibility
+    base_len_std=15.0,    # kept for compatibility
     calib_min_hist=50
 ):
     vehicles = [v1, v2, v3]
 
     # -----------------------------------------------------
-    # 1. BAYESIAN REINFORCEMENT (VPI)
+    # 1. BAYESIAN REINFORCEMENT (VPI)  — slightly softened
     # -----------------------------------------------------
     vpi_raw = {v: 1.0 for v in vehicles}
 
@@ -1545,10 +1544,11 @@ def run_simulation(
             for v in vehicles:
                 vpi_raw[v] = posterior_means[v] / mean_post
 
-    vpi = {v: float(np.clip(vpi_raw[v], 0.7, 1.3)) for v in vehicles}
+    # soften VPI band so it nudges, not dominates
+    vpi = {v: float(np.clip(vpi_raw[v], 0.8, 1.2)) for v in vehicles}
 
     # -----------------------------------------------------
-    # 2. MARKOV TRANSITIONS → lap_probs
+    # 2. MARKOV TRANSITIONS → lap_probs (with uniform floor)
     # -----------------------------------------------------
     lap_probs = {0: None, 1: None, 2: None}
 
@@ -1558,7 +1558,7 @@ def run_simulation(
             matches = history_df[history_df[known_col] == k_type].tail(200)
             global_transitions = {}
 
-            # GLOBAL TRANSITIONS
+            # GLOBAL TRANSITIONS (all history)
             for j in range(3):
                 if j == k_idx:
                     continue
@@ -1575,7 +1575,7 @@ def run_simulation(
                             arr = arr + smoothing
                             global_transitions[j] = arr / arr.sum()
 
-            # MATCH-SPECIFIC TRANSITIONS
+            # MATCH-SPECIFIC TRANSITIONS (recent with same known terrain)
             for j in range(3):
                 if j == k_idx:
                     continue
@@ -1591,10 +1591,16 @@ def run_simulation(
                 if lap_probs[j] is None and j in global_transitions:
                     lap_probs[j] = global_transitions[j].values
 
-    # FINAL FALLBACK: uniform distribution
+    # FINAL FALLBACK + UNIFORM MIX
+    uniform_vec = np.ones(len(TRACK_OPTIONS)) / len(TRACK_OPTIONS)
     for j in range(3):
         if lap_probs[j] is None:
-            lap_probs[j] = np.ones(len(TRACK_OPTIONS)) / len(TRACK_OPTIONS)
+            lap_probs[j] = uniform_vec.copy()
+        else:
+            # mix with uniform so patterns never fully lock
+            p_emp = lap_probs[j]
+            lap_probs[j] = 0.85 * p_emp + 0.15 * uniform_vec
+            lap_probs[j] /= lap_probs[j].sum()
 
     # -----------------------------------------------------
     # 3. SAMPLE TERRAIN PER LAP
@@ -1613,28 +1619,88 @@ def run_simulation(
     terrain_matrix = np.column_stack(sim_terrains)
 
     # -----------------------------------------------------
-    # 4. GEOMETRY (FULL SIM — VARIANCE-AWARE LENGTH SAMPLING)
+    # 4. GEOMETRY — MULTI-REGIME LENGTH SAMPLING
+    #
+    # Regime 0: near-uniform splits (Dirichlet)
+    # Regime 1: terrain-biased (TRACK_LENGTH_PRIORS, wide)
+    # Regime 2: one-long-lap extreme
+    # Regime 3: one-short-lap extreme
     # -----------------------------------------------------
     rng = np.random.default_rng()
-    len_matrix_raw = np.zeros_like(terrain_matrix, dtype=float)
+    len_matrix = np.zeros((iterations, 3), dtype=float)
 
-    for t in TRACK_OPTIONS:
-        mask = (terrain_matrix == t)
-        if mask.any():
-            sampled_lengths = rng.normal(
-                TRACK_LENGTH_PRIORS[t]["mean"],
-                TRACK_LENGTH_PRIORS[t]["std"],
-                size=mask.sum()
-            )
-            sampled_lengths = np.clip(sampled_lengths, 10, 80)
-            len_matrix_raw[mask] = sampled_lengths
+    regime_probs = np.array([0.35, 0.35, 0.15, 0.15])
+    regime_probs /= regime_probs.sum()
+    regimes = rng.choice(4, size=iterations, p=regime_probs)
 
-    len_sums = len_matrix_raw.sum(axis=1, keepdims=True)
-    len_sums[len_sums == 0] = 1.0
-    len_matrix = len_matrix_raw / len_sums
+    # Regime 0: near-uniform via Dirichlet
+    mask0 = (regimes == 0)
+    n0 = mask0.sum()
+    if n0 > 0:
+        raw0 = rng.dirichlet(alpha=[1.0, 1.0, 1.0], size=n0)
+        len_matrix[mask0, :] = raw0
+
+    # Regime 1: terrain-biased using TRACK_LENGTH_PRIORS
+    mask1 = (regimes == 1)
+    n1 = mask1.sum()
+    if n1 > 0:
+        idxs1 = np.where(mask1)[0]
+        for idx in idxs1:
+            row_terrains = terrain_matrix[idx, :]
+            raw_lengths = np.zeros(3, dtype=float)
+            for j, t in enumerate(row_terrains):
+                t = str(t)
+                if t in TRACK_LENGTH_PRIORS:
+                    mu = TRACK_LENGTH_PRIORS[t]["mean"]
+                    sd = TRACK_LENGTH_PRIORS[t]["std"]
+                else:
+                    mu = base_len_mean
+                    sd = base_len_std
+                val = rng.normal(mu, sd)
+                val = float(np.clip(val, 10.0, 80.0))
+                raw_lengths[j] = val
+            s = raw_lengths.sum()
+            if s <= 0:
+                raw_lengths[:] = 1.0
+                s = 3.0
+            len_matrix[idx, :] = raw_lengths / s
+
+    # Regime 2: one-long-lap extreme
+    mask2 = (regimes == 2)
+    n2 = mask2.sum()
+    if n2 > 0:
+        idxs2 = np.where(mask2)[0]
+        for idx in idxs2:
+            long_idx = rng.integers(0, 3)
+            raw_lengths = np.zeros(3, dtype=float)
+            for j in range(3):
+                if j == long_idx:
+                    val = rng.uniform(50.0, 80.0)
+                else:
+                    val = rng.uniform(10.0, 30.0)
+                raw_lengths[j] = val
+            s = raw_lengths.sum()
+            len_matrix[idx, :] = raw_lengths / s
+
+    # Regime 3: one-short-lap extreme
+    mask3 = (regimes == 3)
+    n3 = mask3.sum()
+    if n3 > 0:
+        idxs3 = np.where(mask3)[0]
+        for idx in idxs3:
+            short_idx = rng.integers(0, 3)
+            raw_lengths = np.zeros(3, dtype=float)
+            for j in range(3):
+                if j == short_idx:
+                    val = rng.uniform(10.0, 20.0)
+                else:
+                    val = rng.uniform(30.0, 60.0)
+                raw_lengths[j] = val
+            s = raw_lengths.sum()
+            len_matrix[idx, :] = raw_lengths / s
 
     # -----------------------------------------------------
-    # 5. PHYSICS BIAS + TIME SAMPLING
+    # 5. PHYSICS BIAS + TIME SAMPLING (more noise, softened VPI)
     # -----------------------------------------------------
     bias_table = get_physics_bias(history_df)
 
@@ -1654,13 +1720,17 @@ def run_simulation(
             base_speed[mask] = spd
         base_speed = np.clip(base_speed, 0.1, None)
 
-        veh_factor = np.random.normal(1.0, 0.03, size=(iterations, 1))
-        lap_factor = np.random.normal(1.0, 0.02, size=(iterations, 3))
+        # increase noise to allow genuine winner flips
+        veh_factor = np.random.normal(1.0, 0.06, size=(iterations, 1))
+        lap_factor = np.random.normal(1.0, 0.06, size=(iterations, 3))
 
         effective_speed = base_speed * veh_factor * lap_factor
         effective_speed = np.clip(effective_speed, 0.1, None)
 
-        return np.sum(len_matrix / (effective_speed * vpi_local[vehicle]), axis=1)
+        vpi_power = 0.7
+        vpi_eff = vpi_local[vehicle] ** vpi_power
+
+        return np.sum(len_matrix / (effective_speed * vpi_eff), axis=1)
 
     results = {v: sample_vehicle_times(v, vpi) for v in vehicles}
 
@@ -1680,17 +1750,17 @@ def run_simulation(
     # -----------------------------------------------------
     def estimate_temperature_from_history(df):
         if df is None or df.empty or 'sim_top_prob' not in df.columns or 'sim_was_correct' not in df.columns:
-            return 1.2
+            return 1.4  # slightly higher default temp
 
         recent = df.dropna(subset=['sim_top_prob', 'sim_was_correct']).tail(200)
         if len(recent) < calib_min_hist:
-            return 1.2
+            return 1.4
 
         avg_conf = float(recent['sim_top_prob'].mean())
         avg_acc  = float(recent['sim_was_correct'].mean())
 
         if not (0.0 < avg_conf < 1.0) or not (0.0 <= avg_acc <= 1.0):
-            return 1.2
+            return 1.4
 
         calib_error = abs(avg_conf - avg_acc)
         base_temp   = 1.0 + 2.0 * calib_error
@@ -1711,7 +1781,14 @@ def run_simulation(
     n_hist = len(history_df) if history_df is not None else 0
 
     if n_hist < 700:
-        final_probs = calibrated_probs
+        final_probs = calibrated_probs.copy()
+        # structural guard to avoid insane 0.99 early
+        max_p = final_probs.max()
+        if max_p > 0.9:
+            mix = 0.8
+            uniform = np.ones_like(final_probs) / len(final_probs)
+            final_probs = mix * final_probs + (1.0 - mix) * uniform
+            final_probs /= final_probs.sum()
     else:
         sim_top = float(np.max(calibrated_probs))
         sim_second = float(np.partition(calibrated_probs, -2)[-2])
@@ -1727,6 +1804,7 @@ def run_simulation(
 
     sim_prob_dict = {vehicles[i]: float(final_probs[i]) for i in range(3)}
     return sim_prob_dict, vpi
+
 # ---------------------------------------------------------
 # FULL PREDICTION ENGINE (NO UI) — WITH:
 # - SOFT ML CONFIDENCE CAP
