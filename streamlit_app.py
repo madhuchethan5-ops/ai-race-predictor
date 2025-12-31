@@ -1011,7 +1011,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
                 if col not in feat_row or pd.isna(feat_row[col]):
                     feat_row[col] = val
 
-            rows.append(feat_row)
+            rows.append(feat_row.iloc[0].to_dict())
 
         except Exception as e:
             import traceback
@@ -1031,26 +1031,128 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
 
 def build_training_data(history_df: pd.DataFrame):
     """
-    Build ML training data in the same 1-known-lap regime as live prediction.
-    Uses build_single_feature_row to guarantee feature alignment.
+    Build ML training data.
+
+    1) First, try the full pre-race, 1-known-lap regime via build_pre_race_training_rows.
+    2) If that yields 0 rows (for any reason), FALL BACK to a simpler,
+       leak-safe, history-based training set so ML never trains on 0 samples.
     """
     if history_df is None or history_df.empty:
         return None, None, None, None
 
+    # ---------------------------------------------------------
+    # PRIMARY PATH: your existing pre-race regime
+    # ---------------------------------------------------------
     df = build_pre_race_training_rows(history_df)
-    st.write("✅ pre_race rows:", len(df))
-    if df is None or df.empty:
+    if df is not None and not df.empty:
+        st.write("✅ pre_race rows (primary):", len(df))
+
+        y = df["winner_idx"].astype(int)
+
+        feature_cols = [
+            "vehicle_1", "vehicle_2", "vehicle_3",
+            "lap_1_track", "lap_2_track", "lap_3_track",
+            "lap_1_len", "lap_2_len", "lap_3_len",
+            "lane",
+            "high_speed_share", "rough_share",
+            "v1_win_rate", "v2_win_rate", "v3_win_rate",
+            "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
+            "geom_lap1_std", "geom_lap2_std", "geom_lap3_std",
+            "geom_range", "geom_split_flag",
+            "sim_top_prob", "sim_second_prob", "sim_margin",
+            "sim_entropy", "sim_volatility",
+            "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
+        ]
+
+        cat_features = [
+            "vehicle_1", "vehicle_2", "vehicle_3",
+            "lap_1_track", "lap_2_track", "lap_3_track",
+            "lane",
+        ]
+
+        num_features = [
+            "lap_1_len", "lap_2_len", "lap_3_len",
+            "high_speed_share", "rough_share",
+            "v1_win_rate", "v2_win_rate", "v3_win_rate",
+            "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
+            "geom_lap1_std", "geom_lap2_std", "geom_lap3_std",
+            "geom_range", "geom_split_flag",
+            "sim_top_prob", "sim_second_prob", "sim_margin",
+            "sim_entropy", "sim_volatility",
+            "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
+        ]
+
+        # Keep only columns that actually exist (in case some are missing)
+        feature_cols = [c for c in feature_cols if c in df.columns]
+        cat_features = [c for c in cat_features if c in df.columns]
+        num_features = [c for c in num_features if c in df.columns]
+
+        if not feature_cols:
+            return None, None, None, None
+
+        X = df[feature_cols].copy()
+        sample_weights = np.ones(len(df), dtype=float)
+        st.write("✅ final ML samples (primary):", len(X))
+        return X, y, (cat_features, num_features), sample_weights
+
+    # ---------------------------------------------------------
+    # FALLBACK PATH: direct-from-history, leak-safe
+    # ---------------------------------------------------------
+    st.write("⚠️ pre_race builder produced 0 rows — using fallback history-based training")
+
+    df = history_df.copy()
+
+    required_cols = ["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"]
+    if not all(col in df.columns for col in required_cols):
         return None, None, None, None
 
-    # Target
-    y = df["winner_idx"].astype(int)
+    # Add leak-safe per-vehicle win rates
+    df = add_leakage_safe_win_rates(df)
 
-    # Feature columns must match build_single_feature_row output
-    feature_cols = [
-        "vehicle_1", "vehicle_2", "vehicle_3",
-        "lap_1_track", "lap_2_track", "lap_3_track",
+    # Build target: winner_idx = index of actual_winner in [v1, v2, v3]
+    winner_idx_list = []
+    keep_mask = []
+
+    for _, row in df.iterrows():
+        v1 = row["vehicle_1"]
+        v2 = row["vehicle_2"]
+        v3 = row["vehicle_3"]
+        winner = row["actual_winner"]
+
+        vs = [v1, v2, v3]
+        if winner not in vs:
+            keep_mask.append(False)
+            winner_idx_list.append(None)
+        else:
+            keep_mask.append(True)
+            winner_idx_list.append(vs.index(winner))
+
+    df = df.loc[keep_mask].reset_index(drop=True)
+    if df.empty:
+        return None, None, None, None
+
+    df["winner_idx"] = winner_idx_list
+    df = df.dropna(subset=["winner_idx"])
+    df["winner_idx"] = df["winner_idx"].astype(int)
+
+    # Features: use what actually exists
+    feature_cols = []
+
+    cat_features = []
+    for col in ["vehicle_1", "vehicle_2", "vehicle_3"]:
+        if col in df.columns:
+            feature_cols.append(col)
+            cat_features.append(col)
+
+    optional_cat = ["lap_1_track", "lap_2_track", "lap_3_track", "lane"]
+    for col in optional_cat:
+        if col in df.columns:
+            feature_cols.append(col)
+            cat_features.append(col)
+
+    num_features = []
+    optional_num = [
         "lap_1_len", "lap_2_len", "lap_3_len",
-        "lane",
         "high_speed_share", "rough_share",
         "v1_win_rate", "v2_win_rate", "v3_win_rate",
         "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
@@ -1060,31 +1162,19 @@ def build_training_data(history_df: pd.DataFrame):
         "sim_entropy", "sim_volatility",
         "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
     ]
+    for col in optional_num:
+        if col in df.columns:
+            feature_cols.append(col)
+            num_features.append(col)
 
-    cat_features = [
-        "vehicle_1", "vehicle_2", "vehicle_3",
-        "lap_1_track", "lap_2_track", "lap_3_track",
-        "lane",
-    ]
-
-    num_features = [
-        "lap_1_len", "lap_2_len", "lap_3_len",
-        "high_speed_share", "rough_share",
-        "v1_win_rate", "v2_win_rate", "v3_win_rate",
-        "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
-        "geom_lap1_std", "geom_lap2_std", "geom_lap3_std",
-        "geom_range", "geom_split_flag",
-        "sim_top_prob", "sim_second_prob", "sim_margin",
-        "sim_entropy", "sim_volatility",
-        "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
-    ]
-
-    # For now, use uniform sample weights (can reintroduce surprise_weight later)
-    sample_weights = np.ones(len(df), dtype=float)
+    if not feature_cols:
+        return None, None, None, None
 
     X = df[feature_cols].copy()
-    st.write("✅ final ML samples:", len(X))
+    y = df["winner_idx"].astype(int)
+    sample_weights = np.ones(len(df), dtype=float)
 
+    st.write("✅ final ML samples (fallback):", len(X))
     return X, y, (cat_features, num_features), sample_weights
 
 def train_ml_model(history_df: pd.DataFrame):
