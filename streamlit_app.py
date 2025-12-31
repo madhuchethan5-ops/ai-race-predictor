@@ -871,13 +871,15 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     Transform full-history rows (3 laps known) into pre-race-style rows
     using the same logic as build_single_feature_row.
     """
+
     st.write("🔍 Starting build_pre_race_training_rows with", len(history_df), "rows")
 
     if history_df is None or history_df.empty:
+        st.write("❌ history_df is empty")
         return pd.DataFrame()
 
     # ---------------------------------------------------------
-    # GLOBAL PRIORS (computed once per session)
+    # GLOBAL PRIORS
     # ---------------------------------------------------------
     if "global_wr_cache" not in st.session_state:
         st.session_state.global_wr_cache = compute_global_vehicle_win_rates(history_df)
@@ -890,118 +892,130 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
 
     rows = []
 
+    # ---------------------------------------------------------
+    # MAIN LOOP
+    # ---------------------------------------------------------
     for _, row in history_df.iterrows():
         try:
-            # everything inside the loop goes here
-        except Exception as e:
-            st.write("❌ Row failed:", row.get("id", None), repr(e))
-            continue
+            # -------------------------
+            # Basic sanity
+            # -------------------------
+            if any(col not in row for col in ["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"]):
+                st.write("❌ Missing vehicle/winner columns for row id:", row.get("id"))
+                continue
 
-        # Basic sanity
-        if any(col not in row for col in ["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"]):
-            continue
+            v1 = row["vehicle_1"]
+            v2 = row["vehicle_2"]
+            v3 = row["vehicle_3"]
+            winner = row["actual_winner"]
 
-        v1 = row["vehicle_1"]
-        v2 = row["vehicle_2"]
-        v3 = row["vehicle_3"]
-        winner = row["actual_winner"]
+            # -------------------------
+            # Determine revealed lap
+            # -------------------------
+            lane = row.get("lane", None)
 
-        # ---------------------------------------------------------
-        # Determine which lap was revealed
-        # ---------------------------------------------------------
-        lane = row.get("lane", None)
-        if lane == "Lap 1":
-            k_idx = 0
-            k_type = row.get("lap_1_track", "Unknown")
-        elif lane == "Lap 2":
-            k_idx = 1
-            k_type = row.get("lap_2_track", "Unknown")
-        elif lane == "Lap 3":
-            k_idx = 2
-            k_type = row.get("lap_3_track", "Unknown")
-        else:
-            continue  # skip if lane missing
+            if lane == "Lap 1":
+                k_idx = 0
+                k_type = row.get("lap_1_track", "Unknown")
+            elif lane == "Lap 2":
+                k_idx = 1
+                k_type = row.get("lap_2_track", "Unknown")
+            elif lane == "Lap 3":
+                k_idx = 2
+                k_type = row.get("lap_3_track", "Unknown")
+            else:
+                st.write("❌ Invalid lane for row id:", row.get("id"), "lane=", lane)
+                continue
 
-        # ---------------------------------------------------------
-        # SIM meta (historical)
-        # ---------------------------------------------------------
-        sim_meta_live = None
-        if all(col in row for col in ["Win_Prob_1", "Win_Prob_2", "Win_Prob_3"]):
-            sim_probs_hist = {
-                v1: row["Win_Prob_1"],
-                v2: row["Win_Prob_2"],
-                v3: row["Win_Prob_3"],
+            # -------------------------
+            # SIM meta (historical)
+            # -------------------------
+            sim_meta_live = None
+            if all(col in row for col in ["Win_Prob_1", "Win_Prob_2", "Win_Prob_3"]):
+                sim_probs_hist = {
+                    v1: row["Win_Prob_1"],
+                    v2: row["Win_Prob_2"],
+                    v3: row["Win_Prob_3"],
+                }
+                sim_meta_live = sim_meta_from_probs(sim_probs_hist)
+
+            # -------------------------
+            # Build feature row
+            # -------------------------
+            feat_row = build_single_feature_row(
+                v1, v2, v3,
+                k_idx, k_type,
+                history_df,
+                user_vehicle_priors=None,
+                sim_meta_live=sim_meta_live,
+            )
+
+            if feat_row is None:
+                st.write("❌ build_single_feature_row returned None for id:", row.get("id"))
+                continue
+
+            # -------------------------
+            # Winner index
+            # -------------------------
+            vs = [v1, v2, v3]
+            if winner not in vs:
+                st.write("❌ Winner mismatch for id:", row.get("id"), "winner=", winner, "vs=", vs)
+                continue
+
+            feat_row["winner_idx"] = vs.index(winner)
+
+            # -------------------------
+            # SAFE MISSING VALUE HANDLING
+            # -------------------------
+            feat_row["v1_win_rate"] = feat_row.get("v1_win_rate", global_wr.get(v1, 0.33))
+            feat_row["v2_win_rate"] = feat_row.get("v2_win_rate", global_wr.get(v2, 0.33))
+            feat_row["v3_win_rate"] = feat_row.get("v3_win_rate", global_wr.get(v3, 0.33))
+
+            for col in ["trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3"]:
+                if col not in feat_row or pd.isna(feat_row[col]):
+                    feat_row[col] = global_trans_entropy
+
+            sim_defaults = {
+                "sim_top_prob": 33.33,
+                "sim_second_prob": 33.33,
+                "sim_margin": 0,
+                "sim_entropy": 1.10,
+                "sim_volatility": 0,
             }
-            sim_meta_live = sim_meta_from_probs(sim_probs_hist)
+            for col, val in sim_defaults.items():
+                if col not in feat_row or pd.isna(feat_row[col]):
+                    feat_row[col] = val
 
-        # ---------------------------------------------------------
-        # Build feature row (same as live)
-        # ---------------------------------------------------------
-        feat_row = build_single_feature_row(
-            v1, v2, v3,
-            k_idx, k_type,
-            history_df,
-            user_vehicle_priors=None,
-            sim_meta_live=sim_meta_live,
-        )
+            geom_defaults = {
+                "geom_lap1_mean": 0,
+                "geom_lap2_mean": 0,
+                "geom_lap3_mean": 0,
+                "geom_lap1_std": 0,
+                "geom_lap2_std": 0,
+                "geom_lap3_std": 0,
+                "geom_range": 0,
+                "geom_split_flag": 0,
+            }
+            for col, val in geom_defaults.items():
+                if col not in feat_row or pd.isna(feat_row[col]):
+                    feat_row[col] = val
 
-        # ---------------------------------------------------------
-        # Target label
-        # ---------------------------------------------------------
-        vs = [v1, v2, v3]
-        if winner not in vs:
+            rows.append(feat_row)
+
+        except Exception as e:
+            st.write("❌ Row failed:", row.get("id"), repr(e))
             continue
-        feat_row["winner_idx"] = vs.index(winner)
 
-        # ---------------------------------------------------------
-        # SAFE MISSING VALUE HANDLING (Option A - Corrected)
-        # ---------------------------------------------------------
-
-        # 1. Win-rate priors (REAL)
-        feat_row["v1_win_rate"] = feat_row["v1_win_rate"] if pd.notna(feat_row["v1_win_rate"]) else global_wr.get(v1, 0.33)
-        feat_row["v2_win_rate"] = feat_row["v2_win_rate"] if pd.notna(feat_row["v2_win_rate"]) else global_wr.get(v2, 0.33)
-        feat_row["v3_win_rate"] = feat_row["v3_win_rate"] if pd.notna(feat_row["v3_win_rate"]) else global_wr.get(v3, 0.33)
-
-        # 2. Transition entropy (REAL)
-        for col in ["trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3"]:
-            if pd.isna(feat_row[col]):
-                feat_row[col] = global_trans_entropy
-
-        # 3. SIM meta (NEUTRAL)
-        sim_defaults = {
-            "sim_top_prob": 33.33,
-            "sim_second_prob": 33.33,
-            "sim_margin": 0,
-            "sim_entropy": 1.10,
-            "sim_volatility": 0,
-        }
-        for col, val in sim_defaults.items():
-            if pd.isna(feat_row[col]):
-                feat_row[col] = val
-
-        # 4. Geometry (NEUTRAL)
-        geom_defaults = {
-            "geom_lap1_mean": 0,
-            "geom_lap2_mean": 0,
-            "geom_lap3_mean": 0,
-            "geom_lap1_std": 0,
-            "geom_lap2_std": 0,
-            "geom_lap3_std": 0,
-            "geom_range": 0,
-            "geom_split_flag": 0,
-        }
-        for col, val in geom_defaults.items():
-            if pd.isna(feat_row[col]):
-                feat_row[col] = val
-
-        rows.append(feat_row)
+    # ---------------------------------------------------------
+    # END OF LOOP
+    # ---------------------------------------------------------
     st.write("✅ Finished build_pre_race_training_rows — built", len(rows), "rows")
 
     if not rows:
         return pd.DataFrame()
 
     return pd.concat(rows, ignore_index=True)
-            
+
 def build_training_data(history_df: pd.DataFrame):
     """
     Build ML training data in the same 1-known-lap regime as live prediction.
