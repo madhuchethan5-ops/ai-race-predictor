@@ -1005,7 +1005,9 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
             rows.append(feat_row)
 
         except Exception as e:
-            st.write("❌ Row failed:", repr(e))
+            import traceback
+            st.write("❌ Row failed with exception:")
+            st.write(traceback.format_exc())
             continue
 
     # ---------------------------------------------------------
