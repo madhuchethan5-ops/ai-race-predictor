@@ -3328,8 +3328,13 @@ with Q4:
         if st.button("🔁 Retrain ML model now"):
             with st.spinner("Retraining ML model on full valid history..."):
                 try:
+                    st.write("DEBUG: valid_history rows:", len(valid_history))
+                    st.write("DEBUG: valid_history columns:", list(valid_history.columns))
                     model, n_samples = train_ml_model(valid_history)
-                except Exception:
+                except Exception as e:
+                    import traceback
+                    st.error("TRAINING FAILED WITH EXCEPTION:")
+                    st.code(traceback.format_exc())
                     model, n_samples = None, 0
 
                 st.session_state.ml_model = model
