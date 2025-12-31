@@ -882,7 +882,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     # GLOBAL PRIORS
     # ---------------------------------------------------------
     if "global_wr_cache" not in st.session_state:
-        st.session_state.global_wr_cache = compute_global_vehicle_win_rates(history_df)
+        st.session_state.global_wr_cache = compute_live_vehicle_win_rates(history_df)
 
     if "global_trans_entropy_cache" not in st.session_state:
         st.session_state.global_trans_entropy_cache = compute_global_transition_entropy(history_df)
