@@ -120,7 +120,25 @@ def load_history():
 
 history = load_history()
 # Ignore imported CSV rows (they have no track data)
-valid_history = history.dropna(subset=["lap_1_track", "lap_2_track", "lap_3_track"])
+# VALID HISTORY FILTER
+valid_history = history.dropna(subset=["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"])
+
+# ---------------------------------------------------------
+# INITIALIZE ML MODEL (ONCE PER SESSION)
+# ---------------------------------------------------------
+if "ml_model" not in st.session_state:
+    try:
+        model, n_samples = train_ml_model(valid_history)
+    except Exception:
+        model, n_samples = None, 0
+
+    st.session_state.ml_model = model
+    st.session_state.ml_n_samples = n_samples
+
+if len(valid_history) > 0:
+    last_race = valid_history.iloc[-1]
+else:
+    last_race = None
 
 # ---------------------------------------------------------
 # PAGE CONFIG
@@ -1073,24 +1091,6 @@ def get_trained_model():
     model = st.session_state.get("ml_model")
     n_samples = st.session_state.get("ml_n_samples", 0)
     return model, n_samples
-
-# ---------------------------------------------------------
-# INITIALIZE ML MODEL (ONCE PER SESSION)
-# ---------------------------------------------------------
-if "ml_model" not in st.session_state:
-    try:
-        model, n_samples = train_ml_model(valid_history)
-    except Exception:
-        model, n_samples = None, 0
-
-    st.session_state.ml_model = model
-    st.session_state.ml_n_samples = n_samples
-
-if len(valid_history) > 0:
-    last_race = valid_history.iloc[-1]
-else:
-    last_race = None
-
 # ---------------------------------------------------------
 # BLEND WEIGHT HELPER (for debug panel + consistency)
 # ---------------------------------------------------------
