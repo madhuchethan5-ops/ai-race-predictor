@@ -2206,14 +2206,14 @@ def run_full_prediction(
     # ---------------------------------------------------------
     # BASE BLEND (ML DOMINANT, THEN ADJUSTED BY SKILL)
     # ---------------------------------------------------------
-    blend_weight = 0.65  # baseline: 65% ML, 35% SIM
+    blend_weight = 0.55   # 55% ML, 45% SIM baseline
     improvement_clipped = 0.0
-
+    
     if ml_probs is not None and model_skill is not None:
         sim_brier = model_skill.get("sim_brier", np.nan)
         ml_brier = model_skill.get("ml_brier", np.nan)
         n_skill = model_skill.get("n", 0)
-
+    
         if (
             n_skill >= 25
             and np.isfinite(sim_brier)
@@ -2221,11 +2221,13 @@ def run_full_prediction(
             and sim_brier > 0
         ):
             improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-            improvement_clipped = float(np.clip(improvement, -0.20, 0.20))
-            blend_weight = 0.60 + 0.15 * improvement_clipped
-
-    blend_weight = float(np.clip(blend_weight, 0.40, 0.75))
-
+            # ML can be at most 15% better/worse in relative Brier
+            improvement_clipped = float(np.clip(improvement, -0.15, 0.15))
+            # Shift around 0.55 with a smaller swing
+            blend_weight = 0.55 + 0.10 * improvement_clipped
+    
+    # Final clamp: ML share in [0.40, 0.65]
+    blend_weight = float(np.clip(blend_weight, 0.40, 0.65))
     # ---------------------------------------------------------
     # INITIAL BLENDED PROBS (PERCENT SPACE)
     # ---------------------------------------------------------
@@ -2315,6 +2317,51 @@ def run_full_prediction(
             v_mid: new_p_mid * scale,
             v_low: new_p_low * scale,
         }
+    
+    # ---------------------------------------------------------
+    # TERRAIN-VOLATILITY CONFIDENCE PENALTY (percent space)
+    # ---------------------------------------------------------
+    terrain_volatility = {
+        "Expressway": {1: 15.53, 2: 18.43, 3: 13.93},
+        "Bumpy":      {1: 14.43, 2: 14.51, 3: 17.18},
+        "Dirt":       {1: 15.18, 2: 13.39, 3: 14.46},
+        "Highway":    {1: 11.20, 2: 16.53, 3: 14.46},
+        "Potholes":   {1: 15.02, 2: 14.78, 3: 14.01},
+        "Desert":     {1: 13.07, 2: 12.59, 3: 13.11},
+    }
+
+    revealed_lap = k_idx + 1
+    vol = terrain_volatility.get(k_type, {}).get(revealed_lap, 14.0)
+
+    max_stddev = 18.5
+    penalty_strength = vol / max_stddev        # 0.60 → 1.00
+    penalty = 1.0 - 0.25 * penalty_strength    # up to -25% confidence
+
+    top_vehicle = max(final_probs, key=final_probs.get)
+    penalized_top = final_probs[top_vehicle] * penalty
+
+    others = {v: p for v, p in final_probs.items() if v != top_vehicle}
+    total = penalized_top + sum(others.values())
+
+    if total > 0:
+        final_probs = {
+            top_vehicle: (penalized_top / total) * 100.0,
+            **{v: (p / total) * 100.0 for v, p in others.items()}
+        }
+
+    # ---------------------------------------------------------
+    # GLOBAL FINAL PROBABILITY CAP (percent space)
+    # ---------------------------------------------------------
+    max_cap = 75.0
+
+    mx = max(final_probs.values())
+    if mx > max_cap:
+        scale = max_cap / mx
+        capped = {v: p * scale for v, p in final_probs.items()}
+        total = sum(capped.values())
+        if total > 0:
+            capped = {v: (p / total) * 100.0 for v, p in capped.items()}
+        final_probs = capped
 
     # ---------------------------------------------------------
     # Q2 EXTRA DIAGNOSTICS (VOLATILITY, SAFETY, TV MATRIX, HIDDEN LAPS, REGRET)
