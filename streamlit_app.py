@@ -2915,28 +2915,31 @@ with Q2:
             # Display current balance
             st.markdown(f"**Current Balance:** {st.session_state['diamond_balance']} 💎")
         
-            # Input field bound to session state
-            st.number_input(
+            # IMPORTANT: use a DIFFERENT key for the widget
+            adjust = st.number_input(
                 "Adjust balance",
+                value=st.session_state["adjust_value"],
                 step=100,
-                key="adjust_value"
+                key="adjust_widget"   # <--- widget key, NOT adjust_value
             )
         
-            # Add/Subtract buttons
             col_add, col_sub = st.columns(2)
+        
             with col_add:
                 if st.button("Add", key="btn_balance_add"):
-                    st.session_state["diamond_balance"] += st.session_state["adjust_value"]
+                    st.session_state["diamond_balance"] += adjust
                     st.session_state["adjust_value"] = 0
+                    st.session_state["adjust_widget"] = 0   # reset widget
                     st.experimental_rerun()
         
             with col_sub:
                 if st.button("Subtract", key="btn_balance_sub"):
                     st.session_state["diamond_balance"] = max(
                         0,
-                        st.session_state["diamond_balance"] - st.session_state["adjust_value"]
+                        st.session_state["diamond_balance"] - adjust
                     )
                     st.session_state["adjust_value"] = 0
+                    st.session_state["adjust_widget"] = 0   # reset widget
                     st.experimental_rerun()
         
             st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
