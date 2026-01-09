@@ -2977,10 +2977,9 @@ with Q2:
             elif bet_safety == "FAVORABLE":
                 st.success("**FAVORABLE** — Strong, stable edge detected.")
                 st.caption("Low volatility and strong probability separation.")
-        
-        
+            
         # -----------------------------------------------------
-        # MID‑RIGHT: 💎 Diamond Balance + ⚙️ Update Odds
+        # 💎 Diamond Balance — Direct Edit Mode
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 💎 Diamond Balance")
@@ -2988,28 +2987,19 @@ with Q2:
             if "diamond_balance" not in st.session_state:
                 st.session_state["diamond_balance"] = 10000
         
-            st.markdown(f"**Current Balance:** {st.session_state['diamond_balance']} 💎")
-        
-            adjust = st.number_input(
-                "Adjust balance",
-                value=0,
+            new_balance = st.number_input(
+                "Current Balance",
+                value=st.session_state["diamond_balance"],
                 step=100,
-                key="adjust_input",
+                format="%d",
+                key="diamond_balance_input"
             )
         
-            col_add, col_sub = st.columns(2)
-            with col_add:
-                if st.button("Add", key="btn_balance_add"):
-                    st.session_state["diamond_balance"] += adjust
+            if st.button("Update Balance", key="btn_update_balance"):
+                st.session_state["diamond_balance"] = new_balance
+                st.success(f"Balance updated to {new_balance} 💎")
         
-            with col_sub:
-                if st.button("Subtract", key="btn_balance_sub"):
-                    st.session_state["diamond_balance"] = max(
-                        0,
-                        st.session_state["diamond_balance"] - adjust
-                    )
-        
-            st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
+            st.caption("Direct edit mode — no math, no buttons. Just set and update.")
         
         # -----------------------------------------------------
         # DIAGNOSTICS (manual + cached)
