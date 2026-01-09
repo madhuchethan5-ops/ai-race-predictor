@@ -2848,19 +2848,18 @@ with Q2:
         # -----------------------------------------------------
         with col_left:
             st.markdown("#### 🎯 Accuracy & Winner")
-
+        
             # Accuracy: cheap, guarded
             if not history.empty and "actual_winner" in history.columns:
                 valid = history.dropna(subset=["actual_winner", "predicted_winner"])
                 if not valid.empty:
-                    acc = (
-                        valid["predicted_winner"] == valid["actual_winner"]
-                    ).mean() * 100
+                    acc = (valid["predicted_winner"] == valid["actual_winner"]).mean() * 100
                     st.metric("AI Accuracy", f"{acc:.1f}%")
-
+        
             predicted_winner = max(probs, key=probs.get)
             st.metric("🏆 Predicted Winner", predicted_winner)
-
+        
+        
         # -----------------------------------------------------
         # TOP‑RIGHT: 📊 Win Probabilities + SIM/ML breakdown
         # -----------------------------------------------------
@@ -2882,30 +2881,9 @@ with Q2:
         
         
         # -----------------------------------------------------
-        # MID‑ROW: ⚡ Volatility & Safety + 🎯 Betting Guidance
+        # MID‑LEFT: 🎯 Betting Guidance
         # -----------------------------------------------------
-        col_vol, col_bet = st.columns([1, 2])
-        
-        with col_vol:
-            st.markdown("#### ⚡ Volatility & Safety")
-        
-            if vol_gap is not None:
-                st.write(f"Volatility Gap: **{vol_gap} pp**")
-            if vol_label is not None:
-                st.write(f"Market: **{vol_label}**")
-        
-            if bet_safety == "AVOID":
-                st.error("**AVOID** — Too volatile or low-confidence.")
-                st.caption("High volatility gap or weak probability separation.")
-                st.info("Soft cap active — bets limited to 1% exposure.")
-            elif bet_safety == "CAUTION":
-                st.warning("**CAUTION** — Edge exists but uncertainty is high.")
-                st.caption("Moderate volatility or inconsistent model agreement.")
-            elif bet_safety == "FAVORABLE":
-                st.success("**FAVORABLE** — Strong, stable edge detected.")
-                st.caption("Low volatility and strong probability separation.")
-        
-        with col_bet:
+        with col_left:
             st.markdown("#### 🎯 Betting Guidance")
         
             odds_map = st.session_state.get("odds_map", {})
@@ -2979,7 +2957,30 @@ with Q2:
         
         
         # -----------------------------------------------------
-        # MID‑RIGHT: 💎 Diamond Balance
+        # MID‑LEFT: ⚡ Volatility & Safety
+        # -----------------------------------------------------
+        with col_left:
+            st.markdown("#### ⚡ Volatility & Safety")
+        
+            if vol_gap is not None:
+                st.write(f"Volatility Gap: **{vol_gap} pp**")
+            if vol_label is not None:
+                st.write(f"Market: **{vol_label}**")
+        
+            if bet_safety == "AVOID":
+                st.error("**AVOID** — Too volatile or low-confidence.")
+                st.caption("High volatility gap or weak probability separation.")
+                st.info("Soft cap active — bets limited to 1% exposure.")
+            elif bet_safety == "CAUTION":
+                st.warning("**CAUTION** — Edge exists but uncertainty is high.")
+                st.caption("Moderate volatility or inconsistent model agreement.")
+            elif bet_safety == "FAVORABLE":
+                st.success("**FAVORABLE** — Strong, stable edge detected.")
+                st.caption("Low volatility and strong probability separation.")
+        
+        
+        # -----------------------------------------------------
+        # MID‑RIGHT: 💎 Diamond Balance + ⚙️ Update Odds
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 💎 Diamond Balance")
@@ -3010,11 +3011,6 @@ with Q2:
         
             st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
         
-        
-        # -----------------------------------------------------
-        # BOTTOM‑LEFT: ⚙️ Odds Editor (UI-based)
-        # -----------------------------------------------------
-        with col_left:
             st.markdown("#### ⚙️ Update Odds")
         
             if "odds_map" not in st.session_state:
@@ -3049,22 +3045,6 @@ with Q2:
             if st.button("Save Odds", key="btn_save_odds"):
                 st.session_state["odds_map"][selected_vehicle] = new_odds
                 st.success(f"Updated odds for {selected_vehicle} to {new_odds}x")
-        
-        
-        # -----------------------------------------------------
-        # BOTTOM‑RIGHT: 📦 Reserved for Q3+ features
-        # -----------------------------------------------------
-        with col_right:
-            st.markdown("#### 📦 Reserved for Q3+ features")
-            st.caption("Hidden laps, terrain matchup, and race metrics are active in the engine but not shown here.")
-        
-        
-        # -----------------------------------------------------
-        # BOTTOM‑RIGHT: (Reserved / future use)
-        # -----------------------------------------------------
-        with col_right:
-            st.markdown("#### 📦 Reserved for Q3+ features")
-            st.caption("Hidden laps, terrain matchup, and race metrics are active in the engine but not shown here.")
         
         # -----------------------------------------------------
         # DIAGNOSTICS (manual + cached)
