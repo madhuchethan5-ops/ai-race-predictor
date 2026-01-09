@@ -2906,28 +2906,40 @@ with Q2:
         with col_right:
             st.markdown("#### 💎 Diamond Balance")
         
-            # Initialize session state variables
+            # Initialize session state
             if "diamond_balance" not in st.session_state:
                 st.session_state["diamond_balance"] = 10000
             if "adjust_value" not in st.session_state:
                 st.session_state["adjust_value"] = 0
         
-            balance = st.session_state["diamond_balance"]
-            adjust = st.number_input("Adjust balance", value=st.session_state["adjust_value"], step=100)
+            # Display current balance
+            st.markdown(f"**Current Balance:** {st.session_state['diamond_balance']} 💎")
         
+            # Input field bound to session state
+            st.number_input(
+                "Adjust balance",
+                value=st.session_state["adjust_value"],
+                step=100,
+                key="adjust_value"
+            )
+        
+            # Add/Subtract buttons
             col_add, col_sub = st.columns(2)
             with col_add:
                 if st.button("Add", key="btn_balance_add"):
-                    st.session_state["diamond_balance"] = balance + adjust
-                    st.session_state["adjust_value"] = 0  # reset input
-                    st.rerun()  # optional: refresh UI to reflect reset
+                    st.session_state["diamond_balance"] += st.session_state["adjust_value"]
+                    st.session_state["adjust_value"] = 0
+                    st.rerun()
+        
             with col_sub:
                 if st.button("Subtract", key="btn_balance_sub"):
-                    st.session_state["diamond_balance"] = max(0, balance - adjust)
-                    st.session_state["adjust_value"] = 0  # reset input
-                    st.rerun()  # optional: refresh UI to reflect reset
+                    st.session_state["diamond_balance"] = max(
+                        0,
+                        st.session_state["diamond_balance"] - st.session_state["adjust_value"]
+                    )
+                    st.session_state["adjust_value"] = 0
+                    st.rerun()
         
-            st.markdown(f"**Current Balance:** {st.session_state['diamond_balance']} 💎")
             st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
             
         # -----------------------------------------------------
