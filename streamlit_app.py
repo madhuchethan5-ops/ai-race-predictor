@@ -2862,30 +2862,31 @@ with Q2:
             st.metric("🏆 Predicted Winner", predicted_winner)
 
         # -----------------------------------------------------
-        # TOP‑RIGHT: Win Probabilities + SIM/ML breakdown
+        # TOP‑RIGHT: 📊 Win Probabilities + SIM/ML breakdown
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 📊 Win Probabilities")
-
+        
             for v in vehicles:
                 p_final = probs[v]
                 line = f"**{v}**: {p_final:.1f}%"
-
+        
                 if p_sim and p_ml:
                     line += f" (SIM {p_sim[v]:.1f}%, ML {p_ml[v]:.1f}%)"
-
+        
                 st.markdown(f"- {line}")
                 confidence_bar(v, p_final)
-
+        
             if blend_w is not None and p_sim and p_ml:
-                st.caption(
-                    f"Blend weight → ML: {blend_w:.2f}, SIM: {1 - blend_w:.2f}"
-                )
-
+                st.caption(f"Blend weight → ML: {blend_w:.2f}, SIM: {1 - blend_w:.2f}")
+        
+        
         # -----------------------------------------------------
-        # MID‑LEFT: ⚡ Volatility & Safety
+        # MID‑ROW: ⚡ Volatility & Safety + 🎯 Betting Guidance
         # -----------------------------------------------------
-        with col_left:
+        col_vol, col_bet = st.columns([1, 2])
+        
+        with col_vol:
             st.markdown("#### ⚡ Volatility & Safety")
         
             if vol_gap is not None:
@@ -2893,7 +2894,6 @@ with Q2:
             if vol_label is not None:
                 st.write(f"Market: **{vol_label}**")
         
-            # Safety messaging
             if bet_safety == "AVOID":
                 st.error("**AVOID** — Too volatile or low-confidence.")
                 st.caption("High volatility gap or weak probability separation.")
@@ -2904,7 +2904,80 @@ with Q2:
             elif bet_safety == "FAVORABLE":
                 st.success("**FAVORABLE** — Strong, stable edge detected.")
                 st.caption("Low volatility and strong probability separation.")
- 
+        
+        with col_bet:
+            st.markdown("#### 🎯 Betting Guidance")
+        
+            odds_map = st.session_state.get("odds_map", {})
+            balance = st.session_state.get("diamond_balance", 10000)
+            V = res.get("volatility_score", 0.5)
+        
+            edges = []
+            for v in vehicles:
+                p = probs[v] / 100.0 if probs[v] > 1 else probs[v]
+                odds = odds_map.get(v, 3.0)
+                q = 1.0 / odds
+                edge = p - q
+                if edge > 0:
+                    edges.append((v, edge, p, odds))
+        
+            if not edges:
+                st.warning("No positive‑EV bets — sitting out is optimal here.")
+            else:
+                edges.sort(key=lambda x: x[1], reverse=True)
+                top = edges[0]
+                second = edges[1] if len(edges) > 1 else None
+        
+                delta = 0.03
+                bet_targets = [top]
+        
+                if (
+                    second is not None
+                    and second[1] > 0
+                    and abs(top[1] - second[1]) < delta
+                    and V > 0.5
+                ):
+                    bet_targets.append(second)
+        
+                total_bet = 0
+                bet_rows = []
+        
+                if bet_safety == "AVOID":
+                    max_kelly = 0.01
+                elif bet_safety == "CAUTION":
+                    max_kelly = 0.05
+                else:
+                    max_kelly = 0.10
+        
+                for v, edge, p, odds in bet_targets:
+                    C = p
+                    M = 0.25 + 0.75 * C * (1 - V)
+                    kelly = M * edge
+                    kelly = max(0.0, min(kelly, max_kelly))
+        
+                    bet_amt = int(kelly * balance)
+                    total_bet += bet_amt
+        
+                    bet_rows.append((v, bet_amt, edge, kelly, odds))
+        
+                if not bet_rows:
+                    st.warning("Edges too small after risk adjustment — no bet suggested.")
+                else:
+                    for v, amt, edge, kelly, odds in bet_rows:
+                        st.markdown(
+                            f"**{v}** — **{amt} 💎**  \n"
+                            f"Edge: {edge:.2%}, Kelly: {kelly:.3f}, Odds: {odds}x"
+                        )
+        
+                    st.markdown(
+                        f"**Total Bet:** {total_bet} 💎 "
+                        f"({total_bet / balance:.2%} of balance)"
+                    )
+        
+                    if total_bet / balance > 0.10:
+                        st.warning("High exposure this race (>10% of balance).")
+        
+        
         # -----------------------------------------------------
         # MID‑RIGHT: 💎 Diamond Balance
         # -----------------------------------------------------
@@ -2979,82 +3052,11 @@ with Q2:
         
         
         # -----------------------------------------------------
-        # BOTTOM‑LEFT: 🎯 Betting Guidance (Adaptive Kelly)
+        # BOTTOM‑RIGHT: 📦 Reserved for Q3+ features
         # -----------------------------------------------------
-        with col_left:
-            st.markdown("#### 🎯 Betting Guidance")
-        
-            odds_map = st.session_state.get("odds_map", {})
-            balance = st.session_state.get("diamond_balance", 10000)
-        
-            V = res.get("volatility_score", 0.5)
-        
-            # Compute edges
-            edges = []
-            for v in vehicles:
-                p = probs[v] / 100.0 if probs[v] > 1 else probs[v]
-                odds = odds_map.get(v, 3.0)
-                q = 1.0 / odds
-                edge = p - q
-                if edge > 0:
-                    edges.append((v, edge, p, odds))
-        
-            if not edges:
-                st.warning("No positive‑EV bets — sitting out is optimal here.")
-            else:
-                edges.sort(key=lambda x: x[1], reverse=True)
-                top = edges[0]
-                second = edges[1] if len(edges) > 1 else None
-        
-                delta = 0.03
-                bet_targets = [top]
-        
-                if (
-                    second is not None
-                    and second[1] > 0
-                    and abs(top[1] - second[1]) < delta
-                    and V > 0.5
-                ):
-                    bet_targets.append(second)
-        
-                total_bet = 0
-                bet_rows = []
-        
-                # Soft cap logic aligned with Volatility & Safety
-                if bet_safety == "AVOID":
-                    max_kelly = 0.01   # 1%
-                elif bet_safety == "CAUTION":
-                    max_kelly = 0.05   # 5%
-                else:
-                    max_kelly = 0.10   # 10%
-        
-                for v, edge, p, odds in bet_targets:
-                    C = p
-                    M = 0.25 + 0.75 * C * (1 - V)
-                    kelly = M * edge
-                    kelly = max(0.0, min(kelly, max_kelly))
-        
-                    bet_amt = int(kelly * balance)
-                    total_bet += bet_amt
-        
-                    bet_rows.append((v, bet_amt, edge, kelly, odds))
-        
-                if not bet_rows:
-                    st.warning("Edges too small after risk adjustment — no bet suggested.")
-                else:
-                    for v, amt, edge, kelly, odds in bet_rows:
-                        st.markdown(
-                            f"**{v}** — **{amt} 💎**  \n"
-                            f"Edge: {edge:.2%}, Kelly: {kelly:.3f}, Odds: {odds}x"
-                        )
-        
-                    st.markdown(
-                        f"**Total Bet:** {total_bet} 💎 "
-                        f"({total_bet / balance:.2%} of balance)"
-                    )
-        
-                    if total_bet / balance > 0.10:
-                        st.warning("High exposure this race (>10% of balance).")
+        with col_right:
+            st.markdown("#### 📦 Reserved for Q3+ features")
+            st.caption("Hidden laps, terrain matchup, and race metrics are active in the engine but not shown here.")
         
         
         # -----------------------------------------------------
