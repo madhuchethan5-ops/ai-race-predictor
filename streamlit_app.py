@@ -2905,24 +2905,31 @@ with Q2:
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 💎 Diamond Balance")
-
-            balance = st.session_state.get("diamond_balance", 10000)
-            st.markdown(f"**Current Balance:** {balance} 💎")
-
-            adjust = st.number_input("Adjust balance", value=0, step=100)
-
+        
+            # Initialize session state variables
+            if "diamond_balance" not in st.session_state:
+                st.session_state["diamond_balance"] = 10000
+            if "adjust_value" not in st.session_state:
+                st.session_state["adjust_value"] = 0
+        
+            balance = st.session_state["diamond_balance"]
+            adjust = st.number_input("Adjust balance", value=st.session_state["adjust_value"], step=100)
+        
             col_add, col_sub = st.columns(2)
             with col_add:
                 if st.button("Add", key="btn_balance_add"):
                     st.session_state["diamond_balance"] = balance + adjust
-                    balance = st.session_state["diamond_balance"]
+                    st.session_state["adjust_value"] = 0  # reset input
+                    st.rerun()  # optional: refresh UI to reflect reset
             with col_sub:
                 if st.button("Subtract", key="btn_balance_sub"):
                     st.session_state["diamond_balance"] = max(0, balance - adjust)
-                    balance = st.session_state["diamond_balance"]
-
+                    st.session_state["adjust_value"] = 0  # reset input
+                    st.rerun()  # optional: refresh UI to reflect reset
+        
+            st.markdown(f"**Current Balance:** {st.session_state['diamond_balance']} 💎")
             st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
-
+            
         # -----------------------------------------------------
         # BOTTOM‑LEFT: 🎯 Betting Guidance (Adaptive Kelly)
         # -----------------------------------------------------
