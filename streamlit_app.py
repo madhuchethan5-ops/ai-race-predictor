@@ -3011,41 +3011,6 @@ with Q2:
         
             st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
         
-            st.markdown("#### ⚙️ Update Odds")
-        
-            if "odds_map" not in st.session_state:
-                st.session_state["odds_map"] = {
-                    "ATV": 3.3,
-                    "Car": 2.6,
-                    "Monster Truck": 2.2,
-                    "Motorcycle": 3.5,
-                    "ORV": 2.7,
-                    "Sports Car": 4.0,
-                    "Stock Car": 2.5,
-                    "Supercar": 4.6,
-                    "SUV": 2.6,
-                }
-        
-            vehicles_list = list(st.session_state["odds_map"].keys())
-        
-            selected_vehicle = st.selectbox(
-                "Select vehicle",
-                vehicles_list,
-                key="odds_vehicle_select"
-            )
-        
-            new_odds = st.number_input(
-                "Set new odds",
-                value=st.session_state["odds_map"][selected_vehicle],
-                step=0.1,
-                format="%.2f",
-                key="odds_value_input",
-            )
-        
-            if st.button("Save Odds", key="btn_save_odds"):
-                st.session_state["odds_map"][selected_vehicle] = new_odds
-                st.success(f"Updated odds for {selected_vehicle} to {new_odds}x")
-        
         # -----------------------------------------------------
         # DIAGNOSTICS (manual + cached)
         # -----------------------------------------------------
@@ -3365,6 +3330,45 @@ with Q3:
         
             st.success("✅ Race saved to database! Model will update on next prediction.")
             st.rerun()
+
+        # -----------------------------------------------------
+        # BOTTOM‑RIGHT (Q3): ⚙️ Update Odds
+        # -----------------------------------------------------
+        with col_right:
+            st.markdown("#### ⚙️ Update Odds")
+        
+            if "odds_map" not in st.session_state:
+                st.session_state["odds_map"] = {
+                    "ATV": 3.3,
+                    "Car": 2.6,
+                    "Monster Truck": 2.2,
+                    "Motorcycle": 3.5,
+                    "ORV": 2.7,
+                    "Sports Car": 4.0,
+                    "Stock Car": 2.5,
+                    "Supercar": 4.6,
+                    "SUV": 2.6,
+                }
+        
+            vehicles_list = list(st.session_state["odds_map"].keys())
+        
+            selected_vehicle = st.selectbox(
+                "Select vehicle",
+                vehicles_list,
+                key="odds_vehicle_select_q3"
+            )
+        
+            new_odds = st.number_input(
+                "Set new odds",
+                value=st.session_state["odds_map"][selected_vehicle],
+                step=0.1,
+                format="%.2f",
+                key="odds_value_input_q3",
+            )
+        
+            if st.button("Save Odds", key="btn_save_odds_q3"):
+                st.session_state["odds_map"][selected_vehicle] = new_odds
+                st.success(f"Updated odds for {selected_vehicle} to {new_odds}x")
 
 # ---------------------------------------------------------
 # Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
