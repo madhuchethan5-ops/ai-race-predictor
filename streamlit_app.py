@@ -2899,7 +2899,7 @@ with Q2:
                 st.warning("**CAUTION** — Edge exists but uncertainty is high.")
             elif bet_safety == "FAVORABLE":
                 st.success("**FAVORABLE** — Strong, stable edge detected.")
-
+        
         # -----------------------------------------------------
         # MID‑RIGHT: 💎 Diamond Balance
         # -----------------------------------------------------
@@ -2911,16 +2911,18 @@ with Q2:
                 st.session_state["diamond_balance"] = 10000
             if "adjust_value" not in st.session_state:
                 st.session_state["adjust_value"] = 0
+            if "adjust_key" not in st.session_state:
+                st.session_state["adjust_key"] = 0   # dynamic widget key
         
             # Display current balance
             st.markdown(f"**Current Balance:** {st.session_state['diamond_balance']} 💎")
         
-            # IMPORTANT: use a DIFFERENT key for the widget
+            # Number input with a DYNAMIC key
             adjust = st.number_input(
                 "Adjust balance",
                 value=st.session_state["adjust_value"],
                 step=100,
-                key="adjust_widget"   # <--- widget key, NOT adjust_value
+                key=f"adjust_widget_{st.session_state['adjust_key']}"
             )
         
             col_add, col_sub = st.columns(2)
@@ -2929,7 +2931,7 @@ with Q2:
                 if st.button("Add", key="btn_balance_add"):
                     st.session_state["diamond_balance"] += adjust
                     st.session_state["adjust_value"] = 0
-                    st.session_state["adjust_widget"] = 0   # reset widget
+                    st.session_state["adjust_key"] += 1   # force widget reset
                     st.experimental_rerun()
         
             with col_sub:
@@ -2939,11 +2941,11 @@ with Q2:
                         st.session_state["diamond_balance"] - adjust
                     )
                     st.session_state["adjust_value"] = 0
-                    st.session_state["adjust_widget"] = 0   # reset widget
+                    st.session_state["adjust_key"] += 1   # force widget reset
                     st.experimental_rerun()
         
             st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
-         
+                 
         # -----------------------------------------------------
         # BOTTOM‑LEFT: 🎯 Betting Guidance (Adaptive Kelly)
         # -----------------------------------------------------
