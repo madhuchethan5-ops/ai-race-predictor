@@ -2899,136 +2899,131 @@ with Q2:
                 st.warning("**CAUTION** — Edge exists but uncertainty is high.")
             elif bet_safety == "FAVORABLE":
                 st.success("**FAVORABLE** — Strong, stable edge detected.")
-
+                
         # -----------------------------------------------------
-        # MID‑RIGHT: Terrain–vehicle matchup (with dropdown)
+        # MID‑RIGHT: 💎 Diamond Balance
         # -----------------------------------------------------
         with col_right:
-            st.markdown("#### 🧬 Terrain–vehicle matchup")
+            st.markdown("#### 💎 Diamond Balance")
 
-            tv_matrix = res.get("tv_matrix", {})
-            tv_samples = res.get("tv_samples", {})
-            terrain_options = ["Desert", "Expressway", "Bumpy", "Dirt", "Highway", "Potholes"]
-            selected_terrain = st.selectbox("Inspect tendencies for:", terrain_options)
+            balance = st.session_state.get("diamond_balance", 10000)
+            st.markdown(f"**Current Balance:** {balance} 💎")
 
-            if tv_matrix:
-                for v in vehicles:
-                    key = (v, selected_terrain)
-                    win_rate = tv_matrix.get(key, 0.5)
-                    count = tv_samples.get(key, 0)
+            adjust = st.number_input("Adjust balance", value=0, step=100)
 
-                    if count < 10:
-                        flavor = "insufficient data"
-                        icon = "⚪"
-                    elif win_rate >= 0.60:
-                        flavor = "favorable"
-                        icon = "🟢"
-                    elif win_rate <= 0.40:
-                        flavor = "unfavorable"
-                        icon = "🔴"
-                    else:
-                        flavor = "neutral"
-                        icon = "🟡"
+            col_add, col_sub = st.columns(2)
+            with col_add:
+                if st.button("Add", key="btn_balance_add"):
+                    st.session_state["diamond_balance"] = balance + adjust
+                    balance = st.session_state["diamond_balance"]
+            with col_sub:
+                if st.button("Subtract", key="btn_balance_sub"):
+                    st.session_state["diamond_balance"] = max(0, balance - adjust)
+                    balance = st.session_state["diamond_balance"]
 
-                    st.markdown(
-                        f"- {icon} **{v}** on **{selected_terrain}** → "
-                        f"{flavor} (win rate {win_rate*100:.1f}%, n={count})"
-                    )
-            else:
-                st.caption("Not enough history yet to learn terrain–vehicle strengths.")
+            st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
 
         # -----------------------------------------------------
-        # BOTTOM‑LEFT: Hidden Lap Guess
+        # BOTTOM‑LEFT: 🎯 Betting Guidance (Adaptive Kelly)
         # -----------------------------------------------------
         with col_left:
-            lg = res.get("hidden_guess")
-            if lg:
-                with st.expander("🤫 AI guess for hidden laps"):
-                    TERRAIN_EMOJI = {
-                        "Desert": "🏜️",
-                        "Bumpy": "🪨",
-                        "Expressway": "🛣️",
-                        "Highway": "🚗",
-                        "Dirt": "🌾",
-                        "Potholes": "🕳️",
-                    }
+            st.markdown("#### 🎯 Betting Guidance")
 
-                    summary_lines = []
+            # Odds map (semi-static, can be updated occasionally)
+            odds_map = {
+                "ATV": 3.3,
+                "Car": 2.6,
+                "Monster Truck": 2.2,
+                "Motorcycle": 3.5,
+                "ORV": 2.7,
+                "Sports Car": 4.0,
+                "Stock Car": 2.5,
+                "Supercar": 4.6,
+                "SUV": 2.6,
+            }
 
-                    for k in (1, 2, 3):
-                        label = f"Lap {k}"
+            balance = st.session_state.get("diamond_balance", 10000)
 
-                        # Revealed lap
-                        revealed_idx = ctx.get("idx", 0)
-                        if k == revealed_idx + 1:
-                            st.markdown(f"**{label} (revealed):** {ctx.get('t', terrain)}")
-                            continue
+            # Volatility score (0–1) – you can derive this in run_full_prediction
+            V = res.get("volatility_score", 0.5)
 
-                        # Hidden lap info
-                        info = lg.get(k)
-                        if not info:
-                            continue
+            # Compute edges for all vehicles
+            edges = []
+            for v in vehicles:
+                p = probs[v] / 100.0 if probs[v] > 1 else probs[v]  # guard if already 0–1
+                odds = odds_map.get(v, 3.0)
+                q = 1.0 / odds
+                edge = p - q
+                if edge > 0:
+                    edges.append((v, edge, p, odds))
 
-                        probs_k = info["track_probs"]
-                        expected_len = info["expected_len"]
-
-                        sorted_probs = sorted(
-                            probs_k.items(), key=lambda x: x[1], reverse=True
-                        )
-                        top_terrain, top_prob = sorted_probs[0]
-                        emoji = TERRAIN_EMOJI.get(top_terrain, "🌍")
-
-                        summary_lines.append(
-                            f"**Lap {k}** → {emoji} **{top_terrain}‑heavy** (~{top_prob*100:.0f}%)"
-                        )
-
-                        top_str = ", ".join(
-                            [
-                                f"{TERRAIN_EMOJI.get(t, '🌍')} {t}: {p*100:.1f}%"
-                                for t, p in sorted_probs[:3]
-                            ]
-                        )
-
-                        try:
-                            expected_val = float(expected_len)
-                            expected_text = f"{expected_val:.1f}%"
-                        except Exception:
-                            expected_text = "unknown"
-
-                        st.markdown(
-                            f"**{label} (hidden):** expected length ≈ {expected_text}, "
-                            f"top terrains → {top_str}"
-                        )
-
-                    st.markdown("### 🧭 Summary")
-                    for line in summary_lines:
-                        st.markdown(f"- {line}")
+            if not edges:
+                st.warning("No positive‑EV bets — sitting out is optimal here.")
             else:
-                st.write("Not enough history to estimate hidden laps.")
+                # Sort by edge descending
+                edges.sort(key=lambda x: x[1], reverse=True)
+                top = edges[0]
+                second = edges[1] if len(edges) > 1 else None
+
+                # Decide single vs dual bet
+                delta = 0.03  # edge closeness threshold
+                bet_targets = []
+
+                # Always include top edge
+                bet_targets.append(top)
+
+                # Optional second bet if close edge + high volatility
+                if (
+                    second is not None
+                    and second[1] > 0
+                    and abs(top[1] - second[1]) < delta
+                    and V > 0.5
+                ):
+                    bet_targets.append(second)
+
+                total_bet = 0
+                bet_rows = []
+
+                for v, edge, p, odds in bet_targets:
+                    # Confidence factor C = p (0–1)
+                    C = p
+                    # Adaptive multiplier: 0.25–1.0
+                    M = 0.25 + 0.75 * C * (1 - V)
+                    # Base Kelly = edge (parimutuel style)
+                    kelly = M * edge
+                    # Clamp Kelly fraction
+                    kelly = max(0.0, min(kelly, 0.10))
+
+                    bet_amt = int(kelly * balance)
+                    total_bet += bet_amt
+
+                    bet_rows.append((v, bet_amt, edge, kelly, odds))
+
+                if not bet_rows:
+                    st.warning("Edges are too small after risk adjustment — no bet suggested.")
+                else:
+                    for v, amt, edge, kelly, odds in bet_rows:
+                        st.markdown(
+                            f"**{v}** — **{amt} 💎**  \n"
+                            f"Edge: {edge:.2%}, Kelly: {kelly:.3f}, Odds: {odds}x"
+                        )
+
+                    if balance > 0:
+                        st.markdown(
+                            f"**Total Bet:** {total_bet} 💎 "
+                            f"({total_bet / balance:.2%} of balance)"
+                        )
+
+                    # Soft exposure warning
+                    if balance > 0 and total_bet / balance > 0.10:
+                        st.warning("High exposure this race (>10% of balance).")
 
         # -----------------------------------------------------
-        # BOTTOM‑RIGHT: Tightness + Regret
+        # BOTTOM‑RIGHT: (Reserved / future use)
         # -----------------------------------------------------
         with col_right:
-            st.markdown("#### 📈 Race Metrics")
-
-            sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-            if len(sorted_probs) >= 2:
-                (_, p1), (_, p2) = sorted_probs[0], sorted_probs[1]
-                margin = p1 - p2
-            else:
-                margin = 0.0
-            tightness = max(0, 100 - margin)
-
-            expected_regret = res.get("expected_regret", None)
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Race Tightness", f"{tightness:.1f}")
-            c2.metric("Top‑2 Margin", f"{margin:.1f} pts")
-            if expected_regret is not None:
-                c3.metric("Expected Regret", f"{expected_regret:.2f}")
-            else:
-                c3.metric("Expected Regret", "N/A")
+            st.markdown("#### 📦 Reserved for Q3+ features")
+            st.caption("Hidden laps, terrain matchup, and race metrics are active in the engine but not shown here.")
 
         # -----------------------------------------------------
         # DIAGNOSTICS (manual + cached)
