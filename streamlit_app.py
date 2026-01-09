@@ -2911,18 +2911,23 @@ with Q2:
                 st.session_state["diamond_balance"] = 10000
             if "adjust_value" not in st.session_state:
                 st.session_state["adjust_value"] = 0
-            if "adjust_key" not in st.session_state:
-                st.session_state["adjust_key"] = 0   # dynamic widget key
+            if "reset_adjust" not in st.session_state:
+                st.session_state["reset_adjust"] = False
+        
+            # If reset flag is set, clear the input
+            if st.session_state["reset_adjust"]:
+                st.session_state["adjust_value"] = 0
+                st.session_state["reset_adjust"] = False
         
             # Display current balance
             st.markdown(f"**Current Balance:** {st.session_state['diamond_balance']} 💎")
         
-            # Number input with a DYNAMIC key
+            # Number input bound to session state
             adjust = st.number_input(
                 "Adjust balance",
                 value=st.session_state["adjust_value"],
                 step=100,
-                key=f"adjust_widget_{st.session_state['adjust_key']}"
+                key="adjust_value"
             )
         
             col_add, col_sub = st.columns(2)
@@ -2930,9 +2935,7 @@ with Q2:
             with col_add:
                 if st.button("Add", key="btn_balance_add"):
                     st.session_state["diamond_balance"] += adjust
-                    st.session_state["adjust_value"] = 0
-                    st.session_state["adjust_key"] += 1   # force widget reset
-                    st.experimental_rerun()
+                    st.session_state["reset_adjust"] = True
         
             with col_sub:
                 if st.button("Subtract", key="btn_balance_sub"):
@@ -2940,9 +2943,7 @@ with Q2:
                         0,
                         st.session_state["diamond_balance"] - adjust
                     )
-                    st.session_state["adjust_value"] = 0
-                    st.session_state["adjust_key"] += 1   # force widget reset
-                    st.experimental_rerun()
+                    st.session_state["reset_adjust"] = True
         
             st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
                  
