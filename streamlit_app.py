@@ -2904,14 +2904,7 @@ with Q2:
             elif bet_safety == "FAVORABLE":
                 st.success("**FAVORABLE** — Strong, stable edge detected.")
                 st.caption("Low volatility and strong probability separation.")
-        
-            # Optional transparency panel
-            with st.expander("Volatility Breakdown"):
-                st.write(f"• Probability Spread: {prob_spread:.1f} pp")
-                st.write(f"• SIM–ML Divergence: {sim_ml_gap:.1f} pp")
-                st.write(f"• Blend Weight Skew: {blend_skew:.2f}")
-        
-        
+ 
         # -----------------------------------------------------
         # MID‑RIGHT: 💎 Diamond Balance
         # -----------------------------------------------------
