@@ -2921,11 +2921,11 @@ with Q2:
                 bet_rows = []
         
                 if bet_safety == "AVOID":
-                    max_kelly = 0.01
+                    max_kelly = 0.02
                 elif bet_safety == "CAUTION":
-                    max_kelly = 0.05
+                    max_kelly = 0.07
                 else:
-                    max_kelly = 0.10
+                    max_kelly = 0.125
         
                 for v, edge, p, odds in bet_targets:
                     C = p
