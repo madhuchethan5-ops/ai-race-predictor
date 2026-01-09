@@ -2899,7 +2899,7 @@ with Q2:
                 st.warning("**CAUTION** — Edge exists but uncertainty is high.")
             elif bet_safety == "FAVORABLE":
                 st.success("**FAVORABLE** — Strong, stable edge detected.")
-                
+
         # -----------------------------------------------------
         # MID‑RIGHT: 💎 Diamond Balance
         # -----------------------------------------------------
@@ -2918,7 +2918,6 @@ with Q2:
             # Input field bound to session state
             st.number_input(
                 "Adjust balance",
-                value=st.session_state["adjust_value"],
                 step=100,
                 key="adjust_value"
             )
@@ -2929,7 +2928,7 @@ with Q2:
                 if st.button("Add", key="btn_balance_add"):
                     st.session_state["diamond_balance"] += st.session_state["adjust_value"]
                     st.session_state["adjust_value"] = 0
-                    st.rerun()
+                    st.experimental_rerun()
         
             with col_sub:
                 if st.button("Subtract", key="btn_balance_sub"):
@@ -2938,10 +2937,10 @@ with Q2:
                         st.session_state["diamond_balance"] - st.session_state["adjust_value"]
                     )
                     st.session_state["adjust_value"] = 0
-                    st.rerun()
+                    st.experimental_rerun()
         
             st.caption("Update balance before placing bets. No recharge / lucky draw in UI.")
-            
+         
         # -----------------------------------------------------
         # BOTTOM‑LEFT: 🎯 Betting Guidance (Adaptive Kelly)
         # -----------------------------------------------------
