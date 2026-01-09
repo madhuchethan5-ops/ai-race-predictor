@@ -3330,46 +3330,7 @@ with Q3:
         
             st.success("✅ Race saved to database! Model will update on next prediction.")
             st.rerun()
-
-        # -----------------------------------------------------
-        # BOTTOM‑RIGHT (Q3): ⚙️ Update Odds
-        # -----------------------------------------------------
-        with col_right:
-            st.markdown("#### ⚙️ Update Odds")
-        
-            if "odds_map" not in st.session_state:
-                st.session_state["odds_map"] = {
-                    "ATV": 3.3,
-                    "Car": 2.6,
-                    "Monster Truck": 2.2,
-                    "Motorcycle": 3.5,
-                    "ORV": 2.7,
-                    "Sports Car": 4.0,
-                    "Stock Car": 2.5,
-                    "Supercar": 4.6,
-                    "SUV": 2.6,
-                }
-        
-            vehicles_list = list(st.session_state["odds_map"].keys())
-        
-            selected_vehicle = st.selectbox(
-                "Select vehicle",
-                vehicles_list,
-                key="odds_vehicle_select_q3"
-            )
-        
-            new_odds = st.number_input(
-                "Set new odds",
-                value=st.session_state["odds_map"][selected_vehicle],
-                step=0.1,
-                format="%.2f",
-                key="odds_value_input_q3",
-            )
-        
-            if st.button("Save Odds", key="btn_save_odds_q3"):
-                st.session_state["odds_map"][selected_vehicle] = new_odds
-                st.success(f"Updated odds for {selected_vehicle} to {new_odds}x")
-
+            
 # ---------------------------------------------------------
 # Q4 — LIGHTWEIGHT DIAGNOSTICS SUMMARY (BOTTOM-RIGHT)
 # ---------------------------------------------------------
@@ -3446,6 +3407,45 @@ with Q4:
     with col_ml2:
         current_n = st.session_state.get("ml_n_samples", 0)
         st.caption(f"Current ML samples: {current_n}")
+
+# -----------------------------------------------------
+# Q4 — ⚙️ Update Odds (BOTTOM‑RIGHT)
+# -----------------------------------------------------
+with Q4:
+    st.markdown("### ⚙️ Update Odds")
+
+    if "odds_map" not in st.session_state:
+        st.session_state["odds_map"] = {
+            "ATV": 3.3,
+            "Car": 2.6,
+            "Monster Truck": 2.2,
+            "Motorcycle": 3.5,
+            "ORV": 2.7,
+            "Sports Car": 4.0,
+            "Stock Car": 2.5,
+            "Supercar": 4.6,
+            "SUV": 2.6,
+        }
+
+    vehicles_list = list(st.session_state["odds_map"].keys())
+
+    selected_vehicle = st.selectbox(
+        "Select vehicle",
+        vehicles_list,
+        key="odds_vehicle_select_q4"
+    )
+
+    new_odds = st.number_input(
+        "Set new odds",
+        value=st.session_state["odds_map"][selected_vehicle],
+        step=0.1,
+        format="%.2f",
+        key="odds_value_input_q4",
+    )
+
+    if st.button("Save Odds", key="btn_save_odds_q4"):
+        st.session_state["odds_map"][selected_vehicle] = new_odds
+        st.success(f"Updated odds for {selected_vehicle} to {new_odds}x")
 
 # ---------------------------------------------------------
 # 10. ANALYTICS TABS + WHAT‑IF SIMULATOR (FULL ORIGINAL LOGIC)
