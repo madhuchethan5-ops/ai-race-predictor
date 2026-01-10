@@ -547,6 +547,83 @@ def apply_sim_global_clamps(
     p /= p.sum()
     return p
 
+# ============================================
+# OPTION B – SHARED HELPERS (TRAIN + LIVE)
+# ============================================
+
+def _sim_meta_from_row(row: pd.Series, v1: str, v2: str, v3: str):
+    """
+    Extract SIM meta from a historical row.
+    Assumes Win_Prob_* columns are in 0–100 space.
+    Returns:
+      sim_top_prob, sim_second_prob, sim_margin, sim_entropy, sim_volatility, sim_top_vehicle
+    All probabilities are in 0–1 space.
+    """
+    p1 = row.get("Win_Prob_1", None)
+    p2 = row.get("Win_Prob_2", None)
+    p3 = row.get("Win_Prob_3", None)
+
+    if p1 is None or p2 is None or p3 is None or pd.isna(p1) or pd.isna(p2) or pd.isna(p3):
+        probs = {v1: 1/3, v2: 1/3, v3: 1/3}
+    else:
+        raw = np.array([float(p1), float(p2), float(p3)], dtype=float)
+        if raw.sum() <= 0:
+            probs = {v1: 1/3, v2: 1/3, v3: 1/3}
+        else:
+            raw = raw / raw.sum()
+            probs = {v1: raw[0], v2: raw[1], v3: raw[2]}
+
+    items = list(probs.items())
+    items.sort(key=lambda kv: kv[1], reverse=True)
+    (top_v, top_p), (_, second_p) = items[0], items[1]
+    margin = float(top_p - second_p)
+
+    arr = np.array(list(probs.values()), dtype=float)
+    arr = np.clip(arr, 1e-12, 1.0)
+    entropy = float(-(arr * np.log(arr)).sum())
+
+    # No historical SIM volatility tracked yet → neutral
+    volatility = 0.0
+
+    return float(top_p), float(second_p), margin, entropy, volatility, top_v
+
+
+def _sim_error_features(
+    sim_top_prob: float,
+    sim_margin: float,
+    winner: str,
+    sim_top_vehicle: str,
+    overconf_thr: float = 0.70,
+    underconf_thr: float = 0.45,
+):
+    """
+    SIM-error and over/under-confidence flags (training only).
+    """
+    y_top = 1 if winner == sim_top_vehicle else 0
+
+    sim_error_top = sim_top_prob - y_top
+    sim_error_margin = sim_margin if y_top == 0 else 0.0
+
+    sim_overconf_flag = 1.0 if (sim_top_prob > overconf_thr and y_top == 0) else 0.0
+    sim_underconf_flag = 1.0 if (sim_top_prob < underconf_thr and y_top == 1) else 0.0
+
+    return sim_error_top, sim_error_margin, sim_overconf_flag, sim_underconf_flag
+
+
+def _sim_buckets(sim_top_prob: float, sim_volatility: float):
+    """
+    Bucket SIM confidence and volatility into coarse regimes.
+    """
+    if sim_top_prob < 0.45:
+        conf_bucket = "low"
+    elif sim_top_prob < 0.70:
+        conf_bucket = "mid"
+    else:
+        conf_bucket = "high"
+
+    vol_bucket = "stable" if sim_volatility < 0.15 else "volatile"
+    return conf_bucket, vol_bucket
+
 # =========================================================
 # HIDDEN LAP STATS + ESTIMATOR
 # =========================================================
@@ -1074,34 +1151,83 @@ def init_ml_priors(history_df: pd.DataFrame):
 # ---------------------------------------------------------
 # 3. PRE-RACE TRAINING ROWS (ONE KNOWN LAP, PRIORS ONLY)
 # ---------------------------------------------------------
+# =======================================================
+# OPTION B – FULL PRE-RACE TRAINING ROWS (SOFTMAX TARGET)
+# =======================================================
+
 def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Transform full-history rows (all laps known) into pre-race-style rows:
-    - Only the revealed lap's terrain is treated as known.
-    - Other laps are effectively "Unknown" from ML's perspective.
-    - Features: vehicles, lane, priors (vehicle, terrain, lane, matchup), winner_idx.
+    OPTION B:
+    Transform full-history rows into pre-race-style rows with:
+      - expected lap lengths (no future leak)
+      - geometry regime (global means/stds, range, split flag)
+      - global transition entropy per lap
+      - leak-safe per-vehicle win rates (v*_win_rate)
+      - SIM meta from historical Win_Prob_*
+      - SIM-error features (training only)
+      - SIM confidence/volatility buckets
+      - simple regime bucket (terrain + geometry split)
+      - winner_idx target
+
+    This REPLACES the old build_pre_race_training_rows.
     """
 
-    st.write("🔍 Starting build_pre_race_training_rows with", len(history_df), "rows")
+    st.write("🔍 [OptionB] Starting build_pre_race_training_rows with", len(history_df), "rows")
 
     if history_df is None or history_df.empty:
-        st.write("❌ history_df is empty")
+        st.write("❌ [OptionB] history_df is empty")
         return pd.DataFrame()
 
-    # Ensure priors are available
-    init_ml_priors(history_df)
+    # 0. Leak-safe win rates
+    df = add_leakage_safe_win_rates(history_df.copy())
 
-    terrain_priors = st.session_state.get("veh_terrain_priors", {})
-    lane_priors = st.session_state.get("veh_lane_priors", {})
-    matchup_priors = st.session_state.get("matchup_priors", {})
+    # 1. Geometry regime (global)
+    geom_means = []
+    geom_stds = []
+    for lap_idx in [1, 2, 3]:
+        col = f"lap_{lap_idx}_len"
+        if col in df.columns and not df[col].dropna().empty:
+            geom_means.append(df[col].mean())
+            geom_stds.append(df[col].std())
+        else:
+            geom_means.append(33.3)
+            geom_stds.append(5.0)
+
+    geom_lap1_mean, geom_lap2_mean, geom_lap3_mean = geom_means
+    geom_lap1_std, geom_lap2_std, geom_lap3_std = geom_stds
+
+    geom_range = max(geom_means) - min(geom_means)
+    geom_split_flag = 1 if geom_range >= 20 else 0
+
+    # 2. Transition entropy (global)
+    mats = compute_transition_matrices(df) if df is not None else {}
+
+    def entropy_from_mat(mat):
+        arr = (mat.values / 100.0).astype(float)
+        arr = np.clip(arr, 1e-12, None)
+        return float(-(arr * np.log(arr)).sum())
+
+    ent_l1 = ent_l2 = ent_l3 = 0.0
+    if (1, 2) in mats:
+        ent_l1 += entropy_from_mat(mats[(1, 2)])
+    if (1, 3) in mats:
+        ent_l1 += entropy_from_mat(mats[(1, 3)])
+    if (2, 1) in mats:
+        ent_l2 += entropy_from_mat(mats[(2, 1)])
+    if (2, 3) in mats:
+        ent_l2 += entropy_from_mat(mats[(2, 3)])
+    if (3, 1) in mats:
+        ent_l3 += entropy_from_mat(mats[(3, 1)])
+    if (3, 2) in mats:
+        ent_l3 += entropy_from_mat(mats[(3, 2)])
 
     rows = []
 
-    for _, row in history_df.iterrows():
+    for _, row in df.iterrows():
         try:
             # Basic sanity
             if any(col not in row for col in ["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"]):
-                st.write("❌ Missing vehicle/winner columns for row id:", row.get("id"))
+                st.write("❌ [OptionB] Missing vehicle/winner columns for row id:", row.get("id"))
                 continue
 
             v1 = row["vehicle_1"]
@@ -1112,77 +1238,140 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
             if pd.isna(v1) or pd.isna(v2) or pd.isna(v3) or pd.isna(winner):
                 continue
 
-            # Determine revealed lap + known terrain
-            lane = row.get("lane", None)
-
-            if lane == "Lap 1":
-                k_idx = 0
-                known_terrain = row.get("lap_1_track", "Unknown")
-            elif lane == "Lap 2":
-                k_idx = 1
-                known_terrain = row.get("lap_2_track", "Unknown")
-            elif lane == "Lap 3":
-                k_idx = 2
-                known_terrain = row.get("lap_3_track", "Unknown")
-            else:
-                st.write("❌ Skipped due to invalid lane:", row.get("id"), "lane=", lane)
+            vs = [v1, v2, v3]
+            if winner not in vs:
+                st.write("❌ [OptionB] Skipped due to winner mismatch:", row.get("id"), "winner=", winner, "vs=", vs)
                 continue
 
-            if pd.isna(known_terrain):
-                known_terrain = "Unknown"
+            # Determine revealed lap
+            lane = row.get("lane", None)
+            if lane == "Lap 1":
+                k_idx = 0
+                k_type = row.get("lap_1_track", "Unknown")
+            elif lane == "Lap 2":
+                k_idx = 1
+                k_type = row.get("lap_2_track", "Unknown")
+            elif lane == "Lap 3":
+                k_idx = 2
+                k_type = row.get("lap_3_track", "Unknown")
+            else:
+                st.write("❌ [OptionB] Skipped due to invalid lane:", row.get("id"), "lane=", lane)
+                continue
 
-            # Build base row dict (pre-race legal fields only)
+            if pd.isna(k_type):
+                k_type = "Unknown"
+
+            # Known / unknown tracks
+            lap_tracks = ["Unknown", "Unknown", "Unknown"]
+            lap_tracks[k_idx] = k_type
+
+            # Expected lengths (no leak)
+            lap_lens = [
+                expected_length(df, 0, lap_tracks[0]),
+                expected_length(df, 1, lap_tracks[1]),
+                expected_length(df, 2, lap_tracks[2]),
+            ]
+
+            lane_str = f"Lap {k_idx + 1}"
+
+            high_speed_share = (
+                lap_tracks.count("Expressway") + lap_tracks.count("Highway")
+            ) / 3.0
+
+            rough_share = sum(
+                1 for t in lap_tracks if t in ["Dirt", "Bumpy", "Potholes"]
+            ) / 3.0
+
+            # Leak-safe win rates from df
+            v1_wr = row.get("v1_win_rate", 1/3)
+            v2_wr = row.get("v2_win_rate", 1/3)
+            v3_wr = row.get("v3_win_rate", 1/3)
+
+            # SIM meta from historical row
+            sim_top_prob, sim_second_prob, sim_margin, sim_entropy, sim_volatility, sim_top_vehicle = \
+                _sim_meta_from_row(row, v1, v2, v3)
+
+            # SIM-error features (training only)
+            sim_error_top, sim_error_margin, sim_overconf_flag, sim_underconf_flag = \
+                _sim_error_features(
+                    sim_top_prob=sim_top_prob,
+                    sim_margin=sim_margin,
+                    winner=winner,
+                    sim_top_vehicle=sim_top_vehicle,
+                )
+
+            # SIM buckets and regime
+            sim_conf_bucket, sim_vol_bucket = _sim_buckets(sim_top_prob, sim_volatility)
+            regime_bucket = f"{k_type}_{geom_split_flag}"
+
             row_dict = {
                 "vehicle_1": v1,
                 "vehicle_2": v2,
                 "vehicle_3": v3,
-                "lane": lane,
-                "known_terrain": known_terrain,
-                "known_lap_idx": k_idx,
+
+                "lap_1_track": lap_tracks[0],
+                "lap_2_track": lap_tracks[1],
+                "lap_3_track": lap_tracks[2],
+
+                "lap_1_len": float(lap_lens[0]),
+                "lap_2_len": float(lap_lens[1]),
+                "lap_3_len": float(lap_lens[2]),
+
+                "lane": lane_str,
+
+                "high_speed_share": float(high_speed_share),
+                "rough_share": float(rough_share),
+
+                "v1_win_rate": float(v1_wr),
+                "v2_win_rate": float(v2_wr),
+                "v3_win_rate": float(v3_wr),
+
+                # Geometry regime
+                "geom_lap1_mean": float(geom_lap1_mean),
+                "geom_lap2_mean": float(geom_lap2_mean),
+                "geom_lap3_mean": float(geom_lap3_mean),
+
+                "geom_lap1_std": float(geom_lap1_std),
+                "geom_lap2_std": float(geom_lap2_std),
+                "geom_lap3_std": float(geom_lap3_std),
+
+                "geom_range": float(geom_range),
+                "geom_split_flag": float(geom_split_flag),
+
+                # Transition entropy
+                "trans_entropy_l1": float(ent_l1),
+                "trans_entropy_l2": float(ent_l2),
+                "trans_entropy_l3": float(ent_l3),
+
+                # SIM meta
+                "sim_top_prob": float(sim_top_prob),
+                "sim_second_prob": float(sim_second_prob),
+                "sim_margin": float(sim_margin),
+                "sim_entropy": float(sim_entropy),
+                "sim_volatility": float(sim_volatility),
+
+                # SIM-error
+                "sim_error_top": float(sim_error_top),
+                "sim_error_margin": float(sim_error_margin),
+                "sim_overconf_flag": float(sim_overconf_flag),
+                "sim_underconf_flag": float(sim_underconf_flag),
+
+                # Regime categoricals
+                "sim_conf_bucket": sim_conf_bucket,
+                "sim_vol_bucket": sim_vol_bucket,
+                "regime_bucket": regime_bucket,
             }
 
-            # Vehicle global priors (from your DEFAULT_VEHICLE_PRIORS)
-            # user_vehicle_priors=None for training; live will pass real user priors.
-            row_dict["v1_wr_prior"] = get_vehicle_win_rate(v1, user_priors=None, default_priors=DEFAULT_VEHICLE_PRIORS)
-            row_dict["v2_wr_prior"] = get_vehicle_win_rate(v2, user_priors=None, default_priors=DEFAULT_VEHICLE_PRIORS)
-            row_dict["v3_wr_prior"] = get_vehicle_win_rate(v3, user_priors=None, default_priors=DEFAULT_VEHICLE_PRIORS)
-
-            # Terrain priors
-            tmap = terrain_priors.get(known_terrain, {})
-            row_dict["v1_terrain_wr"] = tmap.get(v1, 0.33)
-            row_dict["v2_terrain_wr"] = tmap.get(v2, 0.33)
-            row_dict["v3_terrain_wr"] = tmap.get(v3, 0.33)
-
-            # Lane priors
-            lmap = lane_priors.get(lane, {})
-            row_dict["v1_lane_wr"] = lmap.get(v1, 0.33)
-            row_dict["v2_lane_wr"] = lmap.get(v2, 0.33)
-            row_dict["v3_lane_wr"] = lmap.get(v3, 0.33)
-
-            # Matchup priors (optional)
-            mkey = tuple(sorted([v1, v2, v3]))
-            mmap = matchup_priors.get(mkey, {})
-            row_dict["v1_matchup_wr"] = mmap.get(v1, 0.33)
-            row_dict["v2_matchup_wr"] = mmap.get(v2, 0.33)
-            row_dict["v3_matchup_wr"] = mmap.get(v3, 0.33)
-
-            # Winner index (target)
-            vs = [v1, v2, v3]
-            if winner not in vs:
-                st.write("❌ Skipped due to winner mismatch:", row.get("id"), "winner=", winner, "vs=", vs)
-                continue
-
             row_dict["winner_idx"] = vs.index(winner)
-
             rows.append(row_dict)
 
         except Exception:
             import traceback
-            st.write("❌ Row failed with exception:")
+            st.write("❌ [OptionB] Row failed with exception:")
             st.write(traceback.format_exc())
             continue
 
-    st.write("✅ Finished build_pre_race_training_rows — built", len(rows), "rows")
+    st.write("✅ [OptionB] Finished build_pre_race_training_rows — built", len(rows), "rows")
 
     if not rows:
         return pd.DataFrame()
@@ -1190,13 +1379,14 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ---------------------------------------------------------
-# 4. BUILD TRAINING DATA (NO FALLBACK, NO ILLEGAL FEATURES)
-# ---------------------------------------------------------
+# ============================================
+# OPTION B – TRAINING DATA WRAPPER (SOFTMAX)
+# ============================================
+
 def build_training_data(history_df: pd.DataFrame):
     """
-    Build ML training data using ONLY pre-race-style rows.
-    No fallback, no geometry, no SIM, no entropy, no noisy win-rates.
+    OPTION B:
+    Build ML training data (softmax winner_idx) from pre-race v2 rows.
     """
     if history_df is None or history_df.empty:
         return None, None, None, None
@@ -1205,30 +1395,39 @@ def build_training_data(history_df: pd.DataFrame):
     if df is None or df.empty:
         return None, None, None, None
 
-    st.write("✅ pre_race rows (primary):", len(df))
+    st.write("✅ [OptionB] pre_race rows:", len(df))
 
     y = df["winner_idx"].astype(int)
 
-    # Clean, fixed feature space
     cat_features = [
         "vehicle_1",
         "vehicle_2",
         "vehicle_3",
-        "known_terrain",
+        "lap_1_track",
+        "lap_2_track",
+        "lap_3_track",
         "lane",
+        "sim_conf_bucket",
+        "sim_vol_bucket",
+        "regime_bucket",
     ]
 
     num_features = [
-        "known_lap_idx",   # 0,1,2
-        "v1_wr_prior", "v2_wr_prior", "v3_wr_prior",
-        "v1_terrain_wr", "v2_terrain_wr", "v3_terrain_wr",
-        "v1_lane_wr", "v2_lane_wr", "v3_lane_wr",
-        "v1_matchup_wr", "v2_matchup_wr", "v3_matchup_wr",
+        "lap_1_len", "lap_2_len", "lap_3_len",
+        "high_speed_share", "rough_share",
+        "v1_win_rate", "v2_win_rate", "v3_win_rate",
+        "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
+        "geom_lap1_std", "geom_lap2_std", "geom_lap3_std",
+        "geom_range", "geom_split_flag",
+        "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
+        "sim_top_prob", "sim_second_prob", "sim_margin",
+        "sim_entropy", "sim_volatility",
+        "sim_error_top", "sim_error_margin",
+        "sim_overconf_flag", "sim_underconf_flag",
     ]
 
     feature_cols = cat_features + num_features
 
-    # Ensure columns exist
     feature_cols = [c for c in feature_cols if c in df.columns]
     cat_features = [c for c in cat_features if c in df.columns]
     num_features = [c for c in num_features if c in df.columns]
@@ -1239,14 +1438,19 @@ def build_training_data(history_df: pd.DataFrame):
     X = df[feature_cols].copy()
     sample_weights = np.ones(len(df), dtype=float)
 
-    st.write("✅ final ML samples (primary):", len(X))
+    st.write("✅ [OptionB] final ML samples:", len(X))
     return X, y, (cat_features, num_features), sample_weights
 
+# ============================================
+# OPTION B – TRAIN + ACCESSOR
+# ============================================
 
-# ---------------------------------------------------------
-# 5. TRAIN ML MODEL + CALIBRATOR
-# ---------------------------------------------------------
 def train_ml_model(history_df: pd.DataFrame):
+    """
+    OPTION B:
+    Train softmax ML model using Option B features.
+    Stores model + calibrator in session_state under main keys.
+    """
     df_recent = history_df.copy()
 
     X, y, feat_info, sample_weights = build_training_data(df_recent)
@@ -1255,6 +1459,7 @@ def train_ml_model(history_df: pd.DataFrame):
 
     n_samples = len(X)
     if n_samples < 15:
+        st.write("⚠️ [OptionB] Not enough samples to train ML:", n_samples)
         return None, n_samples
 
     cat_features, num_features = feat_info
@@ -1278,15 +1483,12 @@ def train_ml_model(history_df: pd.DataFrame):
 
     model.fit(X, y, clf__sample_weight=sample_weights)
 
-    # ---------------------------------------------
-    # CALIBRATION LAYER (LOGISTIC ON TOP PROB)
-    # ---------------------------------------------
+    # Simple top-prob calibrator
     proba = model.predict_proba(X)
     top_idx = proba.argmax(axis=1)
     top_prob = proba.max(axis=1)
     was_correct = (top_idx == y).astype(int)
 
-    # Require a minimum number of calibration points
     if n_samples >= 30:
         calibrator = LogisticRegression()
         calibrator.fit(top_prob.reshape(-1, 1), was_correct)
@@ -1298,7 +1500,7 @@ def train_ml_model(history_df: pd.DataFrame):
     st.session_state["ml_n_samples"] = n_samples
     st.session_state["ml_feat_info"] = (cat_features, num_features)
 
-    st.write("✅ train_ml_model called, n_samples =", n_samples)
+    st.write("✅ [OptionB] train_ml_model called, n_samples =", n_samples)
 
     return model, n_samples
 
@@ -1306,11 +1508,12 @@ def train_ml_model(history_df: pd.DataFrame):
 def get_trained_model(*args, **kwargs):
     """
     Accessor only. Never trains.
-    Reads the model and sample count from session_state.
+    Reads model and sample count from session_state.
     """
     model = st.session_state.get("ml_model")
     n_samples = st.session_state.get("ml_n_samples", 0)
-    return model, n_samples
+    calibrator = st.session_state.get("ml_calibrator", None)
+    return model, n_samples, calibrator
 
 # ---------------------------------------------------------
 # BRIER SCORE HELPER (for debug panel + consistency)
@@ -1379,9 +1582,9 @@ def compute_chaos_mode(sim_probs, ml_probs):
     )
     return chaos
 
-# ---------------------------------------------------------
-# 5. SINGLE-ROW FEATURE BUILDER FOR LIVE PREDICTIONS
-# ---------------------------------------------------------
+# =====================================================
+# OPTION B – SINGLE-ROW FEATURE BUILDER FOR LIVE PRED
+# =====================================================
 
 def build_single_feature_row(
     v1: str,
@@ -1390,87 +1593,173 @@ def build_single_feature_row(
     k_idx: int,
     k_type: str,
     history_df: pd.DataFrame,
-    user_vehicle_priors: dict | None = None,
-    sim_meta_live=None,   # ignored for ML features
+    user_vehicle_priors: dict | None = None,  # kept for API compatibility, unused here
+    sim_meta_live: tuple[float, float, float, float, float] | None = None,
 ) -> pd.DataFrame:
     """
-    Build a single ML feature row for live prediction.
-    Must match the training feature space EXACTLY.
+    OPTION B:
+    Build a single feature row for live ML prediction, matching the Option B
+    training schema (minus training-only targets, with neutral SIM-error fields).
+
+    v1, v2, v3   : vehicle names
+    k_idx        : known lap index (0, 1, 2)
+    k_type       : known lap track type
+    history_df   : full normalized history
+    sim_meta_live: (sim_top_prob, sim_second_prob, sim_margin, sim_entropy, sim_volatility)
+                   from the current SIM run.
     """
 
-    # ---------------------------------------------------------
-    # 1. Known lap + known terrain
-    # ---------------------------------------------------------
-    known_lap_idx = k_idx
-    known_terrain = k_type if k_type is not None else "Unknown"
+    # Known / unknown laps
+    lap_tracks = ["Unknown", "Unknown", "Unknown"]
+    lap_tracks[k_idx] = k_type if k_type is not None else "Unknown"
+
+    # Expected lengths from history
+    lap_lens = [
+        expected_length(history_df, 0, lap_tracks[0]),
+        expected_length(history_df, 1, lap_tracks[1]),
+        expected_length(history_df, 2, lap_tracks[2]),
+    ]
+
     lane = f"Lap {k_idx + 1}"
 
-    # ---------------------------------------------------------
-    # 2. Load priors from session_state
-    # ---------------------------------------------------------
-    terrain_priors = st.session_state.get("veh_terrain_priors", {})
-    lane_priors    = st.session_state.get("veh_lane_priors", {})
-    matchup_priors = st.session_state.get("matchup_priors", {})
+    high_speed_share = (
+        lap_tracks.count("Expressway") + lap_tracks.count("Highway")
+    ) / 3.0
 
-    # ---------------------------------------------------------
-    # 3. Vehicle global priors (user overrides allowed)
-    # ---------------------------------------------------------
-    v1_wr = get_vehicle_win_rate(v1, user_vehicle_priors, DEFAULT_VEHICLE_PRIORS)
-    v2_wr = get_vehicle_win_rate(v2, user_vehicle_priors, DEFAULT_VEHICLE_PRIORS)
-    v3_wr = get_vehicle_win_rate(v3, user_vehicle_priors, DEFAULT_VEHICLE_PRIORS)
+    rough_share = sum(
+        1 for t in lap_tracks if t in ["Dirt", "Bumpy", "Potholes"]
+    ) / 3.0
 
-    # ---------------------------------------------------------
-    # 4. Terrain priors
-    # ---------------------------------------------------------
-    tmap = terrain_priors.get(known_terrain, {})
-    v1_t = tmap.get(v1, 0.33)
-    v2_t = tmap.get(v2, 0.33)
-    v3_t = tmap.get(v3, 0.33)
+    # Per-vehicle win-rate priors
+    if history_df is not None and not history_df.empty:
+        # If you have compute_live_vehicle_win_rates, you can use it here.
+        df_wr = add_leakage_safe_win_rates(history_df.copy())
+        # crude global priors per vehicle name:
+        v_wr_map = {}
+        for _, r in df_wr.iterrows():
+            for col_v, col_wr in [("vehicle_1", "v1_win_rate"),
+                                  ("vehicle_2", "v2_win_rate"),
+                                  ("vehicle_3", "v3_win_rate")]:
+                vv = r.get(col_v, None)
+                ww = r.get(col_wr, None)
+                if vv is not None and not pd.isna(vv) and ww is not None and not pd.isna(ww):
+                    v_wr_map.setdefault(vv, []).append(float(ww))
+        v1_wr = np.mean(v_wr_map.get(v1, [1/3]))
+        v2_wr = np.mean(v_wr_map.get(v2, [1/3]))
+        v3_wr = np.mean(v_wr_map.get(v3, [1/3]))
+    else:
+        v1_wr = v2_wr = v3_wr = 1/3
 
-    # ---------------------------------------------------------
-    # 5. Lane priors
-    # ---------------------------------------------------------
-    lmap = lane_priors.get(lane, {})
-    v1_l = lmap.get(v1, 0.33)
-    v2_l = lmap.get(v2, 0.33)
-    v3_l = lmap.get(v3, 0.33)
+    # Geometry regime from history
+    if history_df is not None and not history_df.empty:
+        geom_means = []
+        geom_stds = []
+        for lap_idx in [1, 2, 3]:
+            col = f"lap_{lap_idx}_len"
+            if col in history_df.columns and not history_df[col].dropna().empty:
+                geom_means.append(history_df[col].mean())
+                geom_stds.append(history_df[col].std())
+            else:
+                geom_means.append(33.3)
+                geom_stds.append(5.0)
+        geom_lap1_mean, geom_lap2_mean, geom_lap3_mean = geom_means
+        geom_lap1_std, geom_lap2_std, geom_lap3_std = geom_stds
+    else:
+        geom_lap1_mean = geom_lap2_mean = geom_lap3_mean = 33.3
+        geom_lap1_std = geom_lap2_std = geom_lap3_std = 5.0
 
-    # ---------------------------------------------------------
-    # 6. Matchup priors
-    # ---------------------------------------------------------
-    mkey = tuple(sorted([v1, v2, v3]))
-    mmap = matchup_priors.get(mkey, {})
-    v1_m = mmap.get(v1, 0.33)
-    v2_m = mmap.get(v2, 0.33)
-    v3_m = mmap.get(v3, 0.33)
+    geom_range = max(geom_lap1_mean, geom_lap2_mean, geom_lap3_mean) - \
+                 min(geom_lap1_mean, geom_lap2_mean, geom_lap3_mean)
+    geom_split_flag = 1 if geom_range >= 20 else 0
 
-    # ---------------------------------------------------------
-    # 7. Build final ML feature row
-    # ---------------------------------------------------------
+    # SIM meta (live)
+    if sim_meta_live is not None:
+        sim_top, sim_second, sim_margin, sim_entropy, sim_volatility = sim_meta_live
+    else:
+        sim_top, sim_second, sim_margin, sim_entropy, sim_volatility = 1/3, 1/3, 0.0, 1.10, 0.0
+
+    sim_conf_bucket, sim_vol_bucket = _sim_buckets(sim_top, sim_volatility)
+    regime_bucket = f"{k_type}_{geom_split_flag}"
+
+    # Transition entropy (global, from history)
+    mats = compute_transition_matrices(history_df) if history_df is not None else {}
+
+    def entropy_from_mat(mat):
+        arr = (mat.values / 100.0).astype(float)
+        arr = np.clip(arr, 1e-12, None)
+        return float(-(arr * np.log(arr)).sum())
+
+    ent_l1 = ent_l2 = ent_l3 = 0.0
+    if (1, 2) in mats:
+        ent_l1 += entropy_from_mat(mats[(1, 2)])
+    if (1, 3) in mats:
+        ent_l1 += entropy_from_mat(mats[(1, 3)])
+    if (2, 1) in mats:
+        ent_l2 += entropy_from_mat(mats[(2, 1)])
+    if (2, 3) in mats:
+        ent_l2 += entropy_from_mat(mats[(2, 3)])
+    if (3, 1) in mats:
+        ent_l3 += entropy_from_mat(mats[(3, 1)])
+    if (3, 2) in mats:
+        ent_l3 += entropy_from_mat(mats[(3, 2)])
+
+    # Neutral SIM-error fields (no hindsight at live time)
+    sim_error_top = 0.0
+    sim_error_margin = 0.0
+    sim_overconf_flag = 0.0
+    sim_underconf_flag = 0.0
+
     data = {
         "vehicle_1": v1,
         "vehicle_2": v2,
         "vehicle_3": v3,
 
-        "known_terrain": known_terrain,
+        "lap_1_track": lap_tracks[0],
+        "lap_2_track": lap_tracks[1],
+        "lap_3_track": lap_tracks[2],
+
+        "lap_1_len": float(lap_lens[0]),
+        "lap_2_len": float(lap_lens[1]),
+        "lap_3_len": float(lap_lens[2]),
+
         "lane": lane,
-        "known_lap_idx": known_lap_idx,
 
-        "v1_wr_prior": v1_wr,
-        "v2_wr_prior": v2_wr,
-        "v3_wr_prior": v3_wr,
+        "high_speed_share": float(high_speed_share),
+        "rough_share": float(rough_share),
 
-        "v1_terrain_wr": v1_t,
-        "v2_terrain_wr": v2_t,
-        "v3_terrain_wr": v3_t,
+        "v1_win_rate": float(v1_wr),
+        "v2_win_rate": float(v2_wr),
+        "v3_win_rate": float(v3_wr),
 
-        "v1_lane_wr": v1_l,
-        "v2_lane_wr": v2_l,
-        "v3_lane_wr": v3_l,
+        "geom_lap1_mean": float(geom_lap1_mean),
+        "geom_lap2_mean": float(geom_lap2_mean),
+        "geom_lap3_mean": float(geom_lap3_mean),
 
-        "v1_matchup_wr": v1_m,
-        "v2_matchup_wr": v2_m,
-        "v3_matchup_wr": v3_m,
+        "geom_lap1_std": float(geom_lap1_std),
+        "geom_lap2_std": float(geom_lap2_std),
+        "geom_lap3_std": float(geom_lap3_std),
+
+        "geom_range": float(geom_range),
+        "geom_split_flag": float(geom_split_flag),
+
+        "trans_entropy_l1": float(ent_l1),
+        "trans_entropy_l2": float(ent_l2),
+        "trans_entropy_l3": float(ent_l3),
+
+        "sim_top_prob": float(sim_top),
+        "sim_second_prob": float(sim_second),
+        "sim_margin": float(sim_margin),
+        "sim_entropy": float(sim_entropy),
+        "sim_volatility": float(sim_volatility),
+
+        "sim_error_top": float(sim_error_top),
+        "sim_error_margin": float(sim_error_margin),
+        "sim_overconf_flag": float(sim_overconf_flag),
+        "sim_underconf_flag": float(sim_underconf_flag),
+
+        "sim_conf_bucket": sim_conf_bucket,
+        "sim_vol_bucket": sim_vol_bucket,
+        "regime_bucket": regime_bucket,
     }
 
     return pd.DataFrame([data])
