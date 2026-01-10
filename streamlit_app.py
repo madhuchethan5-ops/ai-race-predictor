@@ -2706,10 +2706,50 @@ def compute_q2_diagnostics(res: dict):
 
     return diag
 
-
 # ---------------------------------------------------------
 # Q2 — COMPACT PREDICTION PANEL (2×2 DASHBOARD LAYOUT)
 # (Optimised: prediction once, diagnostics manual + cached)
+# ---------------------------------------------------------
+
+# 1) Cached helper for diagnostics (unchanged)
+@st.cache_data
+def compute_q2_diagnostics(res: dict):
+    diag = {}
+    if res is None:
+        return diag
+
+    # Displayed probabilities (what gambler sees)
+    probs = res["display_final_probs_pct"]
+    predicted_winner = max(probs, key=probs.get)
+
+    # SIM/ML winners (if available)
+    p_sim = res.get("sim_probs_pct")
+    p_ml = res.get("ml_probs_pct")
+    if p_sim and p_ml:
+        sim_winner = max(p_sim, key=p_sim.get)
+        ml_winner = max(p_ml, key=p_ml.get)
+        diag["agreement"] = {
+            "sim_winner": sim_winner,
+            "ml_winner": ml_winner,
+            "divergent": sim_winner != ml_winner,
+        }
+    else:
+        diag["agreement"] = None
+
+    # Context snapshot
+    ctx = res.get("ctx", {})
+    diag["context_snapshot"] = {
+        "Revealed Lap": ctx.get("slot"),
+        "Revealed Track": ctx.get("t"),
+        "Winner": predicted_winner,
+        "Probabilities": probs,
+    }
+
+    return diag
+
+
+# ---------------------------------------------------------
+# Q2 — MAIN PANEL
 # ---------------------------------------------------------
 
 with Q2:
@@ -2746,7 +2786,6 @@ with Q2:
             user_vehicle_priors=ui_vehicle_priors,
         )
 
-        # Reset trigger so we don't recompute on every rerun
         st.session_state.trigger_prediction = False
 
     # -----------------------------------------------------
@@ -2758,24 +2797,20 @@ with Q2:
         res = st.session_state["res"]
 
         # ---------- Core pieces from result ----------
-        probs = res["p"]
-        p_sim = res.get("p_sim")
-        p_ml = res.get("p_ml")
-        blend_w = res.get("blend_weight")
+        probs = res["display_final_probs_pct"]          # what gambler sees
+        core_probs = res["core_final_probs_pct"]        # true engine belief
+        p_sim = res.get("sim_probs_pct")
+        p_ml = res.get("ml_probs_pct")
 
-        sim_winner = res.get("sim_winner")
-        ml_winner = res.get("ml_winner")
+        safety = res["safety_meta"]
+        chaos_triggered = safety["chaos_triggered"]
+        soft_doubt = safety["soft_doubt_applied"]
+        regret_bucket = safety["regret_bucket"]
+        regret_count = safety["regret_count"]
+        vol_penalty = safety["volatility_penalty_applied"]
+        cap_applied = safety["final_cap_applied"]
 
-        chaos_triggered = res.get("chaos_triggered")
-        soft_doubt = res.get("soft_doubt_applied")
-
-        regret_bucket = res.get("regret_bucket")
-        regret_count = res.get("regret_count")
-
-        model_skill = res.get("model_skill")
-        improvement_clip = res.get("blend_improvement_clipped")
-
-        # Context (kept via ctx for compatibility)
+        # Context
         ctx = res.get("ctx", {})
         vehicles = ctx.get("v", res.get("vehicles", []))
         terrain = ctx.get("t", res.get("terrain"))
@@ -2783,11 +2818,6 @@ with Q2:
         slot_label = ctx.get("slot", f"Lap {lap_index + 1 if lap_index is not None else '?'}")
 
         vpi = res.get("vpi")
-
-        # Volatility & safety (must be filled in run_full_prediction)
-        vol_gap = res.get("volatility_gap_pp", None)
-        vol_label = res.get("volatility_label", None)
-        bet_safety = res.get("bet_safety", None)
 
         # -----------------------------------------------------
         # 2×2 grid layout
@@ -2799,145 +2829,104 @@ with Q2:
         # -----------------------------------------------------
         with col_left:
             st.markdown("#### 🎯 Accuracy & Winner")
-        
-            # Accuracy: cheap, guarded
+
+            # Accuracy (unchanged)
             if not history.empty and "actual_winner" in history.columns:
                 valid = history.dropna(subset=["actual_winner", "predicted_winner"])
                 if not valid.empty:
                     acc = (valid["predicted_winner"] == valid["actual_winner"]).mean() * 100
                     st.metric("AI Accuracy", f"{acc:.1f}%")
-        
+
             predicted_winner = max(probs, key=probs.get)
             st.metric("🏆 Predicted Winner", predicted_winner)
-        
-        
+
         # -----------------------------------------------------
         # TOP‑RIGHT: 📊 Win Probabilities + SIM/ML breakdown
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 📊 Win Probabilities")
-        
+
             for v in vehicles:
                 p_final = probs[v]
                 line = f"**{v}**: {p_final:.1f}%"
-        
+
                 if p_sim and p_ml:
                     line += f" (SIM {p_sim[v]:.1f}%, ML {p_ml[v]:.1f}%)"
-        
+
                 st.markdown(f"- {line}")
                 confidence_bar(v, p_final)
-        
-            if blend_w is not None and p_sim and p_ml:
-                st.caption(f"Blend weight → ML: {blend_w:.2f}, SIM: {1 - blend_w:.2f}")
-        
-        
+
         # -----------------------------------------------------
         # MID‑LEFT: 🎯 Betting Guidance
         # -----------------------------------------------------
         with col_left:
             st.markdown("#### 🎯 Betting Guidance")
-        
+
             odds_map = st.session_state.get("odds_map", {})
             balance = st.session_state.get("diamond_balance", 10000)
-            V = res.get("volatility_score", 0.5)
-        
+
             edges = []
             for v in vehicles:
-                p = probs[v] / 100.0 if probs[v] > 1 else probs[v]
+                p = probs[v] / 100.0
                 odds = odds_map.get(v, 3.0)
                 q = 1.0 / odds
                 edge = p - q
                 if edge > 0:
                     edges.append((v, edge, p, odds))
-        
+
             if not edges:
                 st.warning("No positive‑EV bets — sitting out is optimal here.")
             else:
                 edges.sort(key=lambda x: x[1], reverse=True)
                 top = edges[0]
-                second = edges[1] if len(edges) > 1 else None
-        
-                delta = 0.03
-                bet_targets = [top]
-        
-                if (
-                    second is not None
-                    and second[1] > 0
-                    and abs(top[1] - second[1]) < delta
-                    and V > 0.5
-                ):
-                    bet_targets.append(second)
-        
-                total_bet = 0
-                bet_rows = []
-        
-                if bet_safety == "AVOID":
-                    max_kelly = 0.02
-                elif bet_safety == "CAUTION":
-                    max_kelly = 0.07
-                else:
-                    max_kelly = 0.125
-        
-                for v, edge, p, odds in bet_targets:
-                    C = p
-                    M = 0.25 + 0.75 * C * (1 - V)
-                    kelly = M * edge
-                    kelly = max(0.0, min(kelly, max_kelly))
-        
-                    bet_amt = int(kelly * balance)
-                    total_bet += bet_amt
-        
-                    bet_rows.append((v, bet_amt, edge, kelly, odds))
-        
-                if not bet_rows:
-                    st.warning("Edges too small after risk adjustment — no bet suggested.")
-                else:
-                    for v, amt, edge, kelly, odds in bet_rows:
-                        st.markdown(
-                            f"**{v}** — **{amt} 💎**  \n"
-                            f"Edge: {edge:.2%}, Kelly: {kelly:.3f}, Odds: {odds}x"
-                        )
-        
-                    st.markdown(
-                        f"**Total Bet:** {total_bet} 💎 "
-                        f"({total_bet / balance:.2%} of balance)"
-                    )
-        
-                    if total_bet / balance > 0.10:
-                        st.warning("High exposure this race (>10% of balance).")
-        
-        
+
+                # Simple Kelly (no volatility logic now)
+                v, edge, p, odds = top
+                kelly = 0.10 * edge
+                kelly = max(0.0, min(kelly, 0.10))
+
+                bet_amt = int(kelly * balance)
+
+                st.markdown(
+                    f"**{v}** — **{bet_amt} 💎**  \n"
+                    f"Edge: {edge:.2%}, Kelly: {kelly:.3f}, Odds: {odds}x"
+                )
+
+                st.markdown(
+                    f"**Total Bet:** {bet_amt} 💎 "
+                    f"({bet_amt / balance:.2%} of balance)"
+                )
+
+                if bet_amt / balance > 0.10:
+                    st.warning("High exposure this race (>10% of balance).")
+
         # -----------------------------------------------------
-        # MID‑LEFT: ⚡ Volatility & Safety
+        # MID‑RIGHT: ⚡ Safety Flags
         # -----------------------------------------------------
-        with col_left:
-            st.markdown("#### ⚡ Volatility & Safety")
-        
-            if vol_gap is not None:
-                st.write(f"Volatility Gap: **{vol_gap} pp**")
-            if vol_label is not None:
-                st.write(f"Market: **{vol_label}**")
-        
-            if bet_safety == "AVOID":
-                st.error("**AVOID** — Too volatile or low-confidence.")
-                st.caption("High volatility gap or weak probability separation.")
-                st.info("Soft cap active — bets limited to 1% exposure.")
-            elif bet_safety == "CAUTION":
-                st.warning("**CAUTION** — Edge exists but uncertainty is high.")
-                st.caption("Moderate volatility or inconsistent model agreement.")
-            elif bet_safety == "FAVORABLE":
-                st.success("**FAVORABLE** — Strong, stable edge detected.")
-                st.caption("Low volatility and strong probability separation.")
-            
+        with col_right:
+            st.markdown("#### ⚡ Safety Flags")
+
+            if chaos_triggered:
+                st.warning("Chaos Mode: SIM and ML strongly disagree.")
+
+            if soft_doubt:
+                st.info(f"Soft Doubt: Regret bucket `{regret_bucket}` (count={regret_count}).")
+
+            if vol_penalty:
+                st.warning("Volatility Penalty Applied.")
+
+            if cap_applied:
+                st.info("Final Probability Cap Applied.")
+
         # -----------------------------------------------------
         # 💎 Diamond Balance — Direct Edit Mode
         # -----------------------------------------------------
         with col_right:
             st.markdown("#### 💎 Diamond Balance")
-        
+
             if "diamond_balance" not in st.session_state:
                 st.session_state["diamond_balance"] = 10000
-        
+
             new_balance = st.number_input(
                 "Current Balance",
                 value=st.session_state["diamond_balance"],
@@ -2945,13 +2934,13 @@ with Q2:
                 format="%d",
                 key="diamond_balance_input"
             )
-        
+
             if st.button("Update Balance", key="btn_update_balance"):
                 st.session_state["diamond_balance"] = new_balance
                 st.success(f"Balance updated to {new_balance} 💎")
-        
+
             st.caption("Direct edit mode — no math, no buttons. Just set and update.")
-        
+
         # -----------------------------------------------------
         # DIAGNOSTICS (manual + cached)
         # -----------------------------------------------------
@@ -2965,12 +2954,12 @@ with Q2:
                     if agreement["divergent"]:
                         st.warning(
                             f"⚠️ **Model Divergence:** Physics → {agreement['sim_winner']}, "
-                            f"ML → {agreement['ml_winner']}. This race has higher uncertainty."
+                            f"ML → {agreement['ml_winner']}. Higher uncertainty."
                         )
                     else:
                         st.success("✅ Physics and ML agree on the winner.")
                 else:
-                    st.info("SIM/ML probability breakdown not available for this run.")
+                    st.info("SIM/ML probability breakdown not available.")
 
                 st.markdown("**Context snapshot:**")
                 st.json(diag["context_snapshot"])
@@ -2996,11 +2985,14 @@ with Q3:
     if prediction_available:
         res = st.session_state['res']
         ctx = res['ctx']
-        predicted = res['p']
+
+        # Displayed probabilities (what the gambler saw)
+        predicted = res['display_final_probs_pct']
         predicted_winner = max(predicted, key=predicted.get)
 
-        p_sim = res.get('p_sim', None)
-        p_ml = res.get('p_ml', None)
+        # SIM/ML component probabilities (if available)
+        p_sim = res.get('sim_probs_pct', None)
+        p_ml = res.get('ml_probs_pct', None)
 
         revealed_lap = ctx['idx']
         revealed_track = ctx['t']
@@ -3106,6 +3098,7 @@ with Q3:
 
             # Submit button
             save_clicked = st.form_submit_button("💾 Save & Train")
+
         # -----------------------------
         # SAVE LOGIC (SQLITE VERSION)
         # -----------------------------
@@ -3128,8 +3121,9 @@ with Q3:
                 st.error("All laps must have a track selected.")
                 st.stop()
         
-            st.session_state['last_train_probs'] = dict(predicted)
-        
+            # store probs used for training / inspection — use core truth, not display layer
+            st.session_state['last_train_probs'] = dict(res['core_final_probs_pct'])
+
             # ---------------------------------------------------------
             # Hidden-lap guess error (AI learning from mistakes)
             # ---------------------------------------------------------
@@ -3216,7 +3210,7 @@ with Q3:
                 'actual_winner': winner,
                 'lane': revealed_slot,
         
-                # Overall prob & correctness
+                # Overall prob & correctness (using display layer for user-facing surprise)
                 'top_prob': p1,
                 'was_correct': was_correct,
                 'surprise_index': surprise,
@@ -3510,7 +3504,7 @@ if history is not None and not history.empty:
     
         if 'res' in st.session_state:
             res = st.session_state['res']
-            vol = compute_volatility_from_probs(res['p'])
+            vol = compute_volatility_from_probs(res['display_final_probs_pct'])
     
             if vol:
                 st.metric("Volatility (Top - Second)", f"{vol['volatility']:.1f} pp")
@@ -3544,7 +3538,7 @@ if history is not None and not history.empty:
             c1, c2 = st.columns(2)
             with c1:
                 st.write("Original probabilities")
-                st.json(res['p'])
+                st.json(res['display_final_probs_pct'])
             with c2:
                 st.write(f"With {v_sel} speed x{mult:.2f}")
                 st.json(probs_whatif)
