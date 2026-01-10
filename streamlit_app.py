@@ -392,7 +392,7 @@ def get_vehicle_win_rate(
         return float(default_wr)
         
 def apply_sim_regime_calibration(
-    raw_probs: np.ndarray,
+    probs: np.ndarray,
     history_df: pd.DataFrame,
     lane: int,
     known_track: str,
@@ -405,7 +405,7 @@ def apply_sim_regime_calibration(
     lane: 1,2,3 (Lap 1/2/3 known)
     known_track: 'Bumpy', 'Desert', etc.
     """
-    probs = raw_probs.copy()
+    probs = probs.copy()
 
     # If no history or no SIM fields, return as-is
     if history_df is None or history_df.empty:
