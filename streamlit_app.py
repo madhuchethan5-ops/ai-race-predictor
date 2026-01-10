@@ -1147,10 +1147,48 @@ def init_ml_priors(history_df: pd.DataFrame):
     if "matchup_priors" not in st.session_state:
         st.session_state["matchup_priors"] = compute_matchup_priors(history_df)
 
+def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute leak-safe per-vehicle win rates.
+    For each row, the win rate of a vehicle is computed from all *previous* rows only.
+    This prevents future leakage into training.
+    """
 
-# ---------------------------------------------------------
-# 3. PRE-RACE TRAINING ROWS (ONE KNOWN LAP, PRIORS ONLY)
-# ---------------------------------------------------------
+    df = df.copy()
+    df["v1_win_rate"] = 1/3
+    df["v2_win_rate"] = 1/3
+    df["v3_win_rate"] = 1/3
+
+    # Running counters
+    win_counts = {}
+    race_counts = {}
+
+    rows = []
+    for idx, row in df.iterrows():
+        v1 = row["vehicle_1"]
+        v2 = row["vehicle_2"]
+        v3 = row["vehicle_3"]
+        winner = row["actual_winner"]
+
+        # Compute leak-safe win rates BEFORE updating with this row
+        def wr(v):
+            if race_counts.get(v, 0) == 0:
+                return 1/3
+            return win_counts.get(v, 0) / race_counts[v]
+
+        row["v1_win_rate"] = wr(v1)
+        row["v2_win_rate"] = wr(v2)
+        row["v3_win_rate"] = wr(v3)
+
+        rows.append(row)
+
+        # Update counters AFTER using the row
+        for v in [v1, v2, v3]:
+            race_counts[v] = race_counts.get(v, 0) + 1
+        win_counts[winner] = win_counts.get(winner, 0) + 1
+
+    return pd.DataFrame(rows)
+
 # =======================================================
 # OPTION B – FULL PRE-RACE TRAINING ROWS (SOFTMAX TARGET)
 # =======================================================
