@@ -2017,28 +2017,8 @@ def run_simulation(
     return sim_prob_dict, vpi
 
 # ---------------------------------------------------------
-# FULL PREDICTION ENGINE (NO UI) — WITH:
-# - SOFT ML CONFIDENCE CAP
-# - CHAOS DISAGREEMENT MODE (SIM vs ML)
-# - SOFT DOUBT RULE (uses regret_tracker)
+# CORE FULL PREDICTION ENGINE (NO UI)
 # ---------------------------------------------------------
-
-def soft_cap_ml_probs(ml_probs, cap_max=80.0):
-    """
-    Softly cap ML probabilities so that the max does not exceed cap_max (in percent),
-    while preserving the relative ratios between vehicles.
-    ml_probs is a dict {vehicle: prob_in_percent}.
-    """
-    if ml_probs is None:
-        return None
-
-    current_max = max(ml_probs.values())
-    if current_max <= cap_max:
-        return ml_probs
-
-    scale = cap_max / current_max
-    return {v: p * scale for v, p in ml_probs.items()}
-
 
 def run_full_prediction(
     v1_sel,
@@ -2050,39 +2030,36 @@ def run_full_prediction(
     user_vehicle_priors=None,
 ):
     """
-    Full engine: SIM + ML + blend + meta + Q2 diagnostics.
-    ML is prediction-only (no training here).
+    Core engine: SIM + ML + calibrated blend.
+    - SIM imagines geometry.
+    - ML uses pre-race-legal priors.
+    - Core final probabilities are NOT touched by safety hacks.
     """
 
     vehicles = [v1_sel, v2_sel, v3_sel]
 
     # ---------------------------------------------------------
-    # MODEL SKILL (FOR BLEND ADJUSTMENT)
-    # ---------------------------------------------------------
-    model_skill = compute_model_skill(history)
-    # expected keys: "sim_brier", "ml_brier", "n"
-
-    # ---------------------------------------------------------
-    # SIMULATION PROBABILITIES (0–1 in sim core)
+    # 1. SIMULATION PROBABILITIES (0–1 in sim core)
     # ---------------------------------------------------------
     sim_probs, vpi_res = run_simulation(
         v1_sel, v2_sel, v3_sel, k_idx, k_type, history
     )
-    # sim_probs: {vehicle: 0–1}
+    sim_probs_arr = None
     sim_probs_pct = None
+
     if sim_probs is not None:
-        sim_probs_pct = {v: float(sim_probs[v] * 100.0) for v in vehicles}
-
-    # Meta for current race context, built on SIM (0–1)
-    sim_meta_live = sim_meta_from_probs(sim_probs) if sim_probs is not None else None
+        sim_probs_arr = np.array([sim_probs[v] for v in vehicles], dtype=float)
+        if sim_probs_arr.sum() > 0:
+            sim_probs_arr = sim_probs_arr / sim_probs_arr.sum()
+        sim_probs_pct = {v: float(sim_probs_arr[i] * 100.0) for i, v in enumerate(vehicles)}
 
     # ---------------------------------------------------------
-    # ML PROBABILITIES (REAL-TIME SAFE: PREDICT-ONLY)
+    # 2. ML PROBABILITIES (CALIBRATED, 0–1)
     # ---------------------------------------------------------
-    ml_probs = None
-    p_ml_store = None
+    ml_probs_arr = None
+    ml_probs_pct = None
 
-    ml_model, n_samples = get_trained_model()  # accessor only, no training
+    ml_model, n_samples = get_trained_model()  # accessor only
 
     if ml_model is not None and n_samples > 0:
         X_curr = build_single_feature_row(
@@ -2093,145 +2070,202 @@ def run_full_prediction(
             k_type,
             history,
             user_vehicle_priors=user_vehicle_priors,
-            sim_meta_live=sim_meta_live,
+            sim_meta_live=None,  # ML no longer uses SIM features
         )
 
         raw_proba = ml_model.predict_proba(X_curr)[0]  # [p1, p2, p3] in 0–1
 
-        # Temperature scaling (calibration on history)
-        ml_temp = estimate_ml_temperature(history)
-        logits = np.log(np.clip(raw_proba, 1e-12, 1.0))
-        scaled_logits = logits / ml_temp
-        calib_proba = np.exp(scaled_logits)
-        calib_proba /= calib_proba.sum()
+        # Logistic calibration on top probability (if available)
+        calibrator = st.session_state.get("ml_calibrator")
+        if calibrator is not None:
+            top_idx = int(np.argmax(raw_proba))
+            top_prob = float(raw_proba[top_idx])
+            if top_prob > 0:
+                p_correct = calibrator.predict_proba([[top_prob]])[0, 1]
+                scale = p_correct / top_prob
+                raw_proba = raw_proba * scale
+                raw_proba = raw_proba / raw_proba.sum()
 
-        ml_probs = {
-            v1_sel: float(calib_proba[0] * 100.0),
-            v2_sel: float(calib_proba[1] * 100.0),
-            v3_sel: float(calib_proba[2] * 100.0),
-        }
-
-        # Soft cap ML confidence
-        ml_probs = soft_cap_ml_probs(ml_probs, cap_max=80.0)
-        p_ml_store = ml_probs
+        ml_probs_arr = raw_proba
+        ml_probs_pct = {v: float(ml_probs_arr[i] * 100.0) for i, v in enumerate(vehicles)}
 
     # ---------------------------------------------------------
-    # BASE BLEND (ML DOMINANT, THEN ADJUSTED BY SKILL)
+    # 3. FIXED, HONEST BLEND (0–1 SPACE)
     # ---------------------------------------------------------
-    blend_weight = 0.55   # 55% ML, 45% SIM baseline
-    improvement_clipped = 0.0
+    alpha_sim = 0.40
+    alpha_ml = 0.60
     
-    if ml_probs is not None and model_skill is not None:
-        sim_brier = model_skill.get("sim_brier", np.nan)
-        ml_brier = model_skill.get("ml_brier", np.nan)
-        n_skill = model_skill.get("n", 0)
-    
-        if (
-            n_skill >= 25
-            and np.isfinite(sim_brier)
-            and np.isfinite(ml_brier)
-            and sim_brier > 0
-        ):
-            improvement = (sim_brier - ml_brier) / max(sim_brier, 1e-8)
-            # ML can be at most 15% better/worse in relative Brier
-            improvement_clipped = float(np.clip(improvement, -0.15, 0.15))
-            # Shift around 0.55 with a smaller swing
-            blend_weight = 0.55 + 0.10 * improvement_clipped
-    
-    # Final clamp: ML share in [0.40, 0.65]
-    blend_weight = float(np.clip(blend_weight, 0.40, 0.65))
-    # ---------------------------------------------------------
-    # INITIAL BLENDED PROBS (PERCENT SPACE)
-    # ---------------------------------------------------------
-    if ml_probs is not None and sim_probs_pct is not None:
-        blended_probs = {
-            v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs_pct[v]
-            for v in vehicles
-        }
-    elif ml_probs is not None:
-        blended_probs = ml_probs
-    elif sim_probs_pct is not None:
-        blended_probs = sim_probs_pct
+    if (sim_probs_arr is not None) and (ml_probs_arr is not None):
+        core_arr = alpha_sim * sim_probs_arr + alpha_ml * ml_probs_arr
+    elif ml_probs_arr is not None:
+        core_arr = ml_probs_arr
+    elif sim_probs_arr is not None:
+        core_arr = sim_probs_arr
     else:
-        blended_probs = {
-            v1_sel: 33.33,
-            v2_sel: 33.33,
-            v3_sel: 33.33,
-        }
+        core_arr = np.array([1/3, 1/3, 1/3], dtype=float)
+    
+    if core_arr.sum() > 0:
+        core_arr = core_arr / core_arr.sum()
+    
+    core_final_probs_pct = {v: float(core_arr[i] * 100.0) for i, v in enumerate(vehicles)}
+    
+    # ---------------------------------------------------------
+    # 4. SAFETY LAYER (DISPLAY-ONLY MODIFICATIONS)
+    # ---------------------------------------------------------
+    display_final_probs_pct, safety_meta = apply_safety_layer(
+        core_final_probs_pct,
+        sim_probs_pct,
+        ml_probs_pct,
+        k_type,
+        k_idx,
+        history,
+    )
 
     # ---------------------------------------------------------
-    # SOFT DOUBT RULE (AFTER BASE BLEND)
+    # 5. WINNER SELECTION (BOTH CORE AND DISPLAY)
     # ---------------------------------------------------------
-    soft_doubt_applied = False
-    regret_bucket = None
-    regret_count = 0
+    core_winner = max(core_final_probs_pct, key=core_final_probs_pct.get)
+    core_conf = core_final_probs_pct[core_winner]
 
-    if ml_probs is not None and sim_probs_pct is not None:
-        candidate_winner = max(blended_probs, key=blended_probs.get)
+    display_winner = max(display_final_probs_pct, key=display_final_probs_pct.get)
+    display_conf = display_final_probs_pct[display_winner]
+
+    result = {
+        # core truth (for logging, Brier, calibration)
+        "core_final_probs_pct": core_final_probs_pct,
+        "core_winner": core_winner,
+        "core_confidence": core_conf,
+
+        # display (after safety tweaks)
+        "display_final_probs_pct": display_final_probs_pct,
+        "display_winner": display_winner,
+        "display_confidence": display_conf,
+
+        # raw components
+        "sim_probs_pct": sim_probs_pct,
+        "ml_probs_pct": ml_probs_pct,
+        "alpha_sim": alpha_sim,
+        "alpha_ml": alpha_ml,
+
+        # meta / diagnostics
+        "safety_meta": safety_meta,
+        "vpi": vpi_res,
+    }
+
+    return result
+
+
+# ---------------------------------------------------------
+# SAFETY LAYER (CHAOS, REGRET, VOLATILITY, CAPS)
+# ---------------------------------------------------------
+
+def apply_safety_layer(
+    core_probs_pct: dict,
+    sim_probs_pct: dict | None,
+    ml_probs_pct: dict | None,
+    k_type: str,
+    k_idx: int,
+    history_df: pd.DataFrame,
+):
+    """
+    Apply non-core, user-facing safety adjustments:
+    - soft doubt via regret_tracker (more SIM-heavy blend in painful buckets)
+    - chaos squeezing (reduce gap between top and mid when SIM/ML confident & disagree)
+    - terrain-volatility penalty
+    - global final cap
+
+    This ONLY modifies the DISPLAYED probabilities, not the core_truth.
+    """
+
+    # Start from core truth as baseline for display
+    display_probs = core_probs_pct.copy()
+    vehicles = list(display_probs.keys())
+
+    # Safety meta info for UI / debug
+    safety_meta = {
+        "soft_doubt_applied": False,
+        "regret_bucket": None,
+        "regret_count": 0,
+        "chaos_triggered": False,
+        "volatility_penalty_applied": False,
+        "final_cap_applied": False,
+    }
+
+    # ---------------------------------------------------------
+    # 1. SOFT DOUBT VIA REGRET BUCKET (TILT TOWARDS SIM)
+    # ---------------------------------------------------------
+    if sim_probs_pct is not None and ml_probs_pct is not None:
+        candidate_winner = max(display_probs, key=display_probs.get)
         dominant_terrain = k_type
         regret_bucket = f"{candidate_winner}|{dominant_terrain}"
 
         regret_tracker = st.session_state.get("regret_tracker", {})
         regret_count = regret_tracker.get(regret_bucket, 0)
 
+        safety_meta["regret_bucket"] = regret_bucket
+        safety_meta["regret_count"] = regret_count
+
         if regret_count >= 3:
-            soft_doubt_applied = True
-            blend_weight = max(blend_weight - 0.05, 0.40)
-            blended_probs = {
-                v: blend_weight * ml_probs[v] + (1.0 - blend_weight) * sim_probs_pct[v]
-                for v in vehicles
+            safety_meta["soft_doubt_applied"] = True
+
+            # More SIM-heavy blend for display only
+            sim_vec = np.array([sim_probs_pct[v] for v in vehicles], dtype=float)
+            ml_vec = np.array([ml_probs_pct[v] for v in vehicles], dtype=float)
+
+            if sim_vec.sum() > 0:
+                sim_vec /= sim_vec.sum()
+            if ml_vec.sum() > 0:
+                ml_vec /= ml_vec.sum()
+
+            alpha_sim_safe = 0.75
+            alpha_ml_safe = 0.25
+
+            safe_arr = alpha_sim_safe * sim_vec + alpha_ml_safe * ml_vec
+            if safe_arr.sum() > 0:
+                safe_arr /= safe_arr.sum()
+
+            display_probs = {v: float(safe_arr[i] * 100.0) for i, v in enumerate(vehicles)}
+
+    # ---------------------------------------------------------
+    # 2. CHAOS DISAGREEMENT SQUEEZING (TOP VS MID GAP)
+    # ---------------------------------------------------------
+    if sim_probs_pct is not None and ml_probs_pct is not None:
+        sim_vec = np.array([sim_probs_pct[v] for v in vehicles], dtype=float)
+        ml_vec = np.array([ml_probs_pct[v] for v in vehicles], dtype=float)
+
+        sim_vec /= max(sim_vec.sum(), 1e-12)
+        ml_vec /= max(ml_vec.sum(), 1e-12)
+
+        sim_top_idx = int(np.argmax(sim_vec))
+        ml_top_idx = int(np.argmax(ml_vec))
+        sim_top = float(sim_vec[sim_top_idx])
+        ml_top = float(ml_vec[ml_top_idx])
+
+        if sim_top > 0.70 and ml_top > 0.70 and sim_top_idx != ml_top_idx:
+            safety_meta["chaos_triggered"] = True
+
+            # Squash top vs mid gap in display_probs, keep ordering
+            ordered = sorted(display_probs.items(), key=lambda x: x[1], reverse=True)
+            (v_top, p_top), (v_mid, p_mid), (v_low, p_low) = ordered
+
+            gap = p_top - p_mid
+            reduced_gap = 0.60 * gap  # 60% of original gap
+
+            new_p_top = p_mid + reduced_gap
+            new_p_mid = p_mid
+            new_p_low = p_low
+
+            total = new_p_top + new_p_mid + new_p_low
+            scale = 100.0 / total if total > 0 else 1.0
+
+            display_probs = {
+                v_top: new_p_top * scale,
+                v_mid: new_p_mid * scale,
+                v_low: new_p_low * scale,
             }
 
-    final_probs = blended_probs
-
     # ---------------------------------------------------------
-    # CHAOS DISAGREEMENT MODE
-    # ---------------------------------------------------------
-    sim_top_prob = None
-    sim_winner = None
-    if sim_probs_pct is not None:
-        sim_winner = max(sim_probs_pct, key=sim_probs_pct.get)
-        sim_top_prob = sim_probs_pct[sim_winner]
-
-    ml_top_prob = None
-    ml_winner = None
-    if ml_probs is not None:
-        ml_winner = max(ml_probs, key=ml_probs.get)
-        ml_top_prob = ml_probs[ml_winner]
-
-    chaos_triggered_flag = False
-
-    if (
-        sim_top_prob is not None
-        and ml_top_prob is not None
-        and sim_top_prob > 70.0
-        and ml_top_prob > 70.0
-        and sim_winner != ml_winner
-    ):
-        chaos_triggered_flag = True
-
-        # Squash top vs mid gap, keep ordering
-        ordered = sorted(final_probs.items(), key=lambda x: x[1], reverse=True)
-        (v_top, p_top), (v_mid, p_mid), (v_low, p_low) = ordered
-
-        gap = p_top - p_mid
-        reduced_gap = 0.60 * gap
-
-        new_p_top = p_mid + reduced_gap
-        new_p_mid = p_mid
-        new_p_low = p_low
-
-        total = new_p_top + new_p_mid + new_p_low
-        scale = 100.0 / total if total > 0 else 1.0
-
-        final_probs = {
-            v_top: new_p_top * scale,
-            v_mid: new_p_mid * scale,
-            v_low: new_p_low * scale,
-        }
-    
-    # ---------------------------------------------------------
-    # TERRAIN-VOLATILITY CONFIDENCE PENALTY (percent space)
+    # 3. TERRAIN-VOLATILITY CONFIDENCE PENALTY
     # ---------------------------------------------------------
     terrain_volatility = {
         "Expressway": {1: 15.53, 2: 18.43, 3: 13.93},
@@ -2246,35 +2280,40 @@ def run_full_prediction(
     vol = terrain_volatility.get(k_type, {}).get(revealed_lap, 14.0)
 
     max_stddev = 18.5
-    penalty_strength = vol / max_stddev        # 0.60 → 1.00
+    penalty_strength = vol / max_stddev        # ~0.6–1.0
     penalty = 1.0 - 0.25 * penalty_strength    # up to -25% confidence
 
-    top_vehicle = max(final_probs, key=final_probs.get)
-    penalized_top = final_probs[top_vehicle] * penalty
+    top_vehicle = max(display_probs, key=display_probs.get)
+    penalized_top = display_probs[top_vehicle] * penalty
 
-    others = {v: p for v, p in final_probs.items() if v != top_vehicle}
+    others = {v: p for v, p in display_probs.items() if v != top_vehicle}
     total = penalized_top + sum(others.values())
 
     if total > 0:
-        final_probs = {
+        safety_meta["volatility_penalty_applied"] = True
+        display_probs = {
             top_vehicle: (penalized_top / total) * 100.0,
-            **{v: (p / total) * 100.0 for v, p in others.items()}
+            **{v: (p / total) * 100.0 for v, p in others.items()},
         }
 
     # ---------------------------------------------------------
-    # GLOBAL FINAL PROBABILITY CAP (percent space)
+    # 4. GLOBAL DISPLAY CAP
     # ---------------------------------------------------------
     max_cap = 75.0
+    mx = max(display_probs.values())
 
-    mx = max(final_probs.values())
     if mx > max_cap:
+        safety_meta["final_cap_applied"] = True
+
         scale = max_cap / mx
-        capped = {v: p * scale for v, p in final_probs.items()}
+        capped = {v: p * scale for v, p in display_probs.items()}
         total = sum(capped.values())
         if total > 0:
             capped = {v: (p / total) * 100.0 for v, p in capped.items()}
-        final_probs = capped
+        display_probs = capped
 
+    return display_probs, safety_meta
+    
     # ---------------------------------------------------------
     # Q2 EXTRA DIAGNOSTICS (VOLATILITY, SAFETY, TV MATRIX, HIDDEN LAPS, REGRET)
     # ---------------------------------------------------------
