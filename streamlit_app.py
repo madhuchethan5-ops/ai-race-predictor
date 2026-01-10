@@ -2130,6 +2130,21 @@ def run_full_prediction(
     display_winner = max(display_final_probs_pct, key=display_final_probs_pct.get)
     display_conf = display_final_probs_pct[display_winner]
 
+    # ---------------------------------------------------------
+    # 6. CONTEXT (for UI, logging, hidden-lap logic)
+    # ---------------------------------------------------------
+    slot_label = f"Lap {k_idx + 1}"
+    ctx = {
+        "idx": k_idx,
+        "t": k_type,
+        "slot": slot_label,
+        "v": vehicles,
+    }
+
+    # (Optional) hidden-lap guess integration if you use it elsewhere
+    # hidden_guess = estimate_hidden_laps(ctx, hidden_stats, TRACK_OPTIONS)
+    hidden_guess = None  # keep None if not wired yet
+
     result = {
         # core truth (for logging, Brier, calibration)
         "core_final_probs_pct": core_final_probs_pct,
@@ -2150,10 +2165,16 @@ def run_full_prediction(
         # meta / diagnostics
         "safety_meta": safety_meta,
         "vpi": vpi_res,
+
+        # context for UI / analytics
+        "ctx": ctx,
+        "vehicles": vehicles,
+        "terrain": k_type,
+        "lap_index": k_idx,
+        "hidden_guess": hidden_guess,
     }
 
     return result
-
 
 # ---------------------------------------------------------
 # SAFETY LAYER (CHAOS, REGRET, VOLATILITY, CAPS)
