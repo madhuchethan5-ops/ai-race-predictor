@@ -925,6 +925,10 @@ def sim_meta_from_probs(sim_probs: dict):
 # ---------------------------------------------------------
 # 4. ML FEATURE ENGINEERING (LEAK-SAFE) + TRAINING
 # ---------------------------------------------------------
+
+# ---------------------------------------------------------
+# 1. GLOBAL VEHICLE WIN-RATE (OPTIONAL / UNUSED BUT SAFE)
+# ---------------------------------------------------------
 def compute_global_vehicle_win_rates(df: pd.DataFrame) -> dict:
     """
     Compute global win-rate priors for all vehicles in history_df.
@@ -944,124 +948,138 @@ def compute_global_vehicle_win_rates(df: pd.DataFrame) -> dict:
 
     return {v: counts[v] / total for v in counts}
 
-def compute_global_transition_entropy(df: pd.DataFrame) -> float:
+
+# ---------------------------------------------------------
+# 2. OFFLINE PRIORS: TERRAIN, LANE, MATCHUP
+# ---------------------------------------------------------
+def compute_vehicle_terrain_priors(history_df: pd.DataFrame) -> dict:
     """
-    Compute a global transition entropy prior from history_df.
-    Returns a single float.
+    P(vehicle wins | known terrain in revealed lap).
+    Returns: {terrain: {vehicle: win_rate}}
     """
-    entropies = []
+    stats = {}
 
-    for _, row in df.iterrows():
-        # If you have per-lap entropies, use them
-        for col in ["hidden_track_error_l1", "hidden_track_error_l2", "hidden_track_error_l3"]:
-            val = row.get(col)
-            if val is not None and not pd.isna(val):
-                entropies.append(val)
+    for _, row in history_df.iterrows():
+        lane = row.get("lane")
+        winner = row.get("actual_winner")
+        if not lane or not winner:
+            continue
 
-    if not entropies:
-        return 1.0  # safe neutral fallback
+        if lane == "Lap 1":
+            t = row.get("lap_1_track")
+        elif lane == "Lap 2":
+            t = row.get("lap_2_track")
+        elif lane == "Lap 3":
+            t = row.get("lap_3_track")
+        else:
+            continue
 
-    return float(np.mean(entropies))
+        if not t or pd.isna(t):
+            continue
 
-def estimate_ml_temperature(history_df: pd.DataFrame, calib_min_hist: int = 50) -> float:
-    cols = ["ml_top_prob", "ml_was_correct"]
-    if history_df is None or history_df.empty or not all(c in history_df.columns for c in cols):
-        return 1.0
+        stats.setdefault(t, {"wins": {}, "races": 0})
+        stats[t]["races"] += 1
+        stats[t]["wins"][winner] = stats[t]["wins"].get(winner, 0) + 1
 
-    recent = history_df.dropna(subset=cols).tail(200)
-    if len(recent) < calib_min_hist:
-        return 1.0
+    priors = {}
+    for terrain, s in stats.items():
+        total = s["races"]
+        if total <= 0:
+            continue
+        wins = s["wins"]
+        priors[terrain] = {v: wins.get(v, 0) / total for v in wins.keys()}
 
-    avg_conf = recent["ml_top_prob"].mean()
-    avg_acc = recent["ml_was_correct"].mean()
-    if avg_conf <= 0 or avg_acc <= 0:
-        return 1.0
+    return priors
 
-    calib_error = abs(avg_conf - avg_acc)
-    temp = float(np.clip(1.0 + calib_error * 2.0, 0.8, 2.0))
-    return temp
 
-def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
+def compute_vehicle_lane_priors(history_df: pd.DataFrame) -> dict:
     """
-    Adds leak-safe per-vehicle historical win rates.
-
-    Expects df to already use snake_case columns:
-    - timestamp
-    - vehicle_1, vehicle_2, vehicle_3
-    - actual_winner
+    P(vehicle wins | revealed lane).
+    Returns: {lane: {vehicle: win_rate}}
     """
-    df = df.copy()
+    stats = {}
 
-    if "timestamp" not in df.columns:
-        df["timestamp"] = pd.Timestamp.now()
+    for _, row in history_df.iterrows():
+        lane = row.get("lane")
+        winner = row.get("actual_winner")
+        if not lane or not winner:
+            continue
 
-    df = df.sort_values("timestamp").reset_index(drop=True)
-    win_counts = {}
-    race_counts = {}
+        stats.setdefault(lane, {"wins": {}, "races": 0})
+        stats[lane]["races"] += 1
+        stats[lane]["wins"][winner] = stats[lane]["wins"].get(winner, 0) + 1
 
-    v1_rates, v2_rates, v3_rates = [], [], []
+    priors = {}
+    for lane, s in stats.items():
+        total = s["races"]
+        if total <= 0:
+            continue
+        wins = s["wins"]
+        priors[lane] = {v: wins.get(v, 0) / total for v in wins.keys()}
 
-    for _, row in df.iterrows():
-        def rate(v):
-            rc = race_counts.get(v, 0)
-            wc = win_counts.get(v, 0)
-            if rc > 0:
-                return wc / rc
-            return 0.33
+    return priors
 
-        v1_rates.append(rate(row["vehicle_1"]))
-        v2_rates.append(rate(row["vehicle_2"]))
-        v3_rates.append(rate(row["vehicle_3"]))
 
-        for v in [row["vehicle_1"], row["vehicle_2"], row["vehicle_3"]]:
-            if pd.notna(v):
-                race_counts[v] = race_counts.get(v, 0) + 1
-        w = row["actual_winner"]
-        if pd.notna(w):
-            win_counts[w] = win_counts.get(w, 0) + 1
-
-    # snake_case internal feature names
-    df["v1_win_rate"] = v1_rates
-    df["v2_win_rate"] = v2_rates
-    df["v3_win_rate"] = v3_rates
-    return df
-
-def compute_live_vehicle_win_rates(history_df: pd.DataFrame, v1: str, v2: str, v3: str):
+def compute_matchup_priors(history_df: pd.DataFrame) -> dict:
     """
-    Compute per-vehicle win rates from full history, leak-safe style.
-    Used for live feature building so it matches training semantics.
+    P(vehicle wins | (v1, v2, v3) matchup).
+    Returns: { (v1,v2,v3 sorted tuple): {vehicle: win_rate} }
+    """
+    from collections import Counter
+
+    stats = {}
+
+    for _, row in history_df.iterrows():
+        v1 = row.get("vehicle_1")
+        v2 = row.get("vehicle_2")
+        v3 = row.get("vehicle_3")
+        winner = row.get("actual_winner")
+
+        if not v1 or not v2 or not v3 or not winner:
+            continue
+
+        key = tuple(sorted([v1, v2, v3]))
+        stats.setdefault(key, {"wins": Counter(), "races": 0})
+        stats[key]["races"] += 1
+        stats[key]["wins"][winner] += 1
+
+    priors = {}
+    for key, s in stats.items():
+        total = s["races"]
+        if total <= 0:
+            continue
+        priors[key] = {v: s["wins"][v] / total for v in s["wins"].keys()}
+
+    return priors
+
+
+def init_ml_priors(history_df: pd.DataFrame):
+    """
+    Compute and cache terrain, lane, and matchup priors in session_state.
+    Call this before building training rows.
     """
     if history_df is None or history_df.empty:
-        return 0.33, 0.33, 0.33
+        return
 
-    df = history_df.copy()
-    df = df.sort_values("timestamp").reset_index(drop=True)
+    if "veh_terrain_priors" not in st.session_state:
+        st.session_state["veh_terrain_priors"] = compute_vehicle_terrain_priors(history_df)
 
-    win_counts = {}
-    race_counts = {}
+    if "veh_lane_priors" not in st.session_state:
+        st.session_state["veh_lane_priors"] = compute_vehicle_lane_priors(history_df)
 
-    for _, row in df.iterrows():
-        vs = [row.get("vehicle_1"), row.get("vehicle_2"), row.get("vehicle_3")]
-        for v in vs:
-            if pd.notna(v):
-                race_counts[v] = race_counts.get(v, 0) + 1
-        w = row.get("actual_winner")
-        if pd.notna(w):
-            win_counts[w] = win_counts.get(w, 0) + 1
+    if "matchup_priors" not in st.session_state:
+        st.session_state["matchup_priors"] = compute_matchup_priors(history_df)
 
-    def rate(v):
-        rc = race_counts.get(v, 0)
-        wc = win_counts.get(v, 0)
-        if rc > 0:
-            return wc / rc
-        return 0.33
 
-    return rate(v1), rate(v2), rate(v3)
-
+# ---------------------------------------------------------
+# 3. PRE-RACE TRAINING ROWS (ONE KNOWN LAP, PRIORS ONLY)
+# ---------------------------------------------------------
 def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Transform full-history rows (3 laps known) into pre-race-style rows
-    using the same logic as build_single_feature_row.
+    Transform full-history rows (all laps known) into pre-race-style rows:
+    - Only the revealed lap's terrain is treated as known.
+    - Other laps are effectively "Unknown" from ML's perspective.
+    - Features: vehicles, lane, priors (vehicle, terrain, lane, matchup), winner_idx.
     """
 
     st.write("🔍 Starting build_pre_race_training_rows with", len(history_df), "rows")
@@ -1070,29 +1088,18 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
         st.write("❌ history_df is empty")
         return pd.DataFrame()
 
-    # ---------------------------------------------------------
-    # GLOBAL PRIORS
-    # ---------------------------------------------------------
-    if "global_wr_cache" not in st.session_state:
-        st.session_state.global_wr_cache = compute_global_vehicle_win_rates(history_df)
+    # Ensure priors are available
+    init_ml_priors(history_df)
 
-    if "global_trans_entropy_cache" not in st.session_state:
-        st.session_state.global_trans_entropy_cache = compute_global_transition_entropy(history_df)
-
-    global_wr = st.session_state.global_wr_cache
-    global_trans_entropy = st.session_state.global_trans_entropy_cache
+    terrain_priors = st.session_state.get("veh_terrain_priors", {})
+    lane_priors = st.session_state.get("veh_lane_priors", {})
+    matchup_priors = st.session_state.get("matchup_priors", {})
 
     rows = []
 
-    # ---------------------------------------------------------
-    # MAIN LOOP
-    # ---------------------------------------------------------
     for _, row in history_df.iterrows():
         try:
-
-            # -------------------------
             # Basic sanity
-            # -------------------------
             if any(col not in row for col in ["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"]):
                 st.write("❌ Missing vehicle/winner columns for row id:", row.get("id"))
                 continue
@@ -1102,95 +1109,64 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
             v3 = row["vehicle_3"]
             winner = row["actual_winner"]
 
-            # -------------------------
-            # Determine revealed lap
-            # -------------------------
+            if pd.isna(v1) or pd.isna(v2) or pd.isna(v3) or pd.isna(winner):
+                continue
+
+            # Determine revealed lap + known terrain
             lane = row.get("lane", None)
 
             if lane == "Lap 1":
                 k_idx = 0
-                k_type = row.get("lap_1_track", "Unknown")
+                known_terrain = row.get("lap_1_track", "Unknown")
             elif lane == "Lap 2":
                 k_idx = 1
-                k_type = row.get("lap_2_track", "Unknown")
+                known_terrain = row.get("lap_2_track", "Unknown")
             elif lane == "Lap 3":
                 k_idx = 2
-                k_type = row.get("lap_3_track", "Unknown")
+                known_terrain = row.get("lap_3_track", "Unknown")
             else:
                 st.write("❌ Skipped due to invalid lane:", row.get("id"), "lane=", lane)
                 continue
 
-            # -------------------------
-            # SIM meta (historical)
-            # -------------------------
-            sim_meta_live = None
-            if all(col in row for col in ["Win_Prob_1", "Win_Prob_2", "Win_Prob_3"]):
-                sim_probs_hist = {
-                    v1: row["Win_Prob_1"],
-                    v2: row["Win_Prob_2"],
-                    v3: row["Win_Prob_3"],
-                }
-                sim_meta_live = sim_meta_from_probs(sim_probs_hist)
+            if pd.isna(known_terrain):
+                known_terrain = "Unknown"
 
-            # -------------------------
-            # Build feature row from live builder
-            # -------------------------
-            feat_row = build_single_feature_row(
-                v1, v2, v3,
-                k_idx, k_type,
-                history_df,
-                user_vehicle_priors=None,
-                sim_meta_live=sim_meta_live,
-            )
+            # Build base row dict (pre-race legal fields only)
+            row_dict = {
+                "vehicle_1": v1,
+                "vehicle_2": v2,
+                "vehicle_3": v3,
+                "lane": lane,
+                "known_terrain": known_terrain,
+                "known_lap_idx": k_idx,
+            }
 
-            # If the feature builder ever failed (it currently doesn't), rebuild using REAL row data
-            if feat_row is None:
-                st.write("⚠️ build_single_feature_row failed for id:", row.get("id"), "— rebuilding safely")
-                feat_row = {
-                    "vehicle_1": v1,
-                    "vehicle_2": v2,
-                    "vehicle_3": v3,
-                    "lap_1_track": row.get("lap_1_track", "Unknown"),
-                    "lap_2_track": row.get("lap_2_track", "Unknown"),
-                    "lap_3_track": row.get("lap_3_track", "Unknown"),
-                    "lap_1_len": row.get("lap_1_len", 0),
-                    "lap_2_len": row.get("lap_2_len", 0),
-                    "lap_3_len": row.get("lap_3_len", 0),
-                    "lane": row.get("lane", "Lap 1"),
-                    "geom_lap1_mean": row.get("geom_lap1_mean", 0),
-                    "geom_lap2_mean": row.get("geom_lap2_mean", 0),
-                    "geom_lap3_mean": row.get("geom_lap3_mean", 0),
-                    "geom_lap1_std": row.get("geom_lap1_std", 0),
-                    "geom_lap2_std": row.get("geom_lap2_std", 0),
-                    "geom_lap3_std": row.get("geom_lap3_std", 0),
-                    "geom_range": row.get("geom_range", 0),
-                    "geom_split_flag": row.get("geom_split_flag", 0),
-                    "trans_entropy_l1": global_trans_entropy,
-                    "trans_entropy_l2": global_trans_entropy,
-                    "trans_entropy_l3": global_trans_entropy,
-                    "sim_top_prob": row.get("Win_Prob_1", 33.33),
-                    "sim_second_prob": row.get("Win_Prob_2", 33.33),
-                    "sim_margin": abs(row.get("Win_Prob_1", 33.33) - row.get("Win_Prob_2", 33.33)),
-                    "sim_entropy": 1.10,
-                    "sim_volatility": 0,
-                    "v1_win_rate": global_wr.get(v1, 0.33),
-                    "v2_win_rate": global_wr.get(v2, 0.33),
-                    "v3_win_rate": global_wr.get(v3, 0.33),
-                    "high_speed_share": row.get("high_speed_share", 0),
-                    "rough_share": row.get("rough_share", 0),
-                }
+            # Vehicle global priors (from your DEFAULT_VEHICLE_PRIORS)
+            # user_vehicle_priors=None for training; live will pass real user priors.
+            row_dict["v1_wr_prior"] = get_vehicle_win_rate(v1, user_priors=None, default_priors=DEFAULT_VEHICLE_PRIORS)
+            row_dict["v2_wr_prior"] = get_vehicle_win_rate(v2, user_priors=None, default_priors=DEFAULT_VEHICLE_PRIORS)
+            row_dict["v3_wr_prior"] = get_vehicle_win_rate(v3, user_priors=None, default_priors=DEFAULT_VEHICLE_PRIORS)
 
-            # -------------------------
-            # Convert feat_row to a dict
-            # -------------------------
-            if isinstance(feat_row, pd.DataFrame):
-                row_dict = feat_row.iloc[0].to_dict()
-            else:
-                row_dict = dict(feat_row)
+            # Terrain priors
+            tmap = terrain_priors.get(known_terrain, {})
+            row_dict["v1_terrain_wr"] = tmap.get(v1, 0.33)
+            row_dict["v2_terrain_wr"] = tmap.get(v2, 0.33)
+            row_dict["v3_terrain_wr"] = tmap.get(v3, 0.33)
 
-            # -------------------------
+            # Lane priors
+            lmap = lane_priors.get(lane, {})
+            row_dict["v1_lane_wr"] = lmap.get(v1, 0.33)
+            row_dict["v2_lane_wr"] = lmap.get(v2, 0.33)
+            row_dict["v3_lane_wr"] = lmap.get(v3, 0.33)
+
+            # Matchup priors (optional)
+            mkey = tuple(sorted([v1, v2, v3]))
+            mmap = matchup_priors.get(mkey, {})
+            row_dict["v1_matchup_wr"] = mmap.get(v1, 0.33)
+            row_dict["v2_matchup_wr"] = mmap.get(v2, 0.33)
+            row_dict["v3_matchup_wr"] = mmap.get(v3, 0.33)
+
             # Winner index (target)
-            # -------------------------
             vs = [v1, v2, v3]
             if winner not in vs:
                 st.write("❌ Skipped due to winner mismatch:", row.get("id"), "winner=", winner, "vs=", vs)
@@ -1198,34 +1174,14 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
 
             row_dict["winner_idx"] = vs.index(winner)
 
-            # -------------------------
-            # SAFE GEOMETRY DEFAULTS
-            # -------------------------
-            geom_defaults = {
-                "geom_lap1_mean": 0,
-                "geom_lap2_mean": 0,
-                "geom_lap3_mean": 0,
-                "geom_lap1_std": 0,
-                "geom_lap2_std": 0,
-                "geom_lap3_std": 0,
-                "geom_range": 0,
-                "geom_split_flag": 0,
-            }
-            for col, val in geom_defaults.items():
-                if col not in row_dict or pd.isna(row_dict[col]):
-                    row_dict[col] = val
-
             rows.append(row_dict)
 
-        except Exception as e:
+        except Exception:
             import traceback
             st.write("❌ Row failed with exception:")
             st.write(traceback.format_exc())
             continue
 
-    # ---------------------------------------------------------
-    # END OF LOOP
-    # ---------------------------------------------------------
     st.write("✅ Finished build_pre_race_training_rows — built", len(rows), "rows")
 
     if not rows:
@@ -1233,154 +1189,63 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame(rows)
 
+
+# ---------------------------------------------------------
+# 4. BUILD TRAINING DATA (NO FALLBACK, NO ILLEGAL FEATURES)
+# ---------------------------------------------------------
 def build_training_data(history_df: pd.DataFrame):
     """
-    Build ML training data.
-
-    1) First, try the full pre-race, 1-known-lap regime via build_pre_race_training_rows.
-    2) If that yields 0 rows (for any reason), FALL BACK to a simpler,
-       leak-safe, history-based training set so ML never trains on 0 samples.
+    Build ML training data using ONLY pre-race-style rows.
+    No fallback, no geometry, no SIM, no entropy, no noisy win-rates.
     """
     if history_df is None or history_df.empty:
         return None, None, None, None
 
-    # ---------------------------------------------------------
-    # PRIMARY PATH: your existing pre-race regime
-    # ---------------------------------------------------------
     df = build_pre_race_training_rows(history_df)
-    if df is not None and not df.empty:
-        st.write("✅ pre_race rows (primary):", len(df))
-
-        y = df["winner_idx"].astype(int)
-
-        feature_cols = [
-            "vehicle_1", "vehicle_2", "vehicle_3",
-            "lap_1_track", "lap_2_track", "lap_3_track",
-            "lap_1_len", "lap_2_len", "lap_3_len",
-            "lane",
-            "high_speed_share", "rough_share",
-            "v1_win_rate", "v2_win_rate", "v3_win_rate",
-            "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
-            "geom_lap1_std", "geom_lap2_std", "geom_lap3_std",
-            "geom_range", "geom_split_flag",
-            "sim_top_prob", "sim_second_prob", "sim_margin",
-            "sim_entropy", "sim_volatility",
-            "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
-        ]
-
-        cat_features = [
-            "vehicle_1", "vehicle_2", "vehicle_3",
-            "lap_1_track", "lap_2_track", "lap_3_track",
-            "lane",
-        ]
-
-        num_features = [
-            "lap_1_len", "lap_2_len", "lap_3_len",
-            "high_speed_share", "rough_share",
-            "v1_win_rate", "v2_win_rate", "v3_win_rate",
-            "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
-            "geom_lap1_std", "geom_lap2_std", "geom_lap3_std",
-            "geom_range", "geom_split_flag",
-            "sim_top_prob", "sim_second_prob", "sim_margin",
-            "sim_entropy", "sim_volatility",
-            "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
-        ]
-
-        # Keep only columns that actually exist (in case some are missing)
-        feature_cols = [c for c in feature_cols if c in df.columns]
-        cat_features = [c for c in cat_features if c in df.columns]
-        num_features = [c for c in num_features if c in df.columns]
-
-        if not feature_cols:
-            return None, None, None, None
-
-        X = df[feature_cols].copy()
-        sample_weights = np.ones(len(df), dtype=float)
-        st.write("✅ final ML samples (primary):", len(X))
-        return X, y, (cat_features, num_features), sample_weights
-
-    # ---------------------------------------------------------
-    # FALLBACK PATH: direct-from-history, leak-safe
-    # ---------------------------------------------------------
-    st.write("⚠️ pre_race builder produced 0 rows — using fallback history-based training")
-
-    df = history_df.copy()
-
-    required_cols = ["vehicle_1", "vehicle_2", "vehicle_3", "actual_winner"]
-    if not all(col in df.columns for col in required_cols):
+    if df is None or df.empty:
         return None, None, None, None
 
-    # Add leak-safe per-vehicle win rates
-    df = add_leakage_safe_win_rates(df)
+    st.write("✅ pre_race rows (primary):", len(df))
 
-    # Build target: winner_idx = index of actual_winner in [v1, v2, v3]
-    winner_idx_list = []
-    keep_mask = []
+    y = df["winner_idx"].astype(int)
 
-    for _, row in df.iterrows():
-        v1 = row["vehicle_1"]
-        v2 = row["vehicle_2"]
-        v3 = row["vehicle_3"]
-        winner = row["actual_winner"]
-
-        vs = [v1, v2, v3]
-        if winner not in vs:
-            keep_mask.append(False)
-            winner_idx_list.append(None)
-        else:
-            keep_mask.append(True)
-            winner_idx_list.append(vs.index(winner))
-
-    df = df.loc[keep_mask].reset_index(drop=True)
-    if df.empty:
-        return None, None, None, None
-
-    df["winner_idx"] = winner_idx_list
-    df = df.dropna(subset=["winner_idx"])
-    df["winner_idx"] = df["winner_idx"].astype(int)
-
-    # Features: use what actually exists
-    feature_cols = []
-
-    cat_features = []
-    for col in ["vehicle_1", "vehicle_2", "vehicle_3"]:
-        if col in df.columns:
-            feature_cols.append(col)
-            cat_features.append(col)
-
-    optional_cat = ["lap_1_track", "lap_2_track", "lap_3_track", "lane"]
-    for col in optional_cat:
-        if col in df.columns:
-            feature_cols.append(col)
-            cat_features.append(col)
-
-    num_features = []
-    optional_num = [
-        "lap_1_len", "lap_2_len", "lap_3_len",
-        "high_speed_share", "rough_share",
-        "v1_win_rate", "v2_win_rate", "v3_win_rate",
-        "geom_lap1_mean", "geom_lap2_mean", "geom_lap3_mean",
-        "geom_lap1_std", "geom_lap2_std", "geom_lap3_std",
-        "geom_range", "geom_split_flag",
-        "sim_top_prob", "sim_second_prob", "sim_margin",
-        "sim_entropy", "sim_volatility",
-        "trans_entropy_l1", "trans_entropy_l2", "trans_entropy_l3",
+    # Clean, fixed feature space
+    cat_features = [
+        "vehicle_1",
+        "vehicle_2",
+        "vehicle_3",
+        "known_terrain",
+        "lane",
     ]
-    for col in optional_num:
-        if col in df.columns:
-            feature_cols.append(col)
-            num_features.append(col)
+
+    num_features = [
+        "known_lap_idx",   # 0,1,2
+        "v1_wr_prior", "v2_wr_prior", "v3_wr_prior",
+        "v1_terrain_wr", "v2_terrain_wr", "v3_terrain_wr",
+        "v1_lane_wr", "v2_lane_wr", "v3_lane_wr",
+        "v1_matchup_wr", "v2_matchup_wr", "v3_matchup_wr",
+    ]
+
+    feature_cols = cat_features + num_features
+
+    # Ensure columns exist
+    feature_cols = [c for c in feature_cols if c in df.columns]
+    cat_features = [c for c in cat_features if c in df.columns]
+    num_features = [c for c in num_features if c in df.columns]
 
     if not feature_cols:
         return None, None, None, None
 
     X = df[feature_cols].copy()
-    y = df["winner_idx"].astype(int)
     sample_weights = np.ones(len(df), dtype=float)
 
-    st.write("✅ final ML samples (fallback):", len(X))
+    st.write("✅ final ML samples (primary):", len(X))
     return X, y, (cat_features, num_features), sample_weights
 
+
+# ---------------------------------------------------------
+# 5. TRAIN ML MODEL + CALIBRATOR
+# ---------------------------------------------------------
 def train_ml_model(history_df: pd.DataFrame):
     df_recent = history_df.copy()
 
@@ -1413,9 +1278,30 @@ def train_ml_model(history_df: pd.DataFrame):
 
     model.fit(X, y, clf__sample_weight=sample_weights)
 
-    st.write("✅ train_ml_model called")
+    # ---------------------------------------------
+    # CALIBRATION LAYER (LOGISTIC ON TOP PROB)
+    # ---------------------------------------------
+    proba = model.predict_proba(X)
+    top_idx = proba.argmax(axis=1)
+    top_prob = proba.max(axis=1)
+    was_correct = (top_idx == y).astype(int)
+
+    # Require a minimum number of calibration points
+    if n_samples >= 30:
+        calibrator = LogisticRegression()
+        calibrator.fit(top_prob.reshape(-1, 1), was_correct)
+        st.session_state["ml_calibrator"] = calibrator
+    else:
+        st.session_state["ml_calibrator"] = None
+
+    st.session_state["ml_model"] = model
+    st.session_state["ml_n_samples"] = n_samples
+    st.session_state["ml_feat_info"] = (cat_features, num_features)
+
+    st.write("✅ train_ml_model called, n_samples =", n_samples)
 
     return model, n_samples
+
 
 def get_trained_model(*args, **kwargs):
     """
@@ -1425,23 +1311,6 @@ def get_trained_model(*args, **kwargs):
     model = st.session_state.get("ml_model")
     n_samples = st.session_state.get("ml_n_samples", 0)
     return model, n_samples
-# ---------------------------------------------------------
-# BLEND WEIGHT HELPER (for debug panel + consistency)
-# ---------------------------------------------------------
-def compute_blend_weight(sim_top: float, ml_top: float) -> float:
-    """
-    Compute the ML blend weight using the same logic as run_full_prediction.
-    """
-    # Base weight from confidence gap
-    gap = ml_top - sim_top
-
-    # Start at 0.55 (balanced)
-    w = 0.55 + gap * 0.35
-
-    # Clamp to safe range
-    w = float(np.clip(w, 0.40, 0.75))
-
-    return w
 
 # ---------------------------------------------------------
 # BRIER SCORE HELPER (for debug panel + consistency)
@@ -1511,27 +1380,6 @@ def compute_chaos_mode(sim_probs, ml_probs):
     return chaos
 
 # ---------------------------------------------------------
-# EXPECTED LENGTH ESTIMATOR (NEW, CORRECT)
-# ---------------------------------------------------------
-
-def expected_length(history_df: pd.DataFrame, lap_idx: int, track_type: str) -> float:
-    """
-    ML feature: expected lap length for a given terrain.
-    ML uses deterministic means from TRACK_LENGTH_PRIORS.
-    SIM uses variance-aware sampling.
-    This keeps ML and SIM aligned without split-brain.
-    """
-
-    if track_type is None or track_type == "Unknown":
-        return 33.3
-
-    # ML uses the mean only (no history, no shrinkage)
-    if track_type in TRACK_LENGTH_PRIORS:
-        return TRACK_LENGTH_PRIORS[track_type]["mean"]
-
-    return 33.3  # fallback
-
-# ---------------------------------------------------------
 # 5. SINGLE-ROW FEATURE BUILDER FOR LIVE PREDICTIONS
 # ---------------------------------------------------------
 
@@ -1543,150 +1391,90 @@ def build_single_feature_row(
     k_type: str,
     history_df: pd.DataFrame,
     user_vehicle_priors: dict | None = None,
-    sim_meta_live: tuple[float, float, float, float, float] | None = None,
+    sim_meta_live=None,   # ignored for ML features
 ) -> pd.DataFrame:
     """
-    Build a single feature row for live ML prediction.
-
-    v1, v2, v3   : vehicle names
-    k_idx        : known lap index (0, 1, 2)
-    k_type       : known lap track type (e.g. 'Desert', 'Expressway')
-    history_df   : full normalized history, used to infer expected lap lengths
+    Build a single ML feature row for live prediction.
+    Must match the training feature space EXACTLY.
     """
 
     # ---------------------------------------------------------
-    # KNOWN / UNKNOWN LAPS
+    # 1. Known lap + known terrain
     # ---------------------------------------------------------
-    lap_tracks = ["Unknown", "Unknown", "Unknown"]
-    lap_tracks[k_idx] = k_type
-
-    lap_lens = [
-        expected_length(history_df, 0, lap_tracks[0]),
-        expected_length(history_df, 1, lap_tracks[1]),
-        expected_length(history_df, 2, lap_tracks[2]),
-    ]
-
+    known_lap_idx = k_idx
+    known_terrain = k_type if k_type is not None else "Unknown"
     lane = f"Lap {k_idx + 1}"
 
-    high_speed_share = (
-        lap_tracks.count("Expressway") + lap_tracks.count("Highway")
-    ) / 3.0
-
-    rough_share = sum(
-        1 for t in lap_tracks if t in ["Dirt", "Bumpy", "Potholes"]
-    ) / 3.0
-
     # ---------------------------------------------------------
-    # VEHICLE WIN-RATE PRIORS (LIVE, HISTORY-ALIGNED)
+    # 2. Load priors from session_state
     # ---------------------------------------------------------
-    if history_df is not None and not history_df.empty:
-        v1_wr, v2_wr, v3_wr = compute_live_vehicle_win_rates(history_df, v1, v2, v3)
-    else:
-        v1_wr = v2_wr = v3_wr = 0.33
+    terrain_priors = st.session_state.get("veh_terrain_priors", {})
+    lane_priors    = st.session_state.get("veh_lane_priors", {})
+    matchup_priors = st.session_state.get("matchup_priors", {})
 
     # ---------------------------------------------------------
-    # BASE FEATURE DICT (MUST MATCH TRAINING COLUMNS)
+    # 3. Vehicle global priors (user overrides allowed)
+    # ---------------------------------------------------------
+    v1_wr = get_vehicle_win_rate(v1, user_vehicle_priors, DEFAULT_VEHICLE_PRIORS)
+    v2_wr = get_vehicle_win_rate(v2, user_vehicle_priors, DEFAULT_VEHICLE_PRIORS)
+    v3_wr = get_vehicle_win_rate(v3, user_vehicle_priors, DEFAULT_VEHICLE_PRIORS)
+
+    # ---------------------------------------------------------
+    # 4. Terrain priors
+    # ---------------------------------------------------------
+    tmap = terrain_priors.get(known_terrain, {})
+    v1_t = tmap.get(v1, 0.33)
+    v2_t = tmap.get(v2, 0.33)
+    v3_t = tmap.get(v3, 0.33)
+
+    # ---------------------------------------------------------
+    # 5. Lane priors
+    # ---------------------------------------------------------
+    lmap = lane_priors.get(lane, {})
+    v1_l = lmap.get(v1, 0.33)
+    v2_l = lmap.get(v2, 0.33)
+    v3_l = lmap.get(v3, 0.33)
+
+    # ---------------------------------------------------------
+    # 6. Matchup priors
+    # ---------------------------------------------------------
+    mkey = tuple(sorted([v1, v2, v3]))
+    mmap = matchup_priors.get(mkey, {})
+    v1_m = mmap.get(v1, 0.33)
+    v2_m = mmap.get(v2, 0.33)
+    v3_m = mmap.get(v3, 0.33)
+
+    # ---------------------------------------------------------
+    # 7. Build final ML feature row
     # ---------------------------------------------------------
     data = {
         "vehicle_1": v1,
         "vehicle_2": v2,
         "vehicle_3": v3,
 
-        "lap_1_track": lap_tracks[0],
-        "lap_2_track": lap_tracks[1],
-        "lap_3_track": lap_tracks[2],
-
-        "lap_1_len": float(lap_lens[0]),
-        "lap_2_len": float(lap_lens[1]),
-        "lap_3_len": float(lap_lens[2]),
-
+        "known_terrain": known_terrain,
         "lane": lane,
+        "known_lap_idx": known_lap_idx,
 
-        "high_speed_share": float(high_speed_share),
-        "rough_share": float(rough_share),
+        "v1_wr_prior": v1_wr,
+        "v2_wr_prior": v2_wr,
+        "v3_wr_prior": v3_wr,
 
-        "v1_win_rate": float(v1_wr),
-        "v2_win_rate": float(v2_wr),
-        "v3_win_rate": float(v3_wr),
+        "v1_terrain_wr": v1_t,
+        "v2_terrain_wr": v2_t,
+        "v3_terrain_wr": v3_t,
+
+        "v1_lane_wr": v1_l,
+        "v2_lane_wr": v2_l,
+        "v3_lane_wr": v3_l,
+
+        "v1_matchup_wr": v1_m,
+        "v2_matchup_wr": v2_m,
+        "v3_matchup_wr": v3_m,
     }
 
-    # ---------------------------------------------------------
-    # GEOMETRY REGIME FEATURES (LIVE)
-    # ---------------------------------------------------------
-    if history_df is not None and not history_df.empty:
-        geom_means = [
-            history_df["lap_1_len"].mean(),
-            history_df["lap_2_len"].mean(),
-            history_df["lap_3_len"].mean(),
-        ]
-        geom_stds = [
-            history_df["lap_1_len"].std(),
-            history_df["lap_2_len"].std(),
-            history_df["lap_3_len"].std(),
-        ]
-    else:
-        geom_means = [33.3, 33.3, 33.3]
-        geom_stds = [5.0, 5.0, 5.0]
-
-    data["geom_lap1_mean"] = geom_means[0]
-    data["geom_lap2_mean"] = geom_means[1]
-    data["geom_lap3_mean"] = geom_means[2]
-
-    data["geom_lap1_std"] = geom_stds[0]
-    data["geom_lap2_std"] = geom_stds[1]
-    data["geom_lap3_std"] = geom_stds[2]
-
-    geom_range = max(geom_means) - min(geom_means)
-    data["geom_range"] = geom_range
-    data["geom_split_flag"] = 1 if geom_range >= 20 else 0
-
-    # ---------------------------------------------------------
-    # SIM META-FEATURES (LIVE)
-    # ---------------------------------------------------------
-    if sim_meta_live is not None:
-        sim_top, sim_second, sim_margin, sim_entropy, sim_volatility = sim_meta_live
-    else:
-        # fallback neutral priors
-        sim_top, sim_second, sim_margin, sim_entropy, sim_volatility = 0.33, 0.33, 0.0, 1.10, 0.0
-
-    data["sim_top_prob"] = float(sim_top)
-    data["sim_second_prob"] = float(sim_second)
-    data["sim_margin"] = float(sim_margin)
-    data["sim_entropy"] = float(sim_entropy)
-    data["sim_volatility"] = float(sim_volatility)
-
-    # ---------------------------------------------------------
-    # TRANSITION ENTROPY (LIVE)
-    # ---------------------------------------------------------
-    mats = compute_transition_matrices(history_df) if history_df is not None else {}
-
-    def entropy_from_mat(mat):
-        arr = (mat.values / 100.0).astype(float)
-        arr = np.clip(arr, 1e-12, None)
-        return float(-(arr * np.log(arr)).sum())
-
-    ent_l1 = ent_l2 = ent_l3 = 0.0
-
-    if (1, 2) in mats:
-        ent_l1 += entropy_from_mat(mats[(1, 2)])
-    if (1, 3) in mats:
-        ent_l1 += entropy_from_mat(mats[(1, 3)])
-
-    if (2, 1) in mats:
-        ent_l2 += entropy_from_mat(mats[(2, 1)])
-    if (2, 3) in mats:
-        ent_l2 += entropy_from_mat(mats[(2, 3)])
-
-    if (3, 1) in mats:
-        ent_l3 += entropy_from_mat(mats[(3, 1)])
-    if (3, 2) in mats:
-        ent_l3 += entropy_from_mat(mats[(3, 2)])
-
-    data["trans_entropy_l1"] = ent_l1
-    data["trans_entropy_l2"] = ent_l2
-    data["trans_entropy_l3"] = ent_l3
-
     return pd.DataFrame([data])
+
 # ---------------------------------------------------------
 # 6. METRICS & MODEL SKILL
 # ---------------------------------------------------------
