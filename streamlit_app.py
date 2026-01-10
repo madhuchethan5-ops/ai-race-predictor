@@ -2306,7 +2306,7 @@ def run_simulation(
     return sim_prob_dict, vpi
 
 # ---------------------------------------------------------
-# 7. CORE FULL PREDICTION ENGINE (NO UI)
+# 7. CORE FULL PREDICTION ENGINE (NO UI) – OPTION B
 # ---------------------------------------------------------
 
 def run_full_prediction(
@@ -2319,9 +2319,9 @@ def run_full_prediction(
     user_vehicle_priors=None,
 ):
     """
-    Core engine: SIM + ML + calibrated blend.
+    Core engine: SIM + ML + calibrated blend (Option B).
     - SIM imagines geometry.
-    - ML uses pre-race-legal priors.
+    - ML uses pre-race-legal priors + SIM meta + regime features.
     - Core final probabilities are NOT touched by safety hacks.
     """
 
@@ -2335,6 +2335,7 @@ def run_full_prediction(
     )
     sim_probs_arr = None
     sim_probs_pct = None
+    sim_meta_live = None  # (sim_top, sim_second, sim_margin, sim_entropy, sim_volatility)
 
     if sim_probs is not None:
         sim_probs_arr = np.array([sim_probs[v] for v in vehicles], dtype=float)
@@ -2342,13 +2343,17 @@ def run_full_prediction(
             sim_probs_arr = sim_probs_arr / sim_probs_arr.sum()
         sim_probs_pct = {v: float(sim_probs_arr[i] * 100.0) for i, v in enumerate(vehicles)}
 
+        # Build SIM meta for ML from current SIM probs
+        # sim_meta_from_probs should return (sim_top, sim_second, sim_margin, sim_entropy, sim_volatility)
+        sim_meta_live = sim_meta_from_probs(sim_probs)
+
     # ---------------------------------------------------------
     # 2. ML PROBABILITIES (CALIBRATED, 0–1)
     # ---------------------------------------------------------
     ml_probs_arr = None
     ml_probs_pct = None
 
-    ml_model, n_samples = get_trained_model()  # accessor only
+    ml_model, n_samples, calibrator = get_trained_model()  # new accessor: model, n_samples, calibrator
 
     if ml_model is not None and n_samples > 0:
         X_curr = build_single_feature_row(
@@ -2358,14 +2363,13 @@ def run_full_prediction(
             k_idx,
             k_type,
             history,
-            user_vehicle_priors=user_vehicle_priors,
-            sim_meta_live=None,  # ML no longer uses SIM features
+            user_vehicle_priors=user_vehicle_priors,  # currently unused in Option B, kept for API stability
+            sim_meta_live=sim_meta_live,              # ML now USES SIM meta again
         )
 
         raw_proba = ml_model.predict_proba(X_curr)[0]  # [p1, p2, p3] in 0–1
 
         # Logistic calibration on top probability (if available)
-        calibrator = st.session_state.get("ml_calibrator")
         if calibrator is not None:
             top_idx = int(np.argmax(raw_proba))
             top_prob = float(raw_proba[top_idx])
@@ -2383,7 +2387,8 @@ def run_full_prediction(
     # ---------------------------------------------------------
     alpha_sim = 0.40
     alpha_ml = 0.60
-    
+
+    # If SIM failed for some reason, fall back to ML only
     if (sim_probs_arr is not None) and (ml_probs_arr is not None):
         core_arr = alpha_sim * sim_probs_arr + alpha_ml * ml_probs_arr
     elif ml_probs_arr is not None:
@@ -2392,12 +2397,12 @@ def run_full_prediction(
         core_arr = sim_probs_arr
     else:
         core_arr = np.array([1/3, 1/3, 1/3], dtype=float)
-    
+
     if core_arr.sum() > 0:
         core_arr = core_arr / core_arr.sum()
-    
+
     core_final_probs_pct = {v: float(core_arr[i] * 100.0) for i, v in enumerate(vehicles)}
-    
+
     # ---------------------------------------------------------
     # 4. SAFETY LAYER (DISPLAY-ONLY MODIFICATIONS)
     # ---------------------------------------------------------
@@ -2430,8 +2435,6 @@ def run_full_prediction(
         "v": vehicles,
     }
 
-    # (Optional) hidden-lap guess integration if you use it elsewhere
-    # hidden_guess = estimate_hidden_laps(ctx, hidden_stats, TRACK_OPTIONS)
     hidden_guess = None  # keep None if not wired yet
 
     result = {
