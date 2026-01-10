@@ -2878,49 +2878,111 @@ with Q2:
                 confidence_bar(v, p_final)
 
         # -----------------------------------------------------
-        # MID‑LEFT: 🎯 Betting Guidance
+        # MID‑LEFT: 🎯 Betting Guidance (Clean Rewrite)
         # -----------------------------------------------------
         with col_left:
             st.markdown("#### 🎯 Betting Guidance")
-
+        
             odds_map = st.session_state.get("odds_map", {})
             balance = st.session_state.get("diamond_balance", 10000)
-
+            V = res.get("volatility_score", 0.5)
+        
+            # -----------------------------
+            # 1. Compute positive‑EV edges
+            # -----------------------------
             edges = []
             for v in vehicles:
-                p = probs[v] / 100.0
+                p = probs[v] / 100.0 if probs[v] > 1 else probs[v]
                 odds = odds_map.get(v, 3.0)
                 q = 1.0 / odds
                 edge = p - q
                 if edge > 0:
                     edges.append((v, edge, p, odds))
-
+        
             if not edges:
                 st.warning("No positive‑EV bets — sitting out is optimal here.")
             else:
                 edges.sort(key=lambda x: x[1], reverse=True)
                 top = edges[0]
-
-                # Simple Kelly (no volatility logic now)
-                v, edge, p, odds = top
-                kelly = 0.10 * edge
-                kelly = max(0.0, min(kelly, 0.10))
-
-                bet_amt = int(kelly * balance)
-
-                st.markdown(
-                    f"**{v}** — **{bet_amt} 💎**  \n"
-                    f"Edge: {edge:.2%}, Kelly: {kelly:.3f}, Odds: {odds}x"
-                )
-
-                st.markdown(
-                    f"**Total Bet:** {bet_amt} 💎 "
-                    f"({bet_amt / balance:.2%} of balance)"
-                )
-
-                if bet_amt / balance > 0.10:
-                    st.warning("High exposure this race (>10% of balance).")
-
+                second = edges[1] if len(edges) > 1 else None
+        
+                # -----------------------------
+                # 2. Multi‑target logic
+                # -----------------------------
+                delta = 0.03
+                bet_targets = [top]
+        
+                if (
+                    second is not None
+                    and second[1] > 0
+                    and abs(top[1] - second[1]) < delta
+                    and V > 0.5
+                ):
+                    bet_targets.append(second)
+        
+                # -----------------------------
+                # 3. Safety mode caps
+                # -----------------------------
+                if bet_safety == "AVOID":
+                    max_kelly = 0.02
+                elif bet_safety == "CAUTION":
+                    max_kelly = 0.07
+                else:
+                    max_kelly = 0.125
+        
+                total_bet = 0
+                bet_rows = []
+        
+                # -----------------------------
+                # 4. Clean Kelly calculation
+                # -----------------------------
+                for v, edge, p, odds in bet_targets:
+        
+                    # Proper Kelly for decimal odds
+                    raw_kelly = (p * odds - 1.0) / (odds - 1.0)
+                    raw_kelly = max(0.0, raw_kelly)
+        
+                    # Fractional Kelly for safety
+                    risk_factor = 0.25  # quarter Kelly
+                    kelly = raw_kelly * risk_factor
+        
+                    # Volatility suppression
+                    safety_mult = 1.0
+                    if V > 0.6:
+                        safety_mult *= 0.5
+                    if V > 0.75:
+                        safety_mult *= 0.3
+        
+                    kelly *= safety_mult
+        
+                    # Hard cap
+                    kelly = min(kelly, max_kelly)
+        
+                    bet_amt = int(kelly * balance)
+                    total_bet += bet_amt
+        
+                    bet_rows.append((v, bet_amt, edge, kelly, odds))
+        
+                # -----------------------------
+                # 5. Output
+                # -----------------------------
+                if not bet_rows:
+                    st.warning("Edges too small after risk adjustment — no bet suggested.")
+                else:
+                    for v, amt, edge, kelly, odds in bet_rows:
+                        st.markdown(
+                            f"**{v}** — **{amt} 💎**  \n"
+                            f"Edge: {edge:.2%}, Kelly: {kelly:.3f}, Odds: {odds}x"
+                        )
+        
+                    st.markdown(
+                        f"**Total Bet:** {total_bet} 💎 "
+                        f"({total_bet / balance:.2%} of balance)"
+                    )
+        
+                    if total_bet / balance > 0.10:
+                        st.warning("High exposure this race (>10% of balance).")
+                
         # -----------------------------------------------------
         # MID‑RIGHT: ⚡ Safety Flags
         # -----------------------------------------------------
