@@ -390,6 +390,161 @@ def get_vehicle_win_rate(
             return float(default_wr)
     except (ValueError, TypeError):
         return float(default_wr)
+        
+def apply_sim_regime_calibration(
+    raw_probs: np.ndarray,
+    history_df: pd.DataFrame,
+    lane: int,
+    known_track: str,
+    calib_min: int = 80
+) -> np.ndarray:
+    """
+    Calibrate SIM probabilities based on historical SIM performance
+    in the same regime: same known lane + same known terrain.
+    raw_probs: length-3 array in [0,1], already normalized.
+    lane: 1,2,3 (Lap 1/2/3 known)
+    known_track: 'Bumpy', 'Desert', etc.
+    """
+    probs = raw_probs.copy()
+
+    # If no history or no SIM fields, return as-is
+    if history_df is None or history_df.empty:
+        return probs
+
+    required_cols = {'sim_top_prob', 'sim_was_correct', 'lane'}
+    if not required_cols.issubset(history_df.columns):
+        return probs
+
+    # Filter to rows where SIM actually produced a prediction
+    df_sim = history_df.dropna(subset=['sim_top_prob', 'sim_was_correct'])
+    if df_sim.empty:
+        return probs
+
+    # Regime: same lane + same known track
+    lane_str = f"Lap {lane}"
+    lane_mask = df_sim['lane'] == lane_str
+    track_col = f"lap_{lane}_track"
+    if track_col not in df_sim.columns:
+        return probs
+
+    track_mask = df_sim[track_col] == known_track
+    df_regime = df_sim[lane_mask & track_mask]
+
+    # If not enough data in this regime, fall back to global SIM calibration
+    if len(df_regime) < calib_min:
+        df_regime = df_sim
+
+    if len(df_regime) < calib_min:
+        # still too thin, bail out
+        return probs
+
+    # Build buckets on sim_top_prob
+    bins = [0.0, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01]
+    df_regime = df_regime.copy()
+    df_regime['sim_bucket'] = pd.cut(
+        df_regime['sim_top_prob'],
+        bins=bins,
+        right=True,
+        include_lowest=True
+    )
+
+    calib = (
+        df_regime
+        .groupby('sim_bucket')
+        .agg(
+            mean_prob=('sim_top_prob', 'mean'),
+            emp_acc=('sim_was_correct', 'mean'),
+            count=('sim_was_correct', 'size')
+        )
+        .reset_index()
+    )
+
+    if calib.empty:
+        return probs
+
+    # Find bucket for current top prob
+    top_idx = int(np.argmax(probs))
+    top_prob = float(probs[top_idx])
+
+    bucket_index = None
+    for i in range(len(bins) - 1):
+        if bins[i] <= top_prob < bins[i + 1]:
+            bucket_index = i
+            break
+    if bucket_index is None:
+        return probs
+
+    bucket_label = pd.Interval(left=bins[bucket_index],
+                               right=bins[bucket_index + 1],
+                               closed='right')
+
+    row = calib[calib['sim_bucket'] == bucket_label]
+    if row.empty:
+        # fallback: use nearest bucket by mean_prob
+        calib['dist'] = np.abs(calib['mean_prob'] - top_prob)
+        row = calib.sort_values('dist').head(1)
+
+    mapped_p = float(row['emp_acc'].iloc[0])
+
+    # If mapped_p is crazy (0 or >0.95), be conservative
+    mapped_p = float(np.clip(mapped_p, 0.05, 0.85))
+
+    # Rescale distribution: replace top with mapped_p, others scaled proportionally
+    old_top = top_prob
+    if old_top <= 0 or mapped_p <= 0:
+        return probs
+
+    # Remaining mass
+    rem_old = 1.0 - old_top
+    rem_new = 1.0 - mapped_p
+    if rem_old <= 0:
+        return probs
+
+    scale = rem_new / rem_old
+
+    new_probs = probs.copy()
+    for i in range(len(new_probs)):
+        if i == top_idx:
+            new_probs[i] = mapped_p
+        else:
+            new_probs[i] *= scale
+
+    # Numerical safety
+    new_probs = np.clip(new_probs, 1e-6, 1.0)
+    new_probs /= new_probs.sum()
+
+    return new_probs
+
+def apply_sim_global_clamps(
+    probs: np.ndarray,
+    known_laps_count: int,
+    hard_cap_one_known: float = 0.70
+) -> np.ndarray:
+    """
+    Enforce global caps based on how much of the geometry is known.
+    For the 1-known-lap regime, we do not allow SIM to speak beyond a cap.
+    """
+    p = probs.copy()
+    top_idx = int(np.argmax(p))
+    top_prob = float(p[top_idx])
+
+    if known_laps_count == 1:
+        cap = hard_cap_one_known
+        if top_prob > cap:
+            old_top = top_prob
+            rem_old = 1.0 - old_top
+            rem_new = 1.0 - cap
+            if rem_old > 0:
+                scale = rem_new / rem_old
+                for i in range(len(p)):
+                    if i == top_idx:
+                        p[i] = cap
+                    else:
+                        p[i] *= scale
+
+    p = np.clip(p, 1e-6, 1.0)
+    p /= p.sum()
+    return p
 
 # =========================================================
 # HIDDEN LAP STATS + ESTIMATOR
@@ -584,161 +739,6 @@ def build_tv_matrix(history: pd.DataFrame):
         tv_samples[key] = total
 
     return tv_matrix, tv_samples
-
-def apply_sim_regime_calibration(
-    raw_probs: np.ndarray,
-    history_df: pd.DataFrame,
-    lane: int,
-    known_track: str,
-    calib_min: int = 80
-) -> np.ndarray:
-    """
-    Calibrate SIM probabilities based on historical SIM performance
-    in the same regime: same known lane + same known terrain.
-    raw_probs: length-3 array in [0,1], already normalized.
-    lane: 1,2,3 (Lap 1/2/3 known)
-    known_track: 'Bumpy', 'Desert', etc.
-    """
-    probs = raw_probs.copy()
-
-    # If no history or no SIM fields, return as-is
-    if history_df is None or history_df.empty:
-        return probs
-
-    required_cols = {'sim_top_prob', 'sim_was_correct', 'lane'}
-    if not required_cols.issubset(history_df.columns):
-        return probs
-
-    # Filter to rows where SIM actually produced a prediction
-    df_sim = history_df.dropna(subset=['sim_top_prob', 'sim_was_correct'])
-    if df_sim.empty:
-        return probs
-
-    # Regime: same lane + same known track
-    lane_str = f"Lap {lane}"
-    lane_mask = df_sim['lane'] == lane_str
-    track_col = f"lap_{lane}_track"
-    if track_col not in df_sim.columns:
-        return probs
-
-    track_mask = df_sim[track_col] == known_track
-    df_regime = df_sim[lane_mask & track_mask]
-
-    # If not enough data in this regime, fall back to global SIM calibration
-    if len(df_regime) < calib_min:
-        df_regime = df_sim
-
-    if len(df_regime) < calib_min:
-        # still too thin, bail out
-        return probs
-
-    # Build buckets on sim_top_prob
-    bins = [0.0, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01]
-    df_regime = df_regime.copy()
-    df_regime['sim_bucket'] = pd.cut(
-        df_regime['sim_top_prob'],
-        bins=bins,
-        right=True,
-        include_lowest=True
-    )
-
-    calib = (
-        df_regime
-        .groupby('sim_bucket')
-        .agg(
-            mean_prob=('sim_top_prob', 'mean'),
-            emp_acc=('sim_was_correct', 'mean'),
-            count=('sim_was_correct', 'size')
-        )
-        .reset_index()
-    )
-
-    if calib.empty:
-        return probs
-
-    # Find bucket for current top prob
-    top_idx = int(np.argmax(probs))
-    top_prob = float(probs[top_idx])
-
-    bucket_index = None
-    for i in range(len(bins) - 1):
-        if bins[i] <= top_prob < bins[i + 1]:
-            bucket_index = i
-            break
-    if bucket_index is None:
-        return probs
-
-    bucket_label = pd.Interval(left=bins[bucket_index],
-                               right=bins[bucket_index + 1],
-                               closed='right')
-
-    row = calib[calib['sim_bucket'] == bucket_label]
-    if row.empty:
-        # fallback: use nearest bucket by mean_prob
-        calib['dist'] = np.abs(calib['mean_prob'] - top_prob)
-        row = calib.sort_values('dist').head(1)
-
-    mapped_p = float(row['emp_acc'].iloc[0])
-
-    # If mapped_p is crazy (0 or >0.95), be conservative
-    mapped_p = float(np.clip(mapped_p, 0.05, 0.85))
-
-    # Rescale distribution: replace top with mapped_p, others scaled proportionally
-    old_top = top_prob
-    if old_top <= 0 or mapped_p <= 0:
-        return probs
-
-    # Remaining mass
-    rem_old = 1.0 - old_top
-    rem_new = 1.0 - mapped_p
-    if rem_old <= 0:
-        return probs
-
-    scale = rem_new / rem_old
-
-    new_probs = probs.copy()
-    for i in range(len(new_probs)):
-        if i == top_idx:
-            new_probs[i] = mapped_p
-        else:
-            new_probs[i] *= scale
-
-    # Numerical safety
-    new_probs = np.clip(new_probs, 1e-6, 1.0)
-    new_probs /= new_probs.sum()
-
-    return new_probs
-
-def apply_sim_global_clamps(
-    probs: np.ndarray,
-    known_laps_count: int,
-    hard_cap_one_known: float = 0.70
-) -> np.ndarray:
-    """
-    Enforce global caps based on how much of the geometry is known.
-    For the 1-known-lap regime, we do not allow SIM to speak beyond a cap.
-    """
-    p = probs.copy()
-    top_idx = int(np.argmax(p))
-    top_prob = float(p[top_idx])
-
-    if known_laps_count == 1:
-        cap = hard_cap_one_known
-        if top_prob > cap:
-            old_top = top_prob
-            rem_old = 1.0 - old_top
-            rem_new = 1.0 - cap
-            if rem_old > 0:
-                scale = rem_new / rem_old
-                for i in range(len(p)):
-                    if i == top_idx:
-                        p[i] = cap
-                    else:
-                        p[i] *= scale
-
-    p = np.clip(p, 1e-6, 1.0)
-    p /= p.sum()
-    return p
 
 def apply_tv_adjustment(final_probs: dict, ctx: dict, tv_matrix: dict, k_type: str,
                         strength_alpha: float = 0.15):
