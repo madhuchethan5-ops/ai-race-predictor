@@ -1460,6 +1460,14 @@ def build_training_data(history_df: pd.DataFrame):
 
     st.write("✅ [OptionB] pre_race rows:", len(df))
 
+    # ---------------------------------------------------------
+    # 🔍 DEBUG BLOCK — ADD IT HERE
+    # ---------------------------------------------------------
+    st.write("DEBUG[train]: columns =", list(df.columns))
+    st.write("DEBUG[train]: sample rows:")
+    st.write(df.head(10))
+    # ---------------------------------------------------------
+
     y = df["winner_idx"].astype(int)
 
     cat_features = [
@@ -1503,7 +1511,6 @@ def build_training_data(history_df: pd.DataFrame):
 
     st.write("✅ [OptionB] final ML samples:", len(X))
     return X, y, (cat_features, num_features), sample_weights
-
 # ============================================
 # OPTION B – TRAIN + ACCESSOR
 # ============================================
