@@ -1631,35 +1631,21 @@ def train_ml_model(history_df: pd.DataFrame):
     # ============================================================
     # 🔍 CALIBRATION + RAW PROBABILITY CHECKS
     # ============================================================
-
+    
     proba = model.predict_proba(X)
     top_idx = proba.argmax(axis=1)
     top_prob = proba.max(axis=1)
     was_correct = (top_idx == y).astype(int)
-
+    
     # Raw prediction sanity
     try:
         st.write("🔍 [ML Diagnostic] Mean top prob (raw):", float(top_prob.mean()))
     except Exception:
         st.write("⚠️ [ML Diagnostic] Model failed to produce probabilities — check training")
-
-    # Calibration
-    if n_samples >= 30:
-        calibrator = LogisticRegression(max_iter=500)
-
-        # Clip extreme values to avoid logit blow-up
-        tp = np.clip(top_prob, 1e-6, 1 - 1e-6).reshape(-1, 1)
-
-        calibrator.fit(tp, was_correct)
-        st.session_state["ml_calibrator"] = calibrator
-
-        try:
-            cal_correct_prob = calibrator.predict_proba(tp)[:, 1]
-            st.write("🔍 [ML Diagnostic] Mean calibrated correctness prob:", float(cal_correct_prob.mean()))
-        except Exception as e:
-            st.write("⚠️ [ML Diagnostic] Calibrator failed — check input shape:", e)
-    else:
-        st.session_state["ml_calibrator"] = None
+    
+    # 🚫 Disable calibrator for now
+    st.session_state["ml_calibrator"] = None
+    st.write("ℹ️ [ML Diagnostic] Calibrator disabled — using raw ML probabilities.")
 
     # ============================================================
     # SAVE MODEL
