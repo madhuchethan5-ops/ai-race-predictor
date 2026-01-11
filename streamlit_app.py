@@ -1467,7 +1467,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 # ============================================
-# OPTION B – TRAINING DATA WRAPPER (SOFTMAX)
+# OPTION B – BUILD TRAINING DATA
 # ============================================
 
 def build_training_data(history_df: pd.DataFrame):
@@ -1484,7 +1484,17 @@ def build_training_data(history_df: pd.DataFrame):
 
     st.write("✅ [OptionB] pre_race rows:", len(df))
 
+    # --- Target encoding + validation ---
+    if "winner_idx" not in df.columns:
+        st.write("❌ [OptionB] winner_idx column missing in training data")
+        return None, None, None, None
+
     y = df["winner_idx"].astype(int)
+
+    # Hard guardrail: must be 0, 1, 2 only
+    if y.min() < 0 or y.max() > 2:
+        st.write("❌ [OptionB] ERROR: winner_idx out of range:", int(y.min()), int(y.max()))
+        return None, None, None, None
 
     cat_features = [
         "vehicle_1",
@@ -1515,11 +1525,13 @@ def build_training_data(history_df: pd.DataFrame):
 
     feature_cols = cat_features + num_features
 
+    # Keep only columns that actually exist
     feature_cols = [c for c in feature_cols if c in df.columns]
     cat_features = [c for c in cat_features if c in df.columns]
     num_features = [c for c in num_features if c in df.columns]
 
     if not feature_cols:
+        st.write("❌ [OptionB] No valid feature columns found for ML")
         return None, None, None, None
 
     X = df[feature_cols].copy()
@@ -1527,8 +1539,10 @@ def build_training_data(history_df: pd.DataFrame):
 
     st.write("✅ [OptionB] final ML samples:", len(X))
     return X, y, (cat_features, num_features), sample_weights
+
+
 # ============================================
-# OPTION B – TRAIN + ACCESSOR
+# OPTION B – TRAIN MODEL
 # ============================================
 
 def train_ml_model(history_df: pd.DataFrame):
@@ -1557,9 +1571,12 @@ def train_ml_model(history_df: pd.DataFrame):
         ]
     )
 
+    # ✅ Regularized, less overconfident model
     clf = HistGradientBoostingClassifier(
         max_depth=6,
-        learning_rate=0.1,
+        learning_rate=0.05,      # lower LR for stability
+        max_leaf_nodes=31,       # smaller trees
+        l2_regularization=0.5,   # stronger regularization
     )
 
     model = Pipeline(steps=[
@@ -1581,20 +1598,20 @@ def train_ml_model(history_df: pd.DataFrame):
     try:
         st.write("🔍 [ML Diagnostic] Class distribution:", np.bincount(y))
     except Exception:
-        st.write("⚠️ Target labels are not integers — check winner_idx encoding")
+        st.write("⚠️ [ML Diagnostic] Target labels are not integers — check winner_idx encoding")
 
-    # NaN checks
+    # NaN checks on raw X and y (best-effort; X may be mixed-type)
     try:
         st.write("🔍 [ML Diagnostic] NaNs in X:", np.isnan(X).sum())
     except Exception:
-        st.write("⚠️ Could not check NaNs in X (non-numeric columns present)")
+        st.write("⚠️ [ML Diagnostic] Could not check NaNs in X (non-numeric columns present)")
 
     try:
         st.write("🔍 [ML Diagnostic] NaNs in y:", np.isnan(y).sum())
     except Exception:
-        st.write("⚠️ Could not check NaNs in y")
+        st.write("⚠️ [ML Diagnostic] Could not check NaNs in y")
 
-    # Constant column detection for numpy arrays
+    # Constant column detection for numpy arrays (only if X is numeric matrix)
     constant_cols = []
     if isinstance(X, np.ndarray):
         for i in range(X.shape[1]):
@@ -1609,7 +1626,7 @@ def train_ml_model(history_df: pd.DataFrame):
         X_transformed = model.named_steps["pre"].fit_transform(X)
         st.write("🔍 [ML Diagnostic] Final feature count after preprocessing:", X_transformed.shape)
     except Exception as e:
-        st.write("⚠️ Could not compute transformed feature shape:", e)
+        st.write("⚠️ [ML Diagnostic] Could not compute transformed feature shape:", e)
 
     # ============================================================
     # 🔍 CALIBRATION + RAW PROBABILITY CHECKS
@@ -1624,19 +1641,23 @@ def train_ml_model(history_df: pd.DataFrame):
     try:
         st.write("🔍 [ML Diagnostic] Mean top prob (raw):", float(top_prob.mean()))
     except Exception:
-        st.write("⚠️ Model failed to produce probabilities — check training")
+        st.write("⚠️ [ML Diagnostic] Model failed to produce probabilities — check training")
 
     # Calibration
     if n_samples >= 30:
-        calibrator = LogisticRegression()
-        calibrator.fit(top_prob.reshape(-1, 1), was_correct)
+        calibrator = LogisticRegression(max_iter=500)
+
+        # Clip extreme values to avoid logit blow-up
+        tp = np.clip(top_prob, 1e-6, 1 - 1e-6).reshape(-1, 1)
+
+        calibrator.fit(tp, was_correct)
         st.session_state["ml_calibrator"] = calibrator
 
         try:
-            cal_correct_prob = calibrator.predict_proba(top_prob.reshape(-1, 1))[:, 1]
+            cal_correct_prob = calibrator.predict_proba(tp)[:, 1]
             st.write("🔍 [ML Diagnostic] Mean calibrated correctness prob:", float(cal_correct_prob.mean()))
         except Exception as e:
-            st.write("⚠️ Calibrator failed — check input shape:", e)
+            st.write("⚠️ [ML Diagnostic] Calibrator failed — check input shape:", e)
     else:
         st.session_state["ml_calibrator"] = None
 
@@ -1652,6 +1673,10 @@ def train_ml_model(history_df: pd.DataFrame):
 
     return model, n_samples
 
+
+# ============================================
+# OPTION B – ACCESSOR (NO TRAIN)
+# ============================================
 
 def get_trained_model(*args, **kwargs):
     """
