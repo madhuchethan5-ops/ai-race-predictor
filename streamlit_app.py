@@ -1189,6 +1189,31 @@ def add_leakage_safe_win_rates(df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame(rows)
 
+def expected_length(history_df: pd.DataFrame, lap_idx: int, track_type: str) -> float:
+    """
+    Compute expected lap length for (lap_idx, track_type) using history only.
+    No future leakage. If no matching rows exist, fall back to global mean.
+    """
+
+    if history_df is None or history_df.empty:
+        return 33.3  # neutral fallback
+
+    col_len = f"lap_{lap_idx+1}_len"
+    col_track = f"lap_{lap_idx+1}_track"
+
+    # Filter rows with matching track type
+    if col_track in history_df.columns and col_len in history_df.columns:
+        subset = history_df[history_df[col_track] == track_type]
+        if not subset.empty and not subset[col_len].dropna().empty:
+            return float(subset[col_len].mean())
+
+    # Fallback: global mean for that lap
+    if col_len in history_df.columns and not history_df[col_len].dropna().empty:
+        return float(history_df[col_len].mean())
+
+    # Final fallback
+    return 33.3
+
 # =======================================================
 # OPTION B – FULL PRE-RACE TRAINING ROWS (SOFTMAX TARGET)
 # =======================================================
