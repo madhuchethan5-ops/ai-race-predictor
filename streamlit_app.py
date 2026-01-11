@@ -1569,18 +1569,80 @@ def train_ml_model(history_df: pd.DataFrame):
 
     model.fit(X, y, clf__sample_weight=sample_weights)
 
-    # Simple top-prob calibrator
+    # ============================================================
+    # 🔍 ML INTEGRITY DIAGNOSTICS
+    # ============================================================
+
+    st.write("🔍 [ML Diagnostic] Sample count:", len(X))
+    st.write("🔍 [ML Diagnostic] Feature matrix shape (raw):", X.shape)
+    st.write("🔍 [ML Diagnostic] Target shape:", y.shape)
+
+    # Class distribution
+    try:
+        st.write("🔍 [ML Diagnostic] Class distribution:", np.bincount(y))
+    except Exception:
+        st.write("⚠️ Target labels are not integers — check winner_idx encoding")
+
+    # NaN checks
+    try:
+        st.write("🔍 [ML Diagnostic] NaNs in X:", np.isnan(X).sum())
+    except Exception:
+        st.write("⚠️ Could not check NaNs in X (non-numeric columns present)")
+
+    try:
+        st.write("🔍 [ML Diagnostic] NaNs in y:", np.isnan(y).sum())
+    except Exception:
+        st.write("⚠️ Could not check NaNs in y")
+
+    # Constant column detection for numpy arrays
+    constant_cols = []
+    if isinstance(X, np.ndarray):
+        for i in range(X.shape[1]):
+            col = X[:, i]
+            if np.all(col == col[0]):
+                constant_cols.append(i)
+
+    st.write("🔍 [ML Diagnostic] Constant columns (indices):", constant_cols)
+
+    # Check final feature count after preprocessing
+    try:
+        X_transformed = model.named_steps["pre"].fit_transform(X)
+        st.write("🔍 [ML Diagnostic] Final feature count after preprocessing:", X_transformed.shape)
+    except Exception as e:
+        st.write("⚠️ Could not compute transformed feature shape:", e)
+
+    # ============================================================
+    # 🔍 CALIBRATION + RAW PROBABILITY CHECKS
+    # ============================================================
+
     proba = model.predict_proba(X)
     top_idx = proba.argmax(axis=1)
     top_prob = proba.max(axis=1)
     was_correct = (top_idx == y).astype(int)
 
+    # Raw prediction sanity
+    try:
+        st.write("🔍 [ML Diagnostic] Mean top prob (raw):", float(top_prob.mean()))
+    except Exception:
+        st.write("⚠️ Model failed to produce probabilities — check training")
+
+    # Calibration
     if n_samples >= 30:
         calibrator = LogisticRegression()
         calibrator.fit(top_prob.reshape(-1, 1), was_correct)
         st.session_state["ml_calibrator"] = calibrator
+
+        try:
+            cal_correct_prob = calibrator.predict_proba(top_prob.reshape(-1, 1))[:, 1]
+            st.write("🔍 [ML Diagnostic] Mean calibrated correctness prob:", float(cal_correct_prob.mean()))
+        except Exception as e:
+            st.write("⚠️ Calibrator failed — check input shape:", e)
     else:
         st.session_state["ml_calibrator"] = None
+
+    # ============================================================
+    # SAVE MODEL
+    # ============================================================
 
     st.session_state["ml_model"] = model
     st.session_state["ml_n_samples"] = n_samples
