@@ -2478,41 +2478,59 @@ def run_full_prediction(
     user_vehicle_priors=None,
 ):
     """
-    Core engine: SIM + ML + calibrated blend (Option B).
+    Core engine: SIM + ML + honest blend (Option B).
     - SIM imagines geometry.
     - ML uses pre-race-legal priors + SIM meta + regime features.
-    - Core final probabilities are NOT touched by safety hacks.
+    - Final probabilities are NOT touched by safety hacks.
     """
 
     vehicles = [v1_sel, v2_sel, v3_sel]
 
     # ---------------------------------------------------------
-    # 1. SIMULATION PROBABILITIES (0–1 in sim core)
+    # 🔒 OPTIONAL: Prediction Contract (stabilizes re-clicks)
+    # ---------------------------------------------------------
+    contract_key = (
+        tuple(vehicles),
+        int(k_idx),
+        str(k_type),
+    )
+
+    if "prediction_cache" not in st.session_state:
+        st.session_state["prediction_cache"] = {}
+
+    if contract_key in st.session_state["prediction_cache"]:
+        return st.session_state["prediction_cache"][contract_key]
+
+    # ---------------------------------------------------------
+    # 1. SIMULATION PROBABILITIES
     # ---------------------------------------------------------
     sim_probs, vpi_res = run_simulation(
         v1_sel, v2_sel, v3_sel, k_idx, k_type, history
     )
+
     sim_probs_arr = None
     sim_probs_pct = None
-    sim_meta_live = None  # (sim_top, sim_second, sim_margin, sim_entropy, sim_volatility)
+    sim_meta_live = None
 
     if sim_probs is not None:
         sim_probs_arr = np.array([sim_probs[v] for v in vehicles], dtype=float)
         if sim_probs_arr.sum() > 0:
             sim_probs_arr = sim_probs_arr / sim_probs_arr.sum()
-        sim_probs_pct = {v: float(sim_probs_arr[i] * 100.0) for i, v in enumerate(vehicles)}
 
-        # Build SIM meta for ML from current SIM probs
-        # sim_meta_from_probs should return (sim_top, sim_second, sim_margin, sim_entropy, sim_volatility)
+        sim_probs_pct = {
+            v: float(sim_probs_arr[i] * 100.0) for i, v in enumerate(vehicles)
+        }
+
+        # SIM meta for ML
         sim_meta_live = sim_meta_from_probs(sim_probs)
 
     # ---------------------------------------------------------
-    # 2. ML PROBABILITIES (CALIBRATED, 0–1)
+    # 2. ML PROBABILITIES (RAW, NO CALIBRATOR)
     # ---------------------------------------------------------
     ml_probs_arr = None
     ml_probs_pct = None
 
-    ml_model, n_samples, calibrator = get_trained_model()  # new accessor: model, n_samples, calibrator
+    ml_model, n_samples, calibrator = get_trained_model()
 
     if ml_model is not None and n_samples > 0:
         X_curr = build_single_feature_row(
@@ -2522,32 +2540,24 @@ def run_full_prediction(
             k_idx,
             k_type,
             history,
-            user_vehicle_priors=user_vehicle_priors,  # currently unused in Option B, kept for API stability
-            sim_meta_live=sim_meta_live,              # ML now USES SIM meta again
+            user_vehicle_priors=user_vehicle_priors,
+            sim_meta_live=sim_meta_live,
         )
 
-        raw_proba = ml_model.predict_proba(X_curr)[0]  # [p1, p2, p3] in 0–1
-
-        # Logistic calibration on top probability (if available)
-        if calibrator is not None:
-            top_idx = int(np.argmax(raw_proba))
-            top_prob = float(raw_proba[top_idx])
-            if top_prob > 0:
-                p_correct = calibrator.predict_proba([[top_prob]])[0, 1]
-                scale = p_correct / top_prob
-                raw_proba = raw_proba * scale
-                raw_proba = raw_proba / raw_proba.sum()
+        raw_proba = ml_model.predict_proba(X_curr)[0]
+        raw_proba = raw_proba / raw_proba.sum()
 
         ml_probs_arr = raw_proba
-        ml_probs_pct = {v: float(ml_probs_arr[i] * 100.0) for i, v in enumerate(vehicles)}
+        ml_probs_pct = {
+            v: float(ml_probs_arr[i] * 100.0) for i, v in enumerate(vehicles)
+        }
 
     # ---------------------------------------------------------
-    # 3. FIXED, HONEST BLEND (0–1 SPACE)
+    # 3. FIXED, HONEST BLEND
     # ---------------------------------------------------------
     alpha_sim = 0.40
     alpha_ml = 0.60
 
-    # If SIM failed for some reason, fall back to ML only
     if (sim_probs_arr is not None) and (ml_probs_arr is not None):
         core_arr = alpha_sim * sim_probs_arr + alpha_ml * ml_probs_arr
     elif ml_probs_arr is not None:
@@ -2560,10 +2570,12 @@ def run_full_prediction(
     if core_arr.sum() > 0:
         core_arr = core_arr / core_arr.sum()
 
-    core_final_probs_pct = {v: float(core_arr[i] * 100.0) for i, v in enumerate(vehicles)}
+    core_final_probs_pct = {
+        v: float(core_arr[i] * 100.0) for i, v in enumerate(vehicles)
+    }
 
     # ---------------------------------------------------------
-    # 4. SAFETY LAYER (DISPLAY-ONLY MODIFICATIONS)
+    # 4. SAFETY LAYER (DISPLAY-ONLY)
     # ---------------------------------------------------------
     display_final_probs_pct, safety_meta = apply_safety_layer(
         core_final_probs_pct,
@@ -2575,7 +2587,7 @@ def run_full_prediction(
     )
 
     # ---------------------------------------------------------
-    # 5. WINNER SELECTION (BOTH CORE AND DISPLAY)
+    # 5. WINNER SELECTION
     # ---------------------------------------------------------
     core_winner = max(core_final_probs_pct, key=core_final_probs_pct.get)
     core_conf = core_final_probs_pct[core_winner]
@@ -2584,46 +2596,48 @@ def run_full_prediction(
     display_conf = display_final_probs_pct[display_winner]
 
     # ---------------------------------------------------------
-    # 6. CONTEXT (for UI, logging, hidden-lap logic)
+    # 6. CONTEXT
     # ---------------------------------------------------------
-    slot_label = f"Lap {k_idx + 1}"
     ctx = {
         "idx": k_idx,
         "t": k_type,
-        "slot": slot_label,
+        "slot": f"Lap {k_idx + 1}",
         "v": vehicles,
     }
 
-    hidden_guess = None  # keep None if not wired yet
-
     result = {
-        # core truth (for logging, Brier, calibration)
+        # Core truth
         "core_final_probs_pct": core_final_probs_pct,
         "core_winner": core_winner,
         "core_confidence": core_conf,
 
-        # display (after safety tweaks)
+        # Display (after safety)
         "display_final_probs_pct": display_final_probs_pct,
         "display_winner": display_winner,
         "display_confidence": display_conf,
 
-        # raw components
+        # Raw components
         "sim_probs_pct": sim_probs_pct,
         "ml_probs_pct": ml_probs_pct,
         "alpha_sim": alpha_sim,
         "alpha_ml": alpha_ml,
 
-        # meta / diagnostics
+        # Meta
         "safety_meta": safety_meta,
         "vpi": vpi_res,
 
-        # context for UI / analytics
+        # Context
         "ctx": ctx,
         "vehicles": vehicles,
         "terrain": k_type,
         "lap_index": k_idx,
-        "hidden_guess": hidden_guess,
+        "hidden_guess": None,
     }
+
+    # ---------------------------------------------------------
+    # 🔒 Save to prediction contract cache
+    # ---------------------------------------------------------
+    st.session_state["prediction_cache"][contract_key] = result
 
     return result
 
