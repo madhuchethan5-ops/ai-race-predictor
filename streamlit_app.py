@@ -1226,7 +1226,7 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
       - geometry regime (global means/stds, range, split flag)
       - global transition entropy per lap
       - leak-safe per-vehicle win rates (v*_win_rate)
-      - SIM meta from historical Win_Prob_*
+      - SIM meta recomputed via run_simulation (no Win_Prob_* dependency)
       - SIM-error features (training only)
       - SIM confidence/volatility buckets
       - simple regime bucket (terrain + geometry split)
@@ -1285,6 +1285,9 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
         ent_l3 += entropy_from_mat(mats[(3, 2)])
 
     rows = []
+
+    # ✅ SIM cache to avoid recomputing for identical setups
+    sim_cache = {}
 
     for _, row in df.iterrows():
         try:
@@ -1350,27 +1353,31 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
             v2_wr = row.get("v2_win_rate", 1/3)
             v3_wr = row.get("v3_win_rate", 1/3)
 
-            # Recompute SIM meta directly from SIM engine
-            sim_probs, _ = run_simulation(v1, v2, v3, k_idx, k_type, history_df)
-            
+            # ✅ Recompute SIM meta directly from SIM engine, with caching
+            sim_key = (v1, v2, v3, k_idx, k_type)
+            if sim_key in sim_cache:
+                sim_probs = sim_cache[sim_key]
+            else:
+                sim_probs, _ = run_simulation(v1, v2, v3, k_idx, k_type, history_df)
+                sim_cache[sim_key] = sim_probs
+
             if sim_probs is None:
                 # fallback to uniform
                 sim_top_prob = sim_second_prob = 1/3
-                sim_margin = 0
+                sim_margin = 0.0
                 sim_entropy = 1.0986122886681096
-                sim_volatility = 0
+                sim_volatility = 0.0
                 sim_top_vehicle = v1
             else:
-                # convert dict to sorted list
                 items = sorted(sim_probs.items(), key=lambda kv: kv[1], reverse=True)
                 (sim_top_vehicle, sim_top_prob), (_, sim_second_prob) = items[0], items[1]
-                sim_margin = sim_top_prob - sim_second_prob
-            
+                sim_margin = float(sim_top_prob - sim_second_prob)
+
                 arr = np.array([p for _, p in items], dtype=float)
                 arr = np.clip(arr, 1e-12, 1.0)
                 sim_entropy = float(-(arr * np.log(arr)).sum())
-            
-                sim_volatility = 0  # until you track this historically
+
+                sim_volatility = 0.0  # placeholder until you track it historically
 
             # SIM-error features (training only)
             sim_error_top, sim_error_margin, sim_overconf_flag, sim_underconf_flag = \
@@ -1458,7 +1465,6 @@ def build_pre_race_training_rows(history_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     return pd.DataFrame(rows)
-
 
 # ============================================
 # OPTION B – TRAINING DATA WRAPPER (SOFTMAX)
